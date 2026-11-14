@@ -62,6 +62,7 @@ pub mod ops;
 pub mod pick;
 pub mod pkt_line;
 pub mod protocol;
+pub mod secret_scan;
 pub mod sideband;
 
 /// Resolve HEAD to a SHA, or return None if HEAD doesn't point to a valid commit.

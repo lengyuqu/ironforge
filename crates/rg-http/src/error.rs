@@ -169,6 +169,21 @@ impl From<rg_core::error::CoreError> for AppError {
             rg_core::error::CoreError::Forbidden(msg) => Self::Forbidden(msg),
             rg_core::error::CoreError::Conflict(msg) => Self::Conflict(msg),
             rg_core::error::CoreError::InvalidInput(msg) => Self::BadRequest(msg),
+            // A policy rejection that carries its own status and stable code
+            // (e.g. `SECRET_DETECTED` for content refused by secret scanning).
+            rg_core::error::CoreError::Coded {
+                status,
+                code,
+                message,
+            } => Self::Coded {
+                status: StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST),
+                code,
+                message,
+                details: None,
+                reason: None,
+                retryable: None,
+                hint: None,
+            },
             rg_core::error::CoreError::Internal(inner) => {
                 // An `Internal` that merely wraps another domain error (built
                 // before classification survived anyhow) is unwrapped, not 500.

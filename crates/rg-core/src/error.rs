@@ -41,6 +41,18 @@ pub enum CoreError {
     /// Generic internal error (wraps anyhow for gradual migration).
     #[error(transparent)]
     Internal(anyhow::Error),
+
+    /// A request refused by a security policy, with its own HTTP status and
+    /// stable machine-readable code. Clients branch on `code` instead of
+    /// parsing `message`, and the message must never carry the offending value.
+    #[error("{message}")]
+    Coded {
+        /// HTTP status the transport should answer with (e.g. `422`).
+        status: u16,
+        /// Stable machine-readable code (e.g. `SECRET_DETECTED`).
+        code: &'static str,
+        message: String,
+    },
 }
 
 /// Convenience type alias for results returning [`CoreError`].
@@ -70,6 +82,16 @@ impl CoreError {
     /// Create an internal error from anything that implements `Display`.
     pub fn internal(msg: impl std::fmt::Display) -> Self {
         CoreError::Internal(anyhow::anyhow!("{}", msg))
+    }
+
+    /// A commit was refused because its content carries a secret. `message`
+    /// names the path and the rule only — never the matched text.
+    pub fn secret_detected(msg: impl Into<String>) -> Self {
+        CoreError::Coded {
+            status: 422,
+            code: "SECRET_DETECTED",
+            message: msg.into(),
+        }
     }
 }
 
@@ -159,6 +181,10 @@ mod anyhow_round_trip_tests {
             (CoreError::forbidden("no"), "Forbidden"),
             (CoreError::conflict("dup"), "Conflict"),
             (CoreError::invalid_input("bad"), "InvalidInput"),
+            (
+                CoreError::secret_detected("secret detected in key.pem"),
+                "Coded",
+            ),
         ] {
             let back: CoreError = through_anyhow(original).unwrap_err().into();
             let kind = match back {
@@ -167,6 +193,7 @@ mod anyhow_round_trip_tests {
                 CoreError::Conflict(_) => "Conflict",
                 CoreError::InvalidInput(_) => "InvalidInput",
                 CoreError::Internal(_) => "Internal",
+                CoreError::Coded { .. } => "Coded",
             };
             assert_eq!(kind, check);
         }

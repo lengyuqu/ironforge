@@ -1790,6 +1790,108 @@ pub async fn create_or_update_file(
     .map_err(CoreError::from)
 }
 
+/// Scan the content a content-API commit would introduce and write the audit
+/// trail for it. Returns the rejection message when a blocking rule matched.
+///
+/// The message (and every audit row) carries the path, the line and the rule
+/// name only — the matched text never leaves the scanner.
+pub(crate) async fn scan_commit_content(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    repo_label: &str,
+    actor_id: Option<i64>,
+    files: &[(&str, &[u8])],
+) -> Option<String> {
+    let report = scan_secrets(files);
+    let details = secret_scan_details(&report);
+
+    if let Some(message) = report.rejection_message() {
+        record_secret_scan(
+            db,
+            repo_id,
+            repo_label,
+            actor_id,
+            "repo.secret_scan_rejected",
+            &details,
+        )
+        .await;
+        return Some(message);
+    }
+    if !report.findings.is_empty() {
+        record_secret_scan(
+            db,
+            repo_id,
+            repo_label,
+            actor_id,
+            "repo.secret_scan_findings",
+            &details,
+        )
+        .await;
+    }
+    if !report.skipped.is_empty() {
+        record_secret_scan(
+            db,
+            repo_id,
+            repo_label,
+            actor_id,
+            "repo.secret_scan_skipped",
+            &details,
+        )
+        .await;
+    }
+    None
+}
+
+async fn record_secret_scan(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    repo_label: &str,
+    actor_id: Option<i64>,
+    action: &'static str,
+    details: &str,
+) {
+    crate::audit::record(
+        db,
+        actor_id,
+        None,
+        action,
+        Some("repo"),
+        Some(repo_id),
+        Some(repo_label),
+        None,
+        None,
+        Some(details),
+    )
+    .await;
+}
+
+/// The scan itself, shared by the DB-backed and the sync commit paths.
+fn scan_secrets(files: &[(&str, &[u8])]) -> rg_git::secret_scan::Report {
+    rg_git::secret_scan::scan_files(files, &rg_git::secret_scan::AllowList::default_rules())
+}
+
+/// Serialise a scan report for the audit row: no matched text, ever.
+fn secret_scan_details(report: &rg_git::secret_scan::Report) -> String {
+    let findings: Vec<serde_json::Value> = report
+        .findings
+        .iter()
+        .map(|finding| {
+            serde_json::json!({
+                "path": finding.path,
+                "line": finding.line,
+                "rule": finding.rule.name(),
+            })
+        })
+        .collect();
+    let skipped: Vec<String> = report.skipped.iter().map(|skip| skip.reason()).collect();
+    serde_json::json!({
+        "scanned_files": report.scanned_files,
+        "findings": findings,
+        "skipped": skipped,
+    })
+    .to_string()
+}
+
 /// [`create_or_update_file`] with an expected branch tip and a dry-run mode.
 ///
 /// A dry run does the same validation, protection check, existence check and
@@ -1814,6 +1916,22 @@ pub async fn create_or_update_file_with(
 ) -> Result<FileCommitReport, FileCommitError> {
     validate_branch_name(branch)?;
     validate_repo_file_path(file_path)?;
+
+    // Secret scanning runs on the content this commit would introduce, before
+    // anything is written. A hard rule refuses the commit (422 SECRET_DETECTED);
+    // a warning-level rule only leaves an audit row. The error text names the
+    // path and the rule, never the matched text.
+    if let Some(message) = scan_commit_content(
+        db,
+        repo_id,
+        &format!("{owner}/{repo_name}"),
+        actor_id,
+        &[(file_path, content.as_bytes())],
+    )
+    .await
+    {
+        return Err(CoreError::secret_detected(message).into());
+    }
 
     // Branch protection must be enforced here (not only in the receive-pack
     // hook) so the REST contents API cannot bypass `require_pr` /
@@ -2018,6 +2136,24 @@ pub fn update_files_in_commit(
                 update.path
             )));
         }
+    }
+
+    // Same rule set as the single-file route. This path has no database
+    // handle, so an audit row for it cannot be written here; the transport
+    // records the request and the rejection reaches the client either way.
+    let scanned: Vec<(&str, &[u8])> = updates
+        .iter()
+        .map(|update| (update.path.as_str(), update.content.as_bytes()))
+        .collect();
+    let report = scan_secrets(&scanned);
+    if let Some(message) = report.rejection_message() {
+        return Err(CoreError::secret_detected(message));
+    }
+    if !report.findings.is_empty() {
+        tracing::warn!(
+            findings = report.findings.len(),
+            "secret scan flagged file updates without blocking them"
+        );
     }
 
     // gix-native direct commit — replaces the clone/add/commit/push chain.
@@ -2397,6 +2533,30 @@ pub async fn commit_batch(
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
     if !repo_path.exists() {
         return Err(missing_repo_storage(&repo_path).into());
+    }
+
+    // Secret scanning covers the content the batch writes: `Create` and
+    // `Update` carry bytes, `Delete`/`Move` do not introduce any. Over the
+    // per-batch file budget the scan is skipped and audited, not enforced.
+    let batch_content: Vec<(&str, &[u8])> = edits
+        .iter()
+        .filter_map(|edit| match edit {
+            BatchEdit::Create { path, content } | BatchEdit::Update { path, content, .. } => {
+                Some((path.as_str(), content.as_bytes()))
+            }
+            BatchEdit::Delete { .. } | BatchEdit::Move { .. } => None,
+        })
+        .collect();
+    if let Some(message) = scan_commit_content(
+        db,
+        repo_id,
+        &format!("{owner}/{repo_name}"),
+        actor_id,
+        &batch_content,
+    )
+    .await
+    {
+        return Err(CoreError::secret_detected(message).into());
     }
 
     // No fallback to HEAD: a batch names the tip it is based on, and a branch
@@ -2799,5 +2959,281 @@ mod name_race_tests {
             matches!(&error, CoreError::Internal(_)),
             "expected an internal error, got {error:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod secret_scan_tests {
+    use super::*;
+    use sea_orm::EntityTrait;
+
+    const PRIVATE_KEY: &str = "-----BEGIN RSA PRIVATE KEY-----";
+
+    fn bare_repo(root: &std::path::Path) -> std::path::PathBuf {
+        let path = root.join("acme/demo.git");
+        std::fs::create_dir_all(&path).unwrap();
+        gix::init_bare(&path).unwrap();
+        path
+    }
+
+    fn commit(repo: &std::path::Path, parent: Option<&str>, files: &[(&str, &str)]) -> String {
+        let edits: Vec<rg_git::ops::TreeEdit> = files
+            .iter()
+            .map(|(path, content)| rg_git::ops::TreeEdit::SetFile {
+                path: (*path).to_string(),
+                content: content.as_bytes().to_vec(),
+                expected_blob_sha: None,
+            })
+            .collect();
+        match rg_git::ops::commit_tree_edits(
+            repo,
+            "main",
+            parent,
+            &edits,
+            "test commit",
+            "Test",
+            "test@example.invalid",
+            parent.is_none(),
+        )
+        .unwrap()
+        {
+            rg_git::ops::CommitTreeOutcome::Committed(sha) => sha,
+            rg_git::ops::CommitTreeOutcome::TipAdvanced { actual } => {
+                panic!("tip advanced to {actual:?}")
+            }
+        }
+    }
+
+    async fn memory_db() -> DatabaseConnection {
+        let db = rg_db::connect("sqlite::memory:").await.unwrap();
+        rg_db::run_migrations(&db).await.unwrap();
+        db
+    }
+
+    #[tokio::test]
+    async fn the_content_api_refuses_a_secret_with_a_stable_code() {
+        let db = memory_db().await;
+        let temp = tempfile::tempdir().unwrap();
+        let repo_path = bare_repo(temp.path());
+
+        let error = create_or_update_file_with(
+            &db,
+            1,
+            "acme",
+            "demo",
+            "deploy/id_rsa",
+            PRIVATE_KEY,
+            "add key",
+            "main",
+            None,
+            "Test",
+            "test@example.invalid",
+            temp.path(),
+            None,
+            FileCommitOptions::default(),
+        )
+        .await
+        .unwrap_err();
+
+        match CoreError::from(error) {
+            CoreError::Coded {
+                status,
+                code,
+                message,
+            } => {
+                assert_eq!(status, 422);
+                assert_eq!(code, "SECRET_DETECTED");
+                assert!(message.contains("deploy/id_rsa"), "{message}");
+                assert!(message.contains("private_key"), "{message}");
+                assert!(!message.contains("PRIVATE KEY"), "{message}");
+            }
+            other => panic!("expected a coded rejection, got {other:?}"),
+        }
+
+        // Nothing was written, and the refusal left an audit row.
+        assert!(rg_git::ops::try_rev_parse(&repo_path, "refs/heads/main")
+            .unwrap()
+            .is_none());
+        let rows = rg_db::entities::audit_log::Entity::find()
+            .all(&db)
+            .await
+            .unwrap();
+        assert!(
+            rows.iter()
+                .any(|row| row.action == "repo.secret_scan_rejected"),
+            "{rows:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_content_api_accepts_clean_content() {
+        let db = memory_db().await;
+        let temp = tempfile::tempdir().unwrap();
+        bare_repo(temp.path());
+
+        create_or_update_file_with(
+            &db,
+            1,
+            "acme",
+            "demo",
+            "src/main.rs",
+            "fn main() {}\n",
+            "add main",
+            "main",
+            None,
+            "Test",
+            "test@example.invalid",
+            temp.path(),
+            None,
+            FileCommitOptions::default(),
+        )
+        .await
+        .expect("clean content is committed");
+    }
+
+    #[tokio::test]
+    async fn a_warning_rule_does_not_block_the_content_api() {
+        let db = memory_db().await;
+        let temp = tempfile::tempdir().unwrap();
+        bare_repo(temp.path());
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
+
+        create_or_update_file_with(
+            &db,
+            1,
+            "acme",
+            "demo",
+            "src/token.rs",
+            jwt,
+            "add token",
+            "main",
+            None,
+            "Test",
+            "test@example.invalid",
+            temp.path(),
+            None,
+            FileCommitOptions::default(),
+        )
+        .await
+        .expect("a warning-level finding does not block");
+
+        let rows = rg_db::entities::audit_log::Entity::find()
+            .all(&db)
+            .await
+            .unwrap();
+        assert!(
+            rows.iter()
+                .any(|row| row.action == "repo.secret_scan_findings"),
+            "{rows:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_batch_api_refuses_a_secret() {
+        let db = memory_db().await;
+        let temp = tempfile::tempdir().unwrap();
+        let repo_path = bare_repo(temp.path());
+        let tip = commit(
+            repo_path.as_path(),
+            None,
+            &[("src/main.rs", "fn main() {}\n")],
+        );
+
+        let error = commit_batch(
+            &db,
+            1,
+            "acme",
+            "demo",
+            "main",
+            &[BatchEdit::Create {
+                path: "deploy/id_rsa".to_string(),
+                content: PRIVATE_KEY.to_string(),
+            }],
+            "add key",
+            "Test",
+            "test@example.invalid",
+            temp.path(),
+            None,
+            BatchCommitOptions {
+                expected_tip: &tip,
+                dry_run: false,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        match CoreError::from(error) {
+            CoreError::Coded { code, .. } => assert_eq!(code, "SECRET_DETECTED"),
+            other => panic!("expected a coded rejection, got {other:?}"),
+        }
+        // The branch is still where it was.
+        assert_eq!(
+            rg_git::ops::try_rev_parse(&repo_path, "refs/heads/main")
+                .unwrap()
+                .as_deref(),
+            Some(tip.as_str())
+        );
+    }
+
+    #[test]
+    fn the_bulk_update_path_refuses_a_secret_without_a_database() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo_path = bare_repo(temp.path());
+        let tip = commit(
+            repo_path.as_path(),
+            None,
+            &[("deploy/key.pem", "placeholder\n")],
+        );
+        let blob = rg_git::ops::blob_at(&repo_path, &tip, "deploy/key.pem")
+            .unwrap()
+            .unwrap()
+            .0;
+
+        let updates = vec![FileUpdate {
+            path: "deploy/key.pem".to_string(),
+            content: PRIVATE_KEY.to_string(),
+            expected_blob_sha: blob.clone(),
+        }];
+        let error = update_files_in_commit(
+            "acme",
+            "demo",
+            "main",
+            &tip,
+            &updates,
+            "rotate key",
+            "Test",
+            "test@example.invalid",
+            temp.path(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                CoreError::Coded {
+                    code: "SECRET_DETECTED",
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+
+        // Clean content still commits.
+        let clean = vec![FileUpdate {
+            path: "deploy/key.pem".to_string(),
+            content: "placeholder\n".to_string(),
+            expected_blob_sha: blob,
+        }];
+        update_files_in_commit(
+            "acme",
+            "demo",
+            "main",
+            &tip,
+            &clean,
+            "touch key",
+            "Test",
+            "test@example.invalid",
+            temp.path(),
+        )
+        .expect("clean content commits");
     }
 }
