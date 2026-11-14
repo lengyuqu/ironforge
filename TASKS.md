@@ -69,6 +69,7 @@ git push -u cnb HEAD
 | T03 | [#15] R3-P1 事件信封与投递头 | completed | t03-event-envelope | none | `tasks/T03.md` |
 | T04 | [#38] R7 推送时密钥扫描 | completed | t04-secret-scan | none | `tasks/T04.md` |
 | T05 | [#40] R10 配额与用量（最小闭环） | completed | t05-ci-quota | none | `tasks/T05.md` |
+| T06 | [#19] 通用审批原语 · 步骤1（表+状态机+求值器）+ 修 PR 评审越权 | in_progress | t06-authorization | none | `tasks/T06.md` |
 
 ## Pre-Claim Checks
 
