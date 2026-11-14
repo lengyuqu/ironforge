@@ -223,6 +223,12 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
     let watchdog_db = config.db.clone();
     let log_queue_db = config.db.clone();
 
+    // Secret scans run inside `rg-git`, which has no database: install the
+    // process-wide sink once at startup so their audit events can be persisted
+    // by the receive-pack path (see `SecretScanAudit`). Tests that build an
+    // `AppState` directly get it lazily from `SecretScanAudit::begin` instead.
+    install_secret_scan_sink();
+
     let state = AppState {
         repo_root: Arc::new(config.repo_root),
         db: config.db,

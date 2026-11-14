@@ -114,9 +114,10 @@ pipeline 进入终态有多条互不相同的路径：内部 runner（`runner.rs
 
 ### 6.1 承接 T04 遗留：push 侧密钥扫描审计落库
 
-T04 的扫描器在 push 侧无法写库（`rg-git` 无 DB），已就位 `AuditEvent` + `set_audit_sink()` + 结构化日志，但没人调用 sink（`docs/plans/T04-plan.md` §9 遗留）。本任务在**同一段** post-push 代码里接上：
+T04 的扫描器在 push 侧无法写库（`rg-git` 无 DB），已就位 `AuditEvent` + `set_audit_sink()` + 结构化日志，但没人调用 sink（`docs/plans/T04-plan.md` §9 遗留）。本任务分两处接上（注册 sink + 落库），都在 `rg-http`：
 
-- sink 是进程级单例，而审计行需要知道事件属于哪个仓库。实现用 `tokio::task::try_id()` 把事件路由回**正在扫描的那个 receive-pack 任务**：`crates/rg-http/src/lib.rs` 在 push 前 `SecretScanAudit::begin()` 注册带 `mpsc` 的任务槽，push 结束后 `drain()` 取出事件并注销（`Drop` 兜底，取消/ panic 也不会泄漏槽位）；没有注册任务的事件直接丢弃，**不会归错仓库**。
+- **注册位置**：sink 是进程级单例，所以 `set_audit_sink` 在进程启动时注册一次（`run_http_server` 构造 `AppState` 之前，`crates/rg-http/src/lib.rs` 的 `install_secret_scan_sink()`，内部用 `Once` 幂等）；不在 `post_push_hooks` 里注册——那里对本次 push 已经太晚（扫描发生在 receive-pack 处理过程中）。测试里直接构造 `AppState`，由 `SecretScanAudit::begin()` 懒安装兜底。
+- **归属正确性**：`AuditEvent` 不含 repo id，全局 sink 无法判断事件属于哪个仓库。实现用 `tokio::task::try_id()` 把事件路由回**正在扫描的那个 receive-pack 任务**：push 前 `SecretScanAudit::begin()` 注册带 `mpsc` 的任务槽，push 结束后 `drain()` 取出事件并注销（`Drop` 兜底，取消 / panic 也不会泄漏槽位）；没有注册任务的事件直接丢弃，**不会归错仓库**（并发 push 各自独立）。
 - 事件随 `spawn_post_push_hooks` 进入后台任务，在解析出 `repo_id` 后用 `rg_core::audit::record` 落 `audit_log`：action 为 `repo.secret_scan_rejected` / `repo.secret_scan_findings` / `repo.secret_scan_skipped`，`resource_type = "repo"`，`resource_name = owner/name`，`details` 只含 `via=git_push`、ref、path、rule、files、reason，**绝不含命中的文本**。
 - REST 文件提交路径（`api/repo_content.rs`）已有自己的审计，传空事件列表，不重复记录。
 - 局限：审计写入在后台任务，push 响应不等待；进程在写入前崩溃会丢该行（事件同时已进 `tracing::warn`）。
