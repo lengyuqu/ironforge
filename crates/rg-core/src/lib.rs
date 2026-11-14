@@ -20,6 +20,7 @@ pub mod org;
 pub mod user;
 
 // ── Collaboration ───────────────────────────────────
+pub mod authorization;
 pub mod board;
 pub mod branch_protection;
 pub mod collaboration;

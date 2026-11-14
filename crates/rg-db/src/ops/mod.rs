@@ -2,6 +2,7 @@ pub mod agent_session_ops;
 pub mod artifact_ops;
 pub mod attachment_ops;
 pub mod audit_log_ops;
+pub mod authorization_ops;
 pub mod background_job_ops;
 pub mod board_ops;
 pub mod ci_environment_ops;

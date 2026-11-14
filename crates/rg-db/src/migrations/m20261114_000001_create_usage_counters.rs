@@ -263,6 +263,18 @@ mod tests {
         row.try_get_by_index::<i64>(0).unwrap()
     }
 
+    /// How many migrations to roll back so this one (and everything after it)
+    /// is undone.
+    fn rollback_steps() -> u32 {
+        let migrations = crate::migrations::Migrator::migrations();
+        let position = migrations
+            .iter()
+            .rev()
+            .position(|migration| migration.name() == "m20261114_000001_create_usage_counters")
+            .expect("this migration must be registered");
+        (position + 1) as u32
+    }
+
     /// CLAUDE.md pitfall #13: the explicit table name must match the entity, on
     /// every backend, and the unique index must survive each dialect.
     #[test]
@@ -296,7 +308,12 @@ mod tests {
             1
         );
 
-        crate::migrations::Migrator::down(&db, Some(1))
+        // Roll back to just before this migration, not "one step": another
+        // migration is allowed to be appended after it, and a hard-coded 1 then
+        // drops the wrong table. Counting from the end keeps this test true
+        // forever.
+        let steps = rollback_steps();
+        crate::migrations::Migrator::down(&db, Some(steps))
             .await
             .unwrap();
         assert_eq!(

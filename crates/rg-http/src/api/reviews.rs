@@ -346,6 +346,34 @@ pub async fn submit_review(
             return e.into_response();
         }
     }
+    // Approving and requesting changes move the approval count the merge gate
+    // reads, so reading the repository is not enough: the actor needs write
+    // access or a seat on this PR's reviewer list. Comment reviews (and the
+    // implicit comment review created by an inline comment) stay readable-only.
+    // The reviewer list is written by `request_reviewer`, which requires PR
+    // manager rights, and CODEOWNERS assignments land in it too, so it is a
+    // grant rather than a self-service route.
+    if matches!(action.as_str(), "approve" | "request_changes") {
+        let can_write =
+            rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(user_id))
+                .await
+                .unwrap_or(false);
+        if !can_write {
+            let requested =
+                match rg_db::ops::pr_reviewer_request_ops::list_by_pr(&state.db, pr.id).await {
+                    Ok(rows) => rows,
+                    Err(e) => return AppError::from(e).into_response(),
+                };
+            if !requested.iter().any(|row| row.reviewer_id == user_id) {
+                return AppError::coded(
+                    axum::http::StatusCode::FORBIDDEN,
+                    "REVIEW_DECISION_REQUIRES_REVIEWER",
+                    "approving or requesting changes requires write access or a reviewer seat on this pull request",
+                )
+                .into_response();
+            }
+        }
+    }
 
     match rg_core::review::service::submit_review(
         &state.db,

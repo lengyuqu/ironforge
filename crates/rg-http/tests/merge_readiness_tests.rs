@@ -450,6 +450,8 @@ async fn each_protection_gate_is_reported_and_the_merge_refuses_with_the_same_se
     );
 
     // Approved by a person (the author cannot approve their own pull request).
+    // Approving a review is an authorization decision since #19/T06: reading the
+    // repository is not enough, so the reviewer is given write access first.
     let reviewer = register_user(
         &w.base,
         "mr_gates_reviewer",
@@ -457,6 +459,19 @@ async fn each_protection_gate_is_reported_and_the_merge_refuses_with_the_same_se
         PW,
     )
     .await;
+    let granted = w
+        .client
+        .post(w.url("/collaborators"))
+        .bearer_auth(&w.jwt)
+        .json(&json!({"username": "mr_gates_reviewer", "permission": "write"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        granted.status(),
+        StatusCode::CREATED,
+        "the reviewer needs write access to approve"
+    );
     let resp = w
         .client
         .post(w.url("/pulls/1/reviews"))
