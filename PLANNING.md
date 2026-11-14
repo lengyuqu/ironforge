@@ -73,3 +73,7 @@ After implementation and task acceptance checks pass, the Agent changes only its
 | 2026-11-14 | 第一批并行只开 T01/T02/T03 | 三者文件重叠为零，且都不碰路由注册、`Cargo.*`、迁移序号 | T01,T02,T03 | 余曲 |
 | 2026-11-14 | R7/R9/R10/R8 不进第一批 | R7 与 R6 同片写路径；R9 独占 `Cargo.*` 与路由注册；R8/R10 需新迁移 | — | 余曲 |
 | 2026-11-14 | 禁止任何任务改 `CLAUDE.md` 与 `ironforge-docs/` | 三路同时改同一行必然冲突，文档由协调者合并后统一补 | T01,T02,T03 | 余曲 |
+| 2026-11-14 | 第二批开 T04（R7 密钥扫描）+ T05（R10 配额），R9 暂不开 | T04 只需把已在 `Cargo.lock` 的 `regex` 提为直接依赖；T05 独占迁移；R9 的 tree-sitter 授权虽已拿到但需独占 `Cargo.*` 与路由注册，放到下一批 | T04,T05 | 余曲 |
+| 2026-11-14 | R9（#39）依赖策略：**允许引入 tree-sitter + 5 个 grammar** | 结构化大纲需要真 AST，正则在 TS/Go/Python 上精度不足；代价是 6 个新 crate 与更长构建，由该任务独占 `Cargo.*` 承担 | T06（待建） | 余曲 |
+| 2026-11-14 | R7 扫描超限口径取 **fail-open + 强制审计事件** | 首次导入大仓是真实场景，硬拒会阻断迁移；`secret_scan_skipped` 事件让管理员可见 | T04 | 余曲 |
+| 2026-11-14 | R10 配额只对 `kind = agent` 生效 | 人类账号不受限，避免误伤现有用户；最小闭环不新增 REST 端点以避开路由注册争用 | T05 | 余曲 |
