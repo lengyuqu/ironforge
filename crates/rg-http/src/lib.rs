@@ -1414,6 +1414,11 @@ fn build_routes(
             "/repos/{owner}/{name}/commits/{sha}/revert",
             post(api::repo_pick::revert_commit),
         )
+        // Apply a caller-supplied unified diff as one commit on a branch
+        .route(
+            "/repos/{owner}/{name}/commits/apply-patch",
+            post(api::repo_patch::apply_patch),
+        )
         // File creation/update/deletion
         .route(
             "/repos/{owner}/{name}/contents/{*path}",

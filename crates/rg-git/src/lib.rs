@@ -47,13 +47,17 @@
 //!   `handle_v2_stream_impl` sends the capability advertisement and runs the
 //!   V2 command loop (ls-refs / fetch) over a single bidirectional stream.
 //! - **`git` CLI usage.**  Within `rg-git`, raw git process spawning is
-//!   confined to [`cli_gateway`] and used only by tests (a regression guard
-//!   enforces this); all protocol paths are gix-native.  The only production
-//!   git-CLI calls live outside this crate — mirror sync (`rg-core` mirror
-//!   module), import bare clone, and the CI worktree.
+//!   confined to [`cli_gateway`] (a regression guard enforces this) and, apart
+//!   from [`apply`], used only by tests; all protocol paths are gix-native.
+//!   [`apply`] is the deliberate exception: gix has no apply primitive, so a
+//!   caller-supplied patch goes through `read-tree` / `apply --cached` /
+//!   `write-tree` / `commit-tree` on a scratch index.  The only other
+//!   production git-CLI calls live outside this crate — mirror sync (`rg-core`
+//!   mirror module), import bare clone, and the CI worktree.
 
 use std::path::Path;
 
+pub mod apply;
 pub mod blame;
 pub mod cli_gateway;
 pub mod history;

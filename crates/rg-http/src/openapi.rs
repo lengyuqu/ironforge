@@ -363,6 +363,7 @@ pub struct PaginatedRepoResponse {
         crate::api::repo_commits::create_commit,
         crate::api::repo_pick::cherry_pick_commit,
         crate::api::repo_pick::revert_commit,
+        crate::api::repo_patch::apply_patch,
         // Package registry
         crate::api::packages::publish,
         crate::api::packages::list_registries,
