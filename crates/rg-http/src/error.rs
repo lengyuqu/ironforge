@@ -170,7 +170,8 @@ impl From<rg_core::error::CoreError> for AppError {
             rg_core::error::CoreError::Conflict(msg) => Self::Conflict(msg),
             rg_core::error::CoreError::InvalidInput(msg) => Self::BadRequest(msg),
             // A policy rejection that carries its own status and stable code
-            // (e.g. `SECRET_DETECTED` for content refused by secret scanning).
+            // (e.g. `SECRET_DETECTED` for content refused by secret scanning,
+            // `CI_QUOTA_CONCURRENCY` for an agent over its CI quota).
             rg_core::error::CoreError::Coded {
                 status,
                 code,
@@ -369,6 +370,20 @@ mod classification_tests {
     fn wrapped_internal_unwraps_to_the_inner_category() {
         let nested = CoreError::Internal(anyhow::Error::from(CoreError::invalid_input("bad")));
         assert_eq!(AppError::from(nested).status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// A service-chosen code is what the client branches on, so it must survive
+    /// the anyhow wrapper with its status unchanged — including when the engine
+    /// (`api/ci.rs::engine_error`) re-raises it.
+    #[test]
+    fn coded_domain_errors_keep_their_code_and_status() {
+        let err = AppError::from(anyhow::Error::from(CoreError::coded(
+            409,
+            "CI_QUOTA_CONCURRENCY",
+            "agent has too many active pipelines",
+        )));
+        assert_eq!(err.status(), StatusCode::CONFLICT);
+        assert_eq!(err.code(), "CI_QUOTA_CONCURRENCY");
     }
 
     #[test]
