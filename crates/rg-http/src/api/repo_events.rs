@@ -10,6 +10,12 @@
 //! cursor older than that may have missed events, and `oldest_retained_at` lets
 //! the client tell. The log is not a snapshot of the repository; to catch up
 //! after a long gap, read the repository itself.
+//!
+//! Each event carries both the business payload (`payload`, the same shape it
+//! always had) and the envelope it was published in (`envelope`: `schema`, `id`,
+//! `kind`, `at`, `repo_id`, `actor`). Rows written before the envelope existed
+//! report `envelope: null` and their payload unchanged, so a reader works across
+//! both.
 
 use std::time::{Duration, Instant};
 
@@ -23,6 +29,7 @@ use tokio::sync::Semaphore;
 use crate::api::repo_access;
 use crate::error::AppError;
 use crate::AppState;
+use rg_core::webhook::service::looks_like_envelope;
 
 /// How long events are kept.
 pub const RETENTION: chrono::Duration = chrono::Duration::days(7);
@@ -87,6 +94,25 @@ fn parse_types(raw: Option<&str>) -> Result<Vec<String>, AppError> {
         )));
     }
     Ok(types)
+}
+
+/// Split a stored event payload into `(business payload, envelope)`.
+///
+/// Rows written after the event envelope was introduced hold
+/// `{ schema, id, kind, at, repo_id, actor, data }`; rows written before it hold
+/// the business payload at the top level. `payload` is the business payload for
+/// both, so an existing consumer keeps reading the fields it knows, and
+/// `envelope` is the extra — `null` for a row written before it existed.
+fn unpack_payload(stored: Option<&str>) -> (Option<serde_json::Value>, Option<serde_json::Value>) {
+    let Some(value) = stored.and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+    else {
+        return (None, None);
+    };
+    if !looks_like_envelope(&value) {
+        return (Some(value), None);
+    }
+    let data = value.get("data").cloned().filter(|data| !data.is_null());
+    (data, Some(value))
 }
 
 /// GET /api/v1/repos/:owner/:name/events
@@ -172,10 +198,7 @@ pub async fn list_events(
             let events: Vec<serde_json::Value> = rows
                 .into_iter()
                 .map(|row| {
-                    let payload = row
-                        .payload
-                        .as_deref()
-                        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok());
+                    let (payload, envelope) = unpack_payload(row.payload.as_deref());
                     serde_json::json!({
                         "id": row.id,
                         "type": row.event_type,
@@ -183,6 +206,9 @@ pub async fn list_events(
                         // Parts of a payload (titles, comment text) were written
                         // by users: data, never instructions.
                         "payload": payload,
+                        // The kind/id/timestamp/actor wrapper, when the row was
+                        // written after the envelope existed.
+                        "envelope": envelope,
                         "payload_origin": "user_content",
                     })
                 })
@@ -251,5 +277,29 @@ mod tests {
         assert!(parse_types(Some("push,BAD NAME")).is_err());
         let many: Vec<String> = (0..21).map(|n| format!("e{n}")).collect();
         assert!(parse_types(Some(&many.join(","))).is_err());
+    }
+
+    #[test]
+    fn a_payload_reads_the_same_with_or_without_an_envelope() {
+        // Written before the envelope: the business payload is the whole row.
+        let legacy = r#"{"ref":"refs/heads/main","after":"abc"}"#;
+        let (payload, envelope) = unpack_payload(Some(legacy));
+        assert_eq!(payload.unwrap()["after"], "abc");
+        assert!(envelope.is_none());
+
+        // Written after: the business payload is under `data`, unchanged, and
+        // the envelope rides beside it.
+        let stored = r#"{"schema":1,"id":"018f-1","kind":"push","repo_id":7,
+            "at":"2026-11-14T12:00:00Z","actor":null,
+            "data":{"ref":"refs/heads/main","after":"abc"}}"#;
+        let (payload, envelope) = unpack_payload(Some(stored));
+        assert_eq!(payload.unwrap()["after"], "abc");
+        let envelope = envelope.unwrap();
+        assert_eq!(envelope["kind"], "push");
+        assert_eq!(envelope["repo_id"], 7);
+
+        // Unparseable or missing payloads stay absent rather than failing.
+        assert_eq!(unpack_payload(None), (None, None));
+        assert_eq!(unpack_payload(Some("not json")), (None, None));
     }
 }
