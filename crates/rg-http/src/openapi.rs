@@ -359,6 +359,8 @@ pub struct PaginatedRepoResponse {
         crate::api::repo_content::create_or_update_file,
         crate::api::repo_content::delete_file,
         crate::api::repo_commits::create_commit,
+        crate::api::repo_pick::cherry_pick_commit,
+        crate::api::repo_pick::revert_commit,
         // Package registry
         crate::api::packages::publish,
         crate::api::packages::list_registries,

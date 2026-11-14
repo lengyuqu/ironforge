@@ -58,6 +58,7 @@ pub mod blame;
 pub mod cli_gateway;
 pub mod history;
 pub mod ops;
+pub mod pick;
 pub mod pkt_line;
 pub mod protocol;
 pub mod sideband;
