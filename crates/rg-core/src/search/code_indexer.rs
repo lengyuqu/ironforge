@@ -82,7 +82,7 @@ const EXTENSION_TO_LANGUAGE: &[(&str, &str)] = &[
 ];
 
 /// Infer the programming language from a file path.
-fn infer_language(path: &Path) -> String {
+pub(crate) fn infer_language(path: &Path) -> String {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -113,7 +113,7 @@ fn infer_language(path: &Path) -> String {
 }
 
 /// Check if a file should be indexed (not binary, not too large).
-fn should_index(path: &Path, content: &[u8]) -> bool {
+pub(crate) fn should_index(path: &Path, content: &[u8]) -> bool {
     if content.len() > 1_048_576 {
         return false;
     }

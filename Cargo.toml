@@ -118,6 +118,19 @@ gix = { version = "0.90", features = [
 # Archive / compression
 flate2 = "1"
 tar = "0.4"
+
+# Structured code outline (issue #39 step 1). The grammar crates only expose
+# `tree-sitter-language ^0.1`, which is what `tree-sitter 0.25` links against;
+# keep them in lockstep — mixing a grammar built for 0.20 with a 0.25 runtime
+# produces two incompatible `Language` types at compile time. `tree-sitter-svelte`
+# is deliberately absent: its only release (0.10.2) pins `tree-sitter ^0.20.6`
+# and therefore cannot be used with 0.25. Svelte outline extraction is a
+# documented best-effort fallback in `rg-core::search::outline`.
+tree-sitter = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.25"
+tree-sitter-go = "0.25"
 zip = "9"
 zstd = "0.14"
 
