@@ -365,6 +365,9 @@ async fn process_repository_inner(
                     | CoreError::Forbidden(message)
                     | CoreError::Conflict(message)
                     | CoreError::InvalidInput(message) => message.clone(),
+                    // A policy rejection is user-facing by construction: the
+                    // message names a reason, never internal detail.
+                    CoreError::Coded { message, .. } => message.clone(),
                     CoreError::Internal(_) => {
                         tracing::error!(pr_id = pr.id, %error, "merge queue merge failed");
                         "merge failed due to an internal error".to_string()

@@ -23,6 +23,11 @@ gix-archive = { version = "0.39", default-features = false, features = [
 # the `generate` feature; gix does not enable it by default.
 gix-pack = { version = "0.77", features = ["generate"] }
 thiserror = { workspace = true }
+# Secret scanning patterns (R7). `regex 1.12.3` is already in `Cargo.lock`
+# (pulled in transitively), so this only promotes it to a direct dependency —
+# no new crate enters the graph. The workspace does not declare `regex`, so the
+# version requirement is spelled out here rather than via `workspace = true`.
+regex = "1"
 
 [dev-dependencies]
 walkdir = "2"

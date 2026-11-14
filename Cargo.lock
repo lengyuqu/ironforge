@@ -4929,6 +4929,7 @@ dependencies = [
  "gix",
  "gix-archive",
  "gix-pack",
+ "regex",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

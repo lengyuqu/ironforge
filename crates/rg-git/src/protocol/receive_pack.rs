@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
 use crate::pkt_line::{read_pkt_line, write_flush, write_pkt_line, PktLine};
+use crate::secret_scan;
 use crate::sideband;
 
 /// Result of processing a push for a single ref update.
@@ -479,6 +480,7 @@ where
         tracing::debug!(pack_bytes, "pack indexed");
 
         enforce_signed_commit_policies(repo_path, &mut updates, require_signed_refs);
+        enforce_secret_scan(repo_path, &mut updates);
     }
 
     // Update the refs. Deletions go through the caller's guard, which applies
@@ -516,6 +518,113 @@ where
     }
 
     Ok(updates)
+}
+
+/// Refuse ref updates that would introduce a secret, before any ref is written.
+///
+/// Only the blobs this push adds are inspected. Blocking rules turn the update
+/// into `ng <ref> <message>`; warning-level rules and skipped scans produce
+/// audit events and never fail the push. A scan failure is fail-open as well,
+/// but it is reported as a `secret_scan_skipped` event instead of passing
+/// silently.
+fn enforce_secret_scan(repo_path: &Path, updates: &mut [RefUpdate]) {
+    let requests: Vec<secret_scan::RefScanRequest<'_>> = updates
+        .iter()
+        .filter(|update| update.status == "ok" && !update.new_sha.starts_with("0000000"))
+        .map(|update| secret_scan::RefScanRequest {
+            refname: update.refname.as_str(),
+            old_sha: (!update.old_sha.starts_with("0000000")).then_some(update.old_sha.as_str()),
+            new_sha: update.new_sha.as_str(),
+        })
+        .collect();
+    if requests.is_empty() {
+        return;
+    }
+    // Owned copies so the immutable borrow of `updates` ends before the refs are
+    // updated below.
+    let refnames: Vec<String> = requests
+        .iter()
+        .map(|request| request.refname.to_string())
+        .collect();
+
+    let scan = match secret_scan::scan_push(
+        repo_path,
+        &requests,
+        &secret_scan::AllowList::default_rules(),
+    ) {
+        Ok(scan) => scan,
+        Err(error) => {
+            tracing::warn!(%error, "secret scan failed; the push continues unscanned");
+            for refname in &refnames {
+                secret_scan::record(secret_scan::AuditEvent {
+                    kind: secret_scan::AuditKind::Skipped,
+                    refname: Some(refname.clone()),
+                    path: None,
+                    rule: None,
+                    files: None,
+                    reason: Some(format!("scan failed: {error}")),
+                });
+            }
+            return;
+        }
+    };
+
+    if let Some(skip) = scan.skipped {
+        // Over the file budget: the whole push is unscanned, and that is
+        // reported for every ref it touches.
+        for refname in &refnames {
+            secret_scan::record(secret_scan::AuditEvent {
+                kind: secret_scan::AuditKind::Skipped,
+                refname: Some(refname.clone()),
+                path: None,
+                rule: None,
+                files: skip.files(),
+                reason: Some(skip.reason()),
+            });
+        }
+        return;
+    }
+
+    for ref_scan in &scan.refs {
+        for finding in &ref_scan.report.findings {
+            let kind = if finding.rule.is_blocking() {
+                secret_scan::AuditKind::Rejected
+            } else {
+                secret_scan::AuditKind::Warned
+            };
+            secret_scan::record(secret_scan::AuditEvent {
+                kind,
+                refname: Some(ref_scan.refname.clone()),
+                path: Some(finding.path.clone()),
+                rule: Some(finding.rule),
+                files: None,
+                reason: None,
+            });
+        }
+        for skip in &ref_scan.report.skipped {
+            secret_scan::record(secret_scan::AuditEvent {
+                kind: secret_scan::AuditKind::Skipped,
+                refname: Some(ref_scan.refname.clone()),
+                path: skip.path().map(str::to_string),
+                rule: None,
+                files: skip.files(),
+                reason: Some(skip.reason()),
+            });
+        }
+    }
+
+    for ref_scan in &scan.refs {
+        let Some(message) = ref_scan.report.rejection_message() else {
+            continue;
+        };
+        if let Some(update) = updates
+            .iter_mut()
+            .find(|update| update.refname == ref_scan.refname)
+        {
+            update.status = "error".to_string();
+            update.message = message;
+        }
+    }
 }
 
 fn enforce_signed_commit_policies(
@@ -772,5 +881,127 @@ mod rejection_pattern_tests {
         assert!(updates[0]
             .message
             .contains("cryptographically valid signature"));
+    }
+}
+
+#[cfg(test)]
+mod secret_scan_push_tests {
+    use super::{enforce_secret_scan, RefUpdate};
+    use crate::ops::{commit_tree_edits, CommitTreeOutcome, TreeEdit};
+
+    const PRIVATE_KEY: &str = "-----BEGIN OPENSSH PRIVATE KEY-----";
+
+    fn init_bare() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        gix::init_bare(dir.path()).unwrap();
+        dir
+    }
+
+    fn commit(repo: &std::path::Path, parent: Option<&str>, files: &[(&str, &str)]) -> String {
+        let edits: Vec<TreeEdit> = files
+            .iter()
+            .map(|(path, content)| TreeEdit::SetFile {
+                path: (*path).to_string(),
+                content: content.as_bytes().to_vec(),
+                expected_blob_sha: None,
+            })
+            .collect();
+        match commit_tree_edits(
+            repo,
+            "main",
+            parent,
+            &edits,
+            "test commit",
+            "Test",
+            "test@example.invalid",
+            parent.is_none(),
+        )
+        .unwrap()
+        {
+            CommitTreeOutcome::Committed(sha) => sha,
+            CommitTreeOutcome::TipAdvanced { actual } => panic!("tip advanced to {actual:?}"),
+        }
+    }
+
+    fn update(old_sha: &str, new_sha: &str) -> RefUpdate {
+        RefUpdate {
+            old_sha: old_sha.to_string(),
+            new_sha: new_sha.to_string(),
+            refname: "refs/heads/main".into(),
+            status: "ok".into(),
+            message: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_blocking_rule_turns_the_ref_update_into_an_error() {
+        let dir = init_bare();
+        let sha = commit(dir.path(), None, &[("deploy/id_rsa", PRIVATE_KEY)]);
+        let mut updates = vec![update(&"0".repeat(40), &sha)];
+
+        enforce_secret_scan(dir.path(), &mut updates);
+
+        assert_eq!(updates[0].status, "error");
+        assert!(
+            updates[0].message.contains("deploy/id_rsa"),
+            "{:?}",
+            updates[0]
+        );
+        assert!(
+            updates[0].message.contains("private_key"),
+            "{:?}",
+            updates[0]
+        );
+        // The report-status line goes to the client: never the matched text.
+        assert!(
+            !updates[0].message.contains("PRIVATE KEY"),
+            "{:?}",
+            updates[0]
+        );
+    }
+
+    #[test]
+    fn a_clean_update_is_left_alone() {
+        let dir = init_bare();
+        let sha = commit(dir.path(), None, &[("src/main.rs", "fn main() {}\n")]);
+        let mut updates = vec![update(&"0".repeat(40), &sha)];
+
+        enforce_secret_scan(dir.path(), &mut updates);
+
+        assert_eq!(updates[0].status, "ok");
+        assert!(updates[0].message.is_empty());
+    }
+
+    #[test]
+    fn warning_rules_do_not_block_the_push() {
+        let dir = init_bare();
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
+        let sha = commit(dir.path(), None, &[("src/auth.rs", jwt)]);
+        let mut updates = vec![update(&"0".repeat(40), &sha)];
+
+        enforce_secret_scan(dir.path(), &mut updates);
+
+        assert_eq!(updates[0].status, "ok", "{:?}", updates[0]);
+    }
+
+    #[test]
+    fn an_unreadable_repository_fails_open_without_blocking() {
+        let dir = init_bare();
+        let mut updates = vec![update(&"0".repeat(40), &"f".repeat(40))];
+
+        enforce_secret_scan(dir.path(), &mut updates);
+
+        assert_eq!(updates[0].status, "ok");
+    }
+
+    #[test]
+    fn deletions_are_not_scanned() {
+        let dir = init_bare();
+        let sha = commit(dir.path(), None, &[("deploy/id_rsa", PRIVATE_KEY)]);
+        let mut updates = vec![update(&sha, &"0".repeat(40))];
+
+        enforce_secret_scan(dir.path(), &mut updates);
+
+        assert_eq!(updates[0].status, "ok");
     }
 }
