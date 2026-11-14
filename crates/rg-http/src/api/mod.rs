@@ -63,6 +63,7 @@ pub(crate) mod repo_access;
 pub mod repo_commits;
 pub mod repo_content;
 pub mod repo_events;
+pub mod repo_patch;
 pub mod repo_pick;
 pub mod repos;
 pub mod reviews;

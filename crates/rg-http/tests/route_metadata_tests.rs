@@ -129,6 +129,9 @@ mod legacy {
                 // check the branch themselves (`.checked()`).
                 | ["commits", _, "cherry-pick"]
                 | ["commits", _, "revert"]
+                // Added with the apply-patch route, which holds the target
+                // branch to the token's limit the same way.
+                | ["commits", "apply-patch"]
         ) || matches!(
             rest,
             ["branches", first, ..] if *first != "protection"

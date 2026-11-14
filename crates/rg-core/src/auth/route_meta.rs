@@ -354,6 +354,9 @@ pub const ROUTES: &[RouteMeta] = &[
     repo("/repos/{owner}/{name}/commits/{sha}/revert")
         .checked()
         .idem(),
+    repo("/repos/{owner}/{name}/commits/apply-patch")
+        .checked()
+        .idem(),
     repo("/repos/{owner}/{name}/contents/{*path}")
         .checked()
         .idem(),
