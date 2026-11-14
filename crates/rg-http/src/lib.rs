@@ -3451,7 +3451,7 @@ async fn post_push_hooks(
         // 0. Branch protection audit: log if push targets a protected branch
         if let Some(branch_name) = update.refname.strip_prefix("refs/heads/") {
             if !update.new_sha.chars().all(|character| character == '0') {
-                match rg_db::ops::pull_request_ops::update_open_head_sha(
+                match rg_core::pull_request::head_sync::sync_pr_head_on_push(
                     db,
                     repo_id,
                     branch_name,
@@ -3459,14 +3459,15 @@ async fn post_push_hooks(
                 )
                 .await
                 {
-                    Ok(prs) => {
+                    Ok(synced) => {
                         // Mirror the pushed head into refs/pull/<n>/head so
                         // `git fetch <url> refs/pull/<n>/head` works and keeps
                         // working after the head branch is deleted.
                         // (For a fork pull request the pushed repository is the
                         // fork: the ref belongs in the target repository, which
                         // `publish_head_ref` copies the objects into.)
-                        for pr in &prs {
+                        for entry in &synced {
+                            let pr = &entry.pull_request;
                             if let Err(error) = rg_core::pull_request::publish_head_ref(
                                 db,
                                 repo_root,

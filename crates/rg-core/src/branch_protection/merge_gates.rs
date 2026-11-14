@@ -142,6 +142,55 @@ impl Gate {
     }
 }
 
+/// The stored head commit is not where the head branch is now.
+///
+/// Approvals and CI were judged against `pr.head_sha`; a merge also builds on
+/// it. When the branch has moved past that commit, merging would either land a
+/// commit nobody reviewed (the old behaviour: "the head moved, but the votes
+/// still counted") or refuse later for a reason that hides the real one. This
+/// gate makes the drift itself the refusal, under the same `HEAD_SHA_STALE`
+/// code the readiness preview uses.
+///
+/// Two cases are deliberately **not** failures:
+///
+/// * a pull request with no stored head (created before it was recorded) — it
+///   cannot be stale against a commit it never had, and
+///   `sync_pr_head_on_push` fills it in on the next push;
+/// * a branch that could not be read (`live_head` is `None`) — a missing head
+///   branch is its own verdict (`HEAD_BRANCH_DELETED`), and guessing "stale"
+///   from an unreadable repository would block merges for the wrong reason.
+pub fn head_sha_stale_gate(pr: &PullRequest, live_head: Option<&str>) -> Gate {
+    match (pr.head_sha.as_deref(), live_head) {
+        (Some(stored), Some(live)) if stored != live => Gate::new(
+            "state",
+            "HEAD_SHA_STALE",
+            GateResult::Fail,
+            Some(format!(
+                "the pull request records head commit {} but the head branch is at {}; \
+                 approvals and CI were judged for the recorded commit — sync the pull request \
+                 head to the branch tip and have it approved again before merging",
+                short(stored),
+                short(live)
+            )),
+            json!({ "stored_sha": stored, "live_sha": live }),
+        ),
+        (Some(stored), Some(live)) => Gate::new(
+            "state",
+            "HEAD_SHA_STALE",
+            GateResult::Pass,
+            None,
+            json!({ "stored_sha": stored, "live_sha": live }),
+        ),
+        (stored, live) => Gate::new(
+            "state",
+            "HEAD_SHA_STALE",
+            GateResult::NotApplicable,
+            None,
+            json!({ "stored_sha": stored, "live_sha": live }),
+        ),
+    }
+}
+
 // ── Branch-protection gates ───────────────────────────────────────────────
 
 /// The protection rule that applies to the target branch.
@@ -191,7 +240,8 @@ impl RequiredChecks {
 /// would give.
 #[derive(Debug, Clone, Serialize)]
 pub struct ProtectionEvaluation {
-    /// `None`: no rule covers the target branch, so there is nothing to gate.
+    /// `None`: no rule covers the target branch. Gates that do not depend on a
+    /// rule — the head-drift check — can still be present and fail.
     pub rule: Option<RuleRef>,
     pub gates: Vec<Gate>,
     pub required_checks: RequiredChecks,
@@ -233,6 +283,11 @@ fn job_result(status: &str) -> &'static str {
 
 /// Evaluate the protection gates for merging `pr_id` into `target_branch`.
 ///
+/// `live_head` is the head branch's tip as the caller just read it (`None` when
+/// the branch or repository could not be read). It is passed in rather than read
+/// here because the gates have no repository path, and because the readiness
+/// preview has already read the same tip — one read, one verdict.
+///
 /// With `stop_at_first_failure` the evaluation returns at the first failing gate
 /// and reads nothing past it — what the merge path needs, and exactly the reads
 /// it made before. Without it every gate is evaluated, which is what the
@@ -244,18 +299,41 @@ pub async fn evaluate_protection(
     repo_id: i64,
     target_branch: &str,
     pr_id: i64,
+    live_head: Option<&str>,
     stop_at_first_failure: bool,
 ) -> CoreResult<ProtectionEvaluation> {
+    let pr = pull_request::Entity::find_by_id(pr_id)
+        .one(db)
+        .await
+        .context("db: find PR for merge gates")?
+        .ok_or_else(|| CoreError::not_found("pull request not found"))?;
+
+    let mut eval = ProtectionEvaluation::empty();
+
+    // ── head drift ─────────────────────────────────────────────────────
+    // First, because if the head moved every other verdict was formed about a
+    // commit that will not be merged.
+    let stale = head_sha_stale_gate(&pr, live_head);
+    let stale_failed = stale.result == GateResult::Fail;
+    if stale_failed {
+        if let Some(message) = &stale.detail {
+            eval.fail(message);
+        }
+    }
+    eval.gates.push(stale);
+    if stop_at_first_failure && stale_failed {
+        return Ok(eval);
+    }
+
     // Use the same matcher as the push and direct-commit paths so a wildcard
     // rule (e.g. `release/*`) protects merges too. Only the first matching rule
     // decides, as it always has.
     let rules = protected_branch_ops::list_by_repo(db, repo_id).await?;
     let refname = format!("refs/heads/{target_branch}");
     let Some(protection) = rules.iter().find(|rule| rule_matches_ref(rule, &refname)) else {
-        return Ok(ProtectionEvaluation::empty());
+        return Ok(eval);
     };
 
-    let mut eval = ProtectionEvaluation::empty();
     eval.rule = Some(RuleRef {
         id: protection.id,
         pattern: protection.branch_name.clone(),
@@ -288,16 +366,9 @@ pub async fn evaluate_protection(
         ));
     }
 
-    // The pull request row is read at most once, and only when a gate needs it.
-    let mut loaded: Option<Option<PullRequest>> = None;
-
     // ── approvals ──────────────────────────────────────────────────────
     if protection.require_approval {
         let required = protection.required_approvals.unwrap_or(1);
-        let pr = load_pr(db, pr_id, &mut loaded)
-            .await?
-            .as_ref()
-            .ok_or_else(|| CoreError::not_found("pull request not found"))?;
         let approvers =
             pr_review_ops::current_human_approver_ids(db, pr_id, pr.head_sha.as_deref()).await?;
         let current = approvers.len() as i64;
@@ -347,9 +418,8 @@ pub async fn evaluate_protection(
         db,
         repo_id,
         target_branch,
-        pr_id,
+        &pr,
         protection,
-        &mut loaded,
         stop_at_first_failure,
         &mut eval,
     )
@@ -357,32 +427,17 @@ pub async fn evaluate_protection(
     Ok(eval)
 }
 
-async fn load_pr<'a>(
-    db: &DatabaseConnection,
-    pr_id: i64,
-    loaded: &'a mut Option<Option<PullRequest>>,
-) -> CoreResult<&'a Option<PullRequest>> {
-    if loaded.is_none() {
-        let found = pull_request::Entity::find_by_id(pr_id)
-            .one(db)
-            .await
-            .context("db: find PR for merge gates")?;
-        *loaded = Some(found);
-    }
-    Ok(loaded.as_ref().expect("just loaded"))
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn evaluate_status_checks(
     db: &DatabaseConnection,
     repo_id: i64,
     target_branch: &str,
-    pr_id: i64,
+    pr: &PullRequest,
     protection: &ProtectedBranch,
-    loaded: &mut Option<Option<PullRequest>>,
     stop_at_first_failure: bool,
     eval: &mut ProtectionEvaluation,
 ) -> CoreResult<()> {
+    let pr_id = pr.id;
     if !protection.require_status_check {
         eval.gates.push(Gate::new(
             "status_checks",
@@ -429,10 +484,7 @@ async fn evaluate_status_checks(
     };
     eval.required_checks.source = "rule.required_status_checks";
 
-    let head_sha = match load_pr(db, pr_id, loaded).await? {
-        Some(pr) => pr.head_sha.clone().filter(|sha| !sha.is_empty()),
-        None => None,
-    };
+    let head_sha = pr.head_sha.clone().filter(|sha| !sha.is_empty());
     let Some(head_sha) = head_sha else {
         let message = format!(
             "branch '{}' requires status checks but no CI pipeline found for PR {}",

@@ -1112,11 +1112,16 @@ async fn try_auto_merge_pinned(
             merge: None,
         });
     }
+    // The gates are judged against the stored head, but only after checking that
+    // the branch is still there. An unreadable tip is not a stale one: it is
+    // reported where the merge itself reads the ref.
+    let live_head = live_head_sha(db, repo_root, owner, repo_name, &pr).await?;
     match crate::branch_protection::service::check_merge_allowed(
         db,
         pr.repo_id,
         &pr.base_branch,
         pr.id,
+        live_head.as_deref(),
     )
     .await
     {

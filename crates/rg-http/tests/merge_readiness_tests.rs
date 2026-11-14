@@ -619,7 +619,7 @@ async fn a_rule_that_cannot_be_read_is_unknown_not_a_pass_while_the_merge_keeps_
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_head_that_moved_past_the_stored_commit_is_flagged_not_hidden() {
+async fn a_head_that_moved_past_the_stored_commit_is_refused_not_merged() {
     let w = World::new("mr_stale").await;
     w.write("agent/x", "one.txt", "1\n", None).await;
     w.open_pr("agent/x").await;
@@ -631,13 +631,126 @@ async fn a_head_that_moved_past_the_stored_commit_is_flagged_not_hidden() {
     let v = w.ready().await;
     assert_eq!(v["head"]["sha"], json!(main));
     assert_ne!(v["head"]["stored_sha"], v["head"]["sha"]);
-    let unavailable = v["unavailable"].as_array().unwrap();
+    // The drift is a failing gate under the same code the preview always used,
+    // not a fact filed under `unavailable`: approvals and CI were judged for a
+    // commit the branch no longer has.
+    let g = gate(&v, "HEAD_SHA_STALE");
+    assert_eq!(g["result"], "FAIL", "{g}");
+    assert_eq!(v["ready"], false);
+    assert!(codes(&v, "ready_reason").contains(&"HEAD_SHA_STALE".to_string()));
     assert!(
-        unavailable.iter().any(|u| u["code"] == "HEAD_SHA_STALE"),
-        "{unavailable:?}"
+        !v["unavailable"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|u| u["code"] == "HEAD_SHA_STALE"),
+        "the same fact must not be reported twice: {}",
+        v["unavailable"]
     );
-    // Nothing failed, but one fact could not be pinned: not a clean `true`.
-    assert_eq!(v["ready"], Value::Null);
+
+    // The merge refuses with the gate's own sentence.
+    let (status, body) = w.merge().await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["message"], g["detail"]);
+    let after = w.ready().await;
+    assert_eq!(after["state"], "open", "the pull request is still open");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_push_moves_the_recorded_head_and_the_old_approval_stops_counting() {
+    let w = World::new("mr_sync").await;
+    w.write("agent/x", "one.txt", "1\n", None).await;
+    w.open_pr("agent/x").await;
+    w.protect(json!({
+        "branch_name": "main",
+        "require_approval": true,
+        "required_approvals": 1,
+    }))
+    .await;
+
+    // A second person with write access approves the commit the PR records now.
+    let reviewer = register_user(&w.base, "mr_sync_reviewer", "mr_sync_r@example.com", PW).await;
+    let added = w
+        .client
+        .post(w.url("/collaborators"))
+        .bearer_auth(&w.jwt)
+        .json(&json!({"username": "mr_sync_reviewer", "permission": "write"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(added.status(), StatusCode::CREATED);
+    let approved = w
+        .client
+        .post(w.url("/pulls/1/reviews"))
+        .bearer_auth(&reviewer)
+        .json(&json!({"action": "approve", "body": "first revision"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(approved.status(), StatusCode::CREATED);
+
+    let before = w.ready().await;
+    assert_eq!(
+        gate(&before, "REQUIRED_APPROVALS_MISSING")["result"],
+        "PASS",
+        "{before}"
+    );
+
+    // Push a new commit to the head branch. The push hook is what moves the
+    // pull request's recorded head — it runs after the response, so poll.
+    let new_head = w.write("agent/x", "two.txt", "2\n", None).await;
+    let mut recorded = None;
+    for _ in 0..100 {
+        recorded = rg_db::entities::pull_request::Entity::find()
+            .filter(rg_db::entities::pull_request::Column::RepoId.eq(w.repo_id))
+            .one(&w.db)
+            .await
+            .unwrap()
+            .and_then(|pr| pr.head_sha);
+        if recorded.as_deref() == Some(new_head.as_str()) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        recorded.as_deref(),
+        Some(new_head.as_str()),
+        "the push must move the recorded head, not leave it at the creation commit"
+    );
+
+    // The approval is still a row (the vote was cast, and the trail keeps it),
+    // but it was for the old commit, so it no longer counts.
+    let listed = w
+        .client
+        .get(w.url("/pulls/1/reviews"))
+        .bearer_auth(&w.jwt)
+        .send()
+        .await
+        .unwrap();
+    let reviews: Value = listed.json().await.unwrap();
+    let approvals = reviews
+        .as_array()
+        .map(|rows| rows.iter().filter(|row| row["action"] == "approve").count())
+        .unwrap_or(0);
+    assert_eq!(approvals, 1, "the row is kept: {reviews}");
+
+    let after = w.ready().await;
+    assert_eq!(
+        gate(&after, "HEAD_SHA_STALE")["result"],
+        "PASS",
+        "the recorded head was synced: {after}"
+    );
+    assert_eq!(
+        gate(&after, "REQUIRED_APPROVALS_MISSING")["result"],
+        "FAIL",
+        "the old approval must not count for the new commit: {after}"
+    );
+    let (status, body) = w.merge().await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(
+        body["error"]["message"],
+        gate(&after, "REQUIRED_APPROVALS_MISSING")["detail"]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
