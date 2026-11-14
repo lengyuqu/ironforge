@@ -70,6 +70,7 @@ git push -u cnb HEAD
 | T04 | [#38] R7 推送时密钥扫描 | completed | t04-secret-scan | none | `tasks/T04.md` |
 | T05 | [#40] R10 配额与用量（最小闭环） | completed | t05-ci-quota | none | `tasks/T05.md` |
 | T06 | [#19] 通用审批原语 · 步骤1（表+状态机+求值器）+ 修 PR 评审越权 | completed | t06-authorization | none | `tasks/T06.md` |
+| T08 | [#62] 接受 unified diff 的提交端点（apply-patch） | in_progress | t08-apply-patch | none | `tasks/T08.md` |
 
 ## Pre-Claim Checks
 
