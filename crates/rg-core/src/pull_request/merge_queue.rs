@@ -264,11 +264,16 @@ async fn process_repository_inner(
             result.failed.push(pr.id);
             continue;
         }
+        // A head that moved past the commit this entry was evaluated on is a
+        // protection refusal, not a merge failure: the entry stays queued.
+        let live_head =
+            service::live_head_sha(db, repo_root, &namespace, &repository.name, &pr).await?;
         match crate::branch_protection::service::check_merge_allowed(
             db,
             repository.id,
             &pr.base_branch,
             pr.id,
+            live_head.as_deref(),
         )
         .await
         {

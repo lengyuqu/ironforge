@@ -569,11 +569,15 @@ async fn creating_pr_requests_matching_codeowner_user() {
             .unwrap();
     assert_eq!(updated_prs.len(), 1);
     let pr_id = updated_prs[0].id;
-    assert!(
-        rg_core::branch_protection::service::check_merge_allowed(&db, repo_id, "main", pr_id,)
-            .await
-            .is_err()
-    );
+    assert!(rg_core::branch_protection::service::check_merge_allowed(
+        &db,
+        repo_id,
+        "main",
+        pr_id,
+        Some(&new_head),
+    )
+    .await
+    .is_err());
 
     let enabled = client
         .put(format!(

@@ -427,14 +427,20 @@ pub async fn check_direct_commit_allowed(
 /// The rules themselves live in [`super::merge_gates`], shared with the
 /// merge-readiness preview; this returns the first refusal they give, with the
 /// wording the merge has always used.
+///
+/// `live_head` is the head branch's tip at the moment of the call (`None` when it
+/// could not be read). It is what the `HEAD_SHA_STALE` gate compares the stored
+/// head against: a merge must not be judged on a commit the branch has left.
 pub async fn check_merge_allowed(
     db: &DatabaseConnection,
     repo_id: i64,
     target_branch: &str,
     pr_id: i64,
+    live_head: Option<&str>,
 ) -> CoreResult<()> {
     let evaluation =
-        super::merge_gates::evaluate_protection(db, repo_id, target_branch, pr_id, true).await?;
+        super::merge_gates::evaluate_protection(db, repo_id, target_branch, pr_id, live_head, true)
+            .await?;
     match evaluation.refusal {
         Some(message) => Err(CoreError::forbidden(message)),
         None => Ok(()),

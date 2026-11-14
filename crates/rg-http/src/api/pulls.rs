@@ -581,11 +581,21 @@ pub async fn merge_pr(
     {
         return AppError::from(refusal).into_response();
     }
+    // Read the branch tip once: it is both what `expected_head_sha` is checked
+    // against and what the `HEAD_SHA_STALE` gate compares the stored head with.
+    let head_now =
+        match rg_core::pull_request::live_head_sha(&state.db, &state.repo_root, &owner, &repo, &pr)
+            .await
+        {
+            Ok(sha) => sha,
+            Err(e) => return AppError::from(e).into_response(),
+        };
     if let Err(e) = rg_core::branch_protection::service::check_merge_allowed(
         &state.db,
         repo_model.id,
         &pr.base_branch,
         pr.id,
+        head_now.as_deref(),
     )
     .await
     {
@@ -597,13 +607,6 @@ pub async fn merge_pr(
             .get("x-dry-run")
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| matches!(v.trim(), "1" | "true"));
-    let head_now =
-        match rg_core::pull_request::live_head_sha(&state.db, &state.repo_root, &owner, &repo, &pr)
-            .await
-        {
-            Ok(sha) => sha,
-            Err(e) => return AppError::from(e).into_response(),
-        };
     if let Some(expected) = req.expected_head_sha.as_deref() {
         if head_now.as_deref() != Some(expected) {
             return AppError::conflict_because(

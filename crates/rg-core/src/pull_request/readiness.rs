@@ -26,7 +26,8 @@
 //!
 //! Approvals and the CI lookup are judged against the head commit **stored** on
 //! the pull request, as the merge does; when the branch has moved on from it the
-//! answer says so (`HEAD_SHA_STALE`).
+//! `HEAD_SHA_STALE` gate fails — the same gate, and the same sentence, the merge
+//! refuses with.
 
 use std::path::Path;
 use std::time::Duration;
@@ -232,17 +233,9 @@ pub async fn merge_readiness(
         }
     }
 
-    // The gates are judged against the stored head commit, as the merge does.
-    if let (Some(stored), Some(live)) = (pr.head_sha.as_deref(), head_tip.sha()) {
-        if stored != live {
-            unavailable.push(json!({
-                "code": "HEAD_SHA_STALE",
-                "detail": "approvals and CI were judged for the head commit stored on the pull request, which is not where the head branch is now",
-                "observed": { "stored_sha": stored, "live_sha": live },
-            }));
-        }
-    }
-
+    // The gates judge the stored head commit, as the merge does. `live_head` is
+    // passed to them so that a head which moved past the stored commit is the
+    // same `HEAD_SHA_STALE` refusal the merge gives — one rule, two consumers.
     // ── the tree merge ──────────────────────────────────────────────────
     let merge = merge_section(
         owner,
@@ -263,6 +256,7 @@ pub async fn merge_readiness(
         pr.repo_id,
         &pr.base_branch,
         pr.id,
+        head_tip.sha(),
         false,
     )
     .await

@@ -1,5 +1,6 @@
 //! Pull request service — create, diff, merge strategies, fork PR support.
 pub mod gix_patch;
+pub mod head_sync;
 pub mod merge_queue;
 pub mod readiness;
 pub mod repair;
