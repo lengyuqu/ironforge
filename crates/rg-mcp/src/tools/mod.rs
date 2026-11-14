@@ -162,6 +162,44 @@ pub fn list_tools(_state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
             }
         },
         {
+            "name": "cherry_pick_commit",
+            "description": "Apply the change one existing commit made on top of an existing branch, as one new commit, on the server (no clone or push). 'sha' is the commit to apply (4-64 hex characters; a revspec such as 'HEAD~1' is not accepted). 'branch' and 'expected_sha' are both required: the branch must exist and be at expected_sha (the full commit id you last read it at), otherwise the call is refused with REF_ADVANCED and the current commit, and nothing is written; a branch is never created here. For a merge commit, pass 'mainline' (the 1-based parent to treat as the mainline); for any other commit it must be omitted. A change that does not apply cleanly is refused with MERGE_CONFLICT naming the conflicting paths, and the branch does not move. 'message' replaces the generated subject and body; the '(cherry picked from commit …)' trailer is still appended. Pass dry_run=true to run every check and see what would happen without writing anything. A token limited to some branches can only write those branches.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "owner": { "type": "string", "description": "Repository owner" },
+                    "repo":  { "type": "string", "description": "Repository name" },
+                    "sha":   { "type": "string", "description": "Commit to apply (4-64 hex characters)" },
+                    "branch": { "type": "string", "description": "Existing branch the new commit goes on" },
+                    "expected_sha": { "type": "string", "description": "Full id of the commit the branch must currently be at (required)" },
+                    "mainline": { "type": "integer", "minimum": 1, "description": "1-based parent to treat as the mainline; required for a merge commit, refused for any other commit" },
+                    "message": { "type": "string", "description": "Optional replacement subject and body; the standard trailer is still appended" },
+                    "dry_run": { "type": "boolean", "description": "Check and report only; write nothing" },
+                    "idempotency_key": { "type": "string", "description": "A string you choose and reuse when retrying this exact call: the server then returns the first response instead of applying it twice. Use a new key for a different call." }
+                },
+                "required": ["owner", "repo", "sha", "branch", "expected_sha"]
+            }
+        },
+        {
+            "name": "revert_commit",
+            "description": "Undo the change one existing commit made, as one new commit on top of an existing branch, on the server (no clone or push). 'sha' is the commit to undo (4-64 hex characters; a revspec such as 'HEAD~1' is not accepted). 'branch' and 'expected_sha' are both required: the branch must exist and be at expected_sha (the full commit id you last read it at), otherwise the call is refused with REF_ADVANCED and the current commit, and nothing is written; a branch is never created here. For a merge commit, pass 'mainline' (the 1-based parent to treat as the mainline); for any other commit it must be omitted. A reversal that does not apply cleanly is refused with MERGE_CONFLICT naming the conflicting paths, and the branch does not move. 'message' replaces the generated subject and body; the 'This reverts commit …' trailer is still appended. Pass dry_run=true to run every check and see what would happen without writing anything. A token limited to some branches can only write those branches.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "owner": { "type": "string", "description": "Repository owner" },
+                    "repo":  { "type": "string", "description": "Repository name" },
+                    "sha":   { "type": "string", "description": "Commit to undo (4-64 hex characters)" },
+                    "branch": { "type": "string", "description": "Existing branch the new commit goes on" },
+                    "expected_sha": { "type": "string", "description": "Full id of the commit the branch must currently be at (required)" },
+                    "mainline": { "type": "integer", "minimum": 1, "description": "1-based parent to treat as the mainline; required for a merge commit, refused for any other commit" },
+                    "message": { "type": "string", "description": "Optional replacement subject and body; the standard trailer is still appended" },
+                    "dry_run": { "type": "boolean", "description": "Check and report only; write nothing" },
+                    "idempotency_key": { "type": "string", "description": "A string you choose and reuse when retrying this exact call: the server then returns the first response instead of applying it twice. Use a new key for a different call." }
+                },
+                "required": ["owner", "repo", "sha", "branch", "expected_sha"]
+            }
+        },
+        {
             "name": "delete_file",
             "description": "Delete one file with a commit on a branch, on the server. 'sha' is the file's current blob sha (required, so a stale delete is refused). 'expected_sha' and 'dry_run' work as in commit_file.",
             "inputSchema": {
@@ -309,6 +347,8 @@ pub fn call_tool(state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
         "export_pr" => tool_export_pr(state, &args),
         "commit_file" => tool_commit_file(state, &args),
         "commit_files" => tool_commit_files(state, &args),
+        "cherry_pick_commit" => tool_cherry_pick_commit(state, &args),
+        "revert_commit" => tool_revert_commit(state, &args),
         "delete_file" => tool_delete_file(state, &args),
         "delete_branch" => tool_delete_branch(state, &args),
         "create_pr" => tool_create_pr(state, &args),
@@ -813,6 +853,92 @@ fn tool_commit_files(state: &AppState, args: &Value) -> ToolResult {
     )
 }
 
+/// The commit a cherry-pick or revert applies: 4–64 hex characters, which is
+/// exactly what the server resolves. A revspec (`HEAD~1`) is refused here as
+/// well as there, and the value goes into a URL path, so it must stay hex.
+fn commit_id_arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
+    let value = args.get(key).and_then(|v| v.as_str()).unwrap_or("");
+    if value.is_empty() {
+        return Err(format!("{key} is required"));
+    }
+    let ok = (4..=64).contains(&value.len()) && value.bytes().all(|b| b.is_ascii_hexdigit());
+    if ok {
+        Ok(value)
+    } else {
+        Err(format!("{key} must be a hex commit id of 4-64 characters"))
+    }
+}
+
+/// The commit the branch must be at. The server compares it to the tip as a
+/// full object id, so a short id can never match and would only come back as a
+/// misleading `REF_ADVANCED`.
+fn full_commit_id_arg<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
+    let value = args.get(key).and_then(|v| v.as_str()).unwrap_or("");
+    if value.is_empty() {
+        return Err(format!("{key} is required"));
+    }
+    let ok = matches!(value.len(), 40 | 64) && value.bytes().all(|b| b.is_ascii_hexdigit());
+    if ok {
+        Ok(value)
+    } else {
+        Err(format!(
+            "{key} must be a full commit id (40 or 64 hex characters) as last read from the branch"
+        ))
+    }
+}
+
+/// The optional `mainline` argument: the 1-based parent of a merge commit.
+fn optional_mainline(args: &Value) -> Result<Option<u32>, String> {
+    match args.get("mainline") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => match v.as_u64() {
+            Some(n) if (1..=u32::MAX as u64).contains(&n) => Ok(Some(n as u32)),
+            _ => Err("mainline must be a positive integer (the 1-based parent number)".into()),
+        },
+    }
+}
+
+fn tool_cherry_pick_commit(state: &AppState, args: &Value) -> ToolResult {
+    pick_commit_tool(state, args, "cherry-pick")
+}
+
+fn tool_revert_commit(state: &AppState, args: &Value) -> ToolResult {
+    pick_commit_tool(state, args, "revert")
+}
+
+/// `POST /repos/{owner}/{repo}/commits/{sha}/{operation}` where `operation` is
+/// `cherry-pick` or `revert`. Both routes share the same body and the same
+/// rules: `branch` and `expected_sha` are required, and the branch is never
+/// created (`rg-http/src/api/repo_pick.rs`).
+fn pick_commit_tool(state: &AppState, args: &Value, operation: &str) -> ToolResult {
+    let owner = name_arg(args, "owner")?;
+    let repo = name_arg(args, "repo")?;
+    let sha = commit_id_arg(args, "sha")?;
+    let mut body = serde_json::json!({
+        "branch": text_arg(args, "branch")?,
+        "expected_sha": full_commit_id_arg(args, "expected_sha")?,
+    });
+    if let Some(mainline) = optional_mainline(args)? {
+        body["mainline"] = Value::from(mainline);
+    }
+    if let Some(message) = optional_text(args, "message") {
+        if message.trim().is_empty() {
+            return Err("message must not be blank".into());
+        }
+        body["message"] = Value::from(message);
+    }
+    if flag_arg(args, "dry_run")? {
+        body["dry_run"] = Value::Bool(true);
+    }
+    send_write(
+        state,
+        reqwest::Method::POST,
+        &format!("/repos/{owner}/{repo}/commits/{sha}/{operation}"),
+        Some(&body),
+        idempotency_key_arg(args)?,
+    )
+}
+
 fn tool_delete_file(state: &AppState, args: &Value) -> ToolResult {
     let owner = name_arg(args, "owner")?;
     let repo = name_arg(args, "repo")?;
@@ -1099,5 +1225,63 @@ mod tests {
             query(&[("path", "src"), ("ref", "feat/x")]),
             "?path=src&ref=feat%2Fx"
         );
+    }
+
+    #[test]
+    fn a_picked_commit_is_a_plain_hex_id_of_four_to_sixty_four_characters() {
+        let id = |v: Value| commit_id_arg(&json!({"sha": v}), "sha").map(str::to_string);
+        assert_eq!(id(json!("abcd")).unwrap(), "abcd");
+        assert_eq!(id(json!("deadbeef")).unwrap(), "deadbeef");
+        assert!(id(json!("a".repeat(64))).is_ok());
+        for bad in [
+            json!(""),
+            json!("abc"),
+            json!("a".repeat(65)),
+            json!("HEAD~1"),
+            json!("main"),
+            json!("abc/def"),
+            json!("zzzz"),
+            json!(5),
+        ] {
+            assert!(id(bad.clone()).is_err(), "{bad}");
+        }
+        assert!(id(Value::Null).is_err());
+    }
+
+    #[test]
+    fn the_expected_commit_must_be_the_full_id() {
+        let id = |v: Value| {
+            full_commit_id_arg(&json!({"expected_sha": v}), "expected_sha").map(str::to_string)
+        };
+        assert!(id(json!("a".repeat(40))).is_ok());
+        assert!(id(json!("a".repeat(64))).is_ok());
+        for bad in [
+            json!(""),
+            json!("abc1234"),
+            json!("a".repeat(39)),
+            json!("a".repeat(41)),
+            json!("z".repeat(40)),
+            json!(7),
+        ] {
+            assert!(id(bad.clone()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_mainline_is_an_optional_positive_parent_number() {
+        let m = |v: Value| optional_mainline(&json!({"mainline": v}));
+        assert_eq!(m(Value::Null).unwrap(), None);
+        assert_eq!(optional_mainline(&json!({})).unwrap(), None);
+        assert_eq!(m(json!(1)).unwrap(), Some(1));
+        assert_eq!(m(json!(3)).unwrap(), Some(3));
+        for bad in [
+            json!(0),
+            json!(-1),
+            json!("2"),
+            json!(1.5),
+            json!(u32::MAX as u64 + 1),
+        ] {
+            assert!(m(bad.clone()).is_err(), "{bad}");
+        }
     }
 }
