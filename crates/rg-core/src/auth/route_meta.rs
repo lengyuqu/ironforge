@@ -271,6 +271,11 @@ pub const ROUTES: &[RouteMeta] = &[
     repo("/repos/{owner}/{name}/pulls/{number}/export").idem(),
     repo("/repos/{owner}/{name}/pulls/{number}/diff").idem(),
     repo("/repos/{owner}/{name}/pulls/{number}/merge").idem(),
+    repo("/repos/{owner}/{name}/pulls/{number}/merge-readiness").idem(),
+    // Writes the head branch. Not `.open()` and not `.checked()`: a token
+    // limited to some branches is refused by default (the handler also calls
+    // `ensure_token_may_write_branch`, so relaxing this row later stays safe).
+    repo("/repos/{owner}/{name}/pulls/{number}/update-branch").idem(),
     repo("/repos/{owner}/{name}/pulls/{number}/auto-merge").idem(),
     repo("/repos/{owner}/{name}/merge-queue"),
     repo("/repos/{owner}/{name}/pulls/{number}/merge-queue").idem(),

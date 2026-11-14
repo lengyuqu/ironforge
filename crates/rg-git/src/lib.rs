@@ -57,6 +57,7 @@ use std::path::Path;
 pub mod blame;
 pub mod cli_gateway;
 pub mod history;
+pub mod merge_analysis;
 pub mod ops;
 pub mod pick;
 pub mod pkt_line;

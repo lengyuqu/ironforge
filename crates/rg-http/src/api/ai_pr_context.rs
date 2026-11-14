@@ -15,7 +15,8 @@
 //! `origin: "user_content"`: it is data to read, never instructions.
 //!
 //! Not evaluated, and said so in `not_evaluated`: whether the branches merge
-//! cleanly and the result of the branch-protection checks. Each section is its
+//! cleanly and the result of the branch-protection checks. Each entry names the
+//! endpoint that does evaluate it (`GET …/merge-readiness`). Each section is its
 //! own live read, not a snapshot.
 
 use std::collections::HashMap;
@@ -383,7 +384,11 @@ pub async fn pr_context(
     let fixed = json!({
         "pull_request": core,
         "diff_url": format!("/api/v1/repos/{owner}/{name}/pulls/{number}/diff"),
-        "not_evaluated": ["mergeable", "branch_protection"],
+        // Each entry names what was not evaluated and the call that does evaluate it.
+        "not_evaluated": [
+            format!("mergeable ← GET /api/v1/repos/{owner}/{name}/pulls/{number}/merge-readiness"),
+            format!("branch_protection ← GET /api/v1/repos/{owner}/{name}/pulls/{number}/merge-readiness"),
+        ],
         "consistency": "per_section_live_read",
     });
     let used = size_of(&fixed) + 300; // the envelope: budget, truncated, counts

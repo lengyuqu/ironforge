@@ -577,8 +577,9 @@ pub async fn merge_pr(
         Ok(pr) => pr,
         Err(e) => return AppError::from(e).into_response(),
     };
-    if pr.is_draft {
-        return AppError::conflict("draft pull requests cannot be merged").into_response();
+    if let Some(refusal) = rg_core::branch_protection::merge_gates::draft_gate(&pr).state_refusal()
+    {
+        return AppError::from(refusal).into_response();
     }
     if let Err(e) = rg_core::branch_protection::service::check_merge_allowed(
         &state.db,
@@ -615,12 +616,9 @@ pub async fn merge_pr(
             .into_response();
         }
     }
-    if pr.state != "open" {
-        return AppError::conflict(format!(
-            "cannot merge a PR that is not in 'open' state (current: {})",
-            pr.state
-        ))
-        .into_response();
+    if let Some(refusal) = rg_core::branch_protection::merge_gates::state_gate(&pr).state_refusal()
+    {
+        return AppError::from(refusal).into_response();
     }
     if dry_run {
         return (

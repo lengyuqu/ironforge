@@ -882,6 +882,14 @@ fn build_routes(
             post(api::pulls::merge_pr),
         )
         .route(
+            "/repos/{owner}/{name}/pulls/{number}/merge-readiness",
+            get(api::pull_readiness::get_merge_readiness),
+        )
+        .route(
+            "/repos/{owner}/{name}/pulls/{number}/update-branch",
+            post(api::pull_readiness::update_branch),
+        )
+        .route(
             "/repos/{owner}/{name}/pulls/{number}/auto-merge",
             put(api::pulls::enable_auto_merge).delete(api::pulls::disable_auto_merge),
         )

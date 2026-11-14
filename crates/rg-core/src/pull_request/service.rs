@@ -1318,15 +1318,14 @@ pub async fn merge_pr_expecting_head(
         pr = get_pr(db, owner, repo_name, number).await?;
     }
 
-    if pr.state != "open" {
-        return Err(CoreError::Conflict(format!(
-            "cannot merge a PR that is not in 'open' state (current: {})",
-            pr.state
-        ))
-        .into());
+    // The same gates the merge-readiness preview reports, in the order the merge
+    // has always checked them.
+    use crate::branch_protection::merge_gates::{draft_gate, state_gate};
+    if let Some(refusal) = state_gate(&pr).state_refusal() {
+        return Err(refusal.into());
     }
-    if pr.is_draft {
-        return Err(CoreError::Conflict("draft pull requests cannot be merged".into()).into());
+    if let Some(refusal) = draft_gate(&pr).state_refusal() {
+        return Err(refusal.into());
     }
 
     if !pull_request_ops::claim_merge(db, pr.id).await? {

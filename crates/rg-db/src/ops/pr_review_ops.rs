@@ -59,6 +59,18 @@ pub async fn count_current_human_approvals(
     pr_id: i64,
     head_sha: Option<&str>,
 ) -> Result<i64> {
+    Ok(current_human_approver_ids(db, pr_id, head_sha).await?.len() as i64)
+}
+
+/// The people whose latest approval stands for the current head commit: the
+/// reviewers [`count_current_human_approvals`] counts, by id, in ascending
+/// order. The count and the list are one rule, so a caller that wants to show
+/// who approved cannot drift from the number that gates a merge.
+pub async fn current_human_approver_ids(
+    db: &DatabaseConnection,
+    pr_id: i64,
+    head_sha: Option<&str>,
+) -> Result<Vec<i64>> {
     let reviews = list_by_pr(db, pr_id).await?;
     let mut latest = std::collections::HashMap::new();
     for review in reviews {
@@ -77,7 +89,7 @@ pub async fn count_current_human_approvals(
         })
         .collect();
     if current.is_empty() {
-        return Ok(0);
+        return Ok(Vec::new());
     }
 
     let reviewer_ids: Vec<i64> = current.iter().map(|review| review.reviewer_id).collect();
@@ -91,10 +103,13 @@ pub async fn count_current_human_approvals(
         .map(|model| model.id)
         .collect();
 
-    Ok(current
+    let mut ids: Vec<i64> = current
         .iter()
-        .filter(|review| humans.contains(&review.reviewer_id))
-        .count() as i64)
+        .map(|review| review.reviewer_id)
+        .filter(|id| humans.contains(id))
+        .collect();
+    ids.sort_unstable();
+    Ok(ids)
 }
 
 /// Create a new review.
