@@ -1505,6 +1505,7 @@ async fn merge_claimed_pr(
                 let pr = pr.clone();
                 let merge_ref = merge_ref.clone();
                 tokio::task::spawn_blocking(move || -> CoreResult<String> {
+                    ensure_branch_exists(&repo_path, &pr.base_branch, "base")?;
                     let sha = merge_from_ref(&repo_path, &pr, &merge_ref, strategy)?;
                     // Clean up fetched ref
                     if let Err(e) = gix_delete_ref(&repo_path, &merge_ref) {
@@ -1538,17 +1539,15 @@ async fn merge_claimed_pr(
                 if current.as_deref() != Some(expected.as_str()) {
                     return Err(MergeError::HeadMoved { current, expected });
                 }
-                if matches!(strategy, MergeStrategy::Rebase) {
-                    ensure_branch_exists(&repo_path, &pr.base_branch, "base")?;
-                }
+                // Every strategy writes the result to the base branch now, so
+                // its absence is a state conflict, not an internal failure.
+                ensure_branch_exists(&repo_path, &pr.base_branch, "base")?;
                 return Ok(merge_from_ref(&repo_path, &pr, &expected, strategy)?);
             }
             // The head branch may have been deleted after the PR was opened;
             // that is a state conflict, not a server fault.
             ensure_branch_exists(&repo_path, &pr.head_branch, "head")?;
-            if matches!(strategy, MergeStrategy::Rebase) {
-                ensure_branch_exists(&repo_path, &pr.base_branch, "base")?;
-            }
+            ensure_branch_exists(&repo_path, &pr.base_branch, "base")?;
             Ok(match strategy {
                 MergeStrategy::Merge => do_merge_commit(&repo_path, &pr),
                 MergeStrategy::Squash => do_squash_merge(&repo_path, &pr),
@@ -1586,14 +1585,14 @@ fn merge_from_ref(
     match strategy {
         MergeStrategy::Merge => {
             let merge_msg = format!("Merge pull request #{} from {}", pr.number, pr.head_branch);
-            gix_merge_no_ff(repo_path, merge_ref, &merge_msg)
+            gix_merge_no_ff(repo_path, &pr.base_branch, merge_ref, &merge_msg)
         }
         MergeStrategy::Squash => {
             let squash_msg = format!(
                 "Squash merge pull request #{} from {}",
                 pr.number, pr.head_branch
             );
-            gix_squash_merge(repo_path, merge_ref, &squash_msg)
+            gix_squash_merge(repo_path, &pr.base_branch, merge_ref, &squash_msg)
         }
         MergeStrategy::Rebase => {
             match rg_git::ops::rebase_merge(repo_path, &pr.base_branch, merge_ref) {
@@ -1687,7 +1686,7 @@ async fn update_pr_merged(
 
 fn do_merge_commit(repo_path: &std::path::Path, pr: &PullRequest) -> CoreResult<String> {
     let merge_msg = format!("Merge pull request #{} from {}", pr.number, pr.head_branch);
-    gix_merge_no_ff(repo_path, &pr.head_branch, &merge_msg)
+    gix_merge_no_ff(repo_path, &pr.base_branch, &pr.head_branch, &merge_msg)
 }
 
 fn do_squash_merge(repo_path: &std::path::Path, pr: &PullRequest) -> CoreResult<String> {
@@ -1695,7 +1694,7 @@ fn do_squash_merge(repo_path: &std::path::Path, pr: &PullRequest) -> CoreResult<
         "Squash merge pull request #{} from {}",
         pr.number, pr.head_branch
     );
-    gix_squash_merge(repo_path, &pr.head_branch, &squash_msg)
+    gix_squash_merge(repo_path, &pr.base_branch, &pr.head_branch, &squash_msg)
 }
 
 fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> CoreResult<String> {
@@ -1859,6 +1858,7 @@ const SERVER_COMMIT_EMAIL: &str = "noreply@ironforge.local";
 fn commit_as_server(
     repo: &gix::Repository,
     what: &str,
+    update_ref: &str,
     message: &str,
     tree: gix::ObjectId,
     parents: Vec<gix::ObjectId>,
@@ -1870,24 +1870,29 @@ fn commit_as_server(
         email: SERVER_COMMIT_EMAIL.as_bytes().into(),
         time: stamp.as_str(),
     };
-    repo.commit_as(signature, signature, "HEAD", message, tree, parents)
+    repo.commit_as(signature, signature, update_ref, message, tree, parents)
         .map(|id| id.detach())
         .map_err(|e| CoreError::internal(format!("failed to create {what}: {e}")))
 }
 
 /// Perform a `--no-ff` merge using gix merge_commits API.
-/// Creates a merge commit with two parents (current HEAD + `head_ref`).
+/// Creates a merge commit with two parents (`base_branch`'s tip + `head_ref`)
+/// and advances `base_branch` to it. The repository `HEAD` is irrelevant: a
+/// pull request is merged into *its* base branch, which is not necessarily the
+/// default branch.
 fn gix_merge_no_ff(
     repo_path: &std::path::Path,
+    base_branch: &str,
     head_ref: &str,
     message: &str,
 ) -> CoreResult<String> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
+    let base_ref = format!("refs/heads/{base_branch}");
     let our_commit = repo
-        .rev_parse_single("HEAD")
-        .map_err(|e| CoreError::internal(format!("failed to resolve HEAD: {}", e)))?;
+        .rev_parse_single(base_ref.as_str())
+        .map_err(|e| CoreError::internal(format!("failed to resolve {}: {}", base_ref, e)))?;
     let their_commit = repo
         .rev_parse_single(head_ref)
         .with_context(|| format!("failed to resolve merge ref '{}'", head_ref))?;
@@ -1895,10 +1900,11 @@ fn gix_merge_no_ff(
     let (merged_tree_id, _conflicts) =
         gix_merge_commits_to_tree(&repo, our_commit, their_commit, head_ref)?;
 
-    // Create merge commit (two parents)
+    // Create merge commit (two parents) on the base branch.
     let commit_id = commit_as_server(
         &repo,
         "merge commit",
+        base_ref.as_str(),
         message,
         merged_tree_id.detach(),
         vec![our_commit.detach(), their_commit.detach()],
@@ -1907,18 +1913,21 @@ fn gix_merge_no_ff(
     Ok(commit_id.to_string())
 }
 
-/// Perform a squash merge: merge commits, then create a single-parent commit.
+/// Perform a squash merge: merge commits, then create a single-parent commit
+/// on `base_branch` (not on the repository `HEAD`).
 fn gix_squash_merge(
     repo_path: &std::path::Path,
+    base_branch: &str,
     head_ref: &str,
     message: &str,
 ) -> CoreResult<String> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
+    let base_ref = format!("refs/heads/{base_branch}");
     let our_commit = repo
-        .rev_parse_single("HEAD")
-        .map_err(|e| CoreError::internal(format!("failed to resolve HEAD: {}", e)))?;
+        .rev_parse_single(base_ref.as_str())
+        .map_err(|e| CoreError::internal(format!("failed to resolve {}: {}", base_ref, e)))?;
     let their_commit = repo
         .rev_parse_single(head_ref)
         .with_context(|| format!("failed to resolve merge ref '{}'", head_ref))?;
@@ -1926,10 +1935,11 @@ fn gix_squash_merge(
     let (merged_tree_id, _conflicts) =
         gix_merge_commits_to_tree(&repo, our_commit, their_commit, head_ref)?;
 
-    // Squash merge: single-parent commit
+    // Squash merge: single-parent commit on the base branch.
     let commit_id = commit_as_server(
         &repo,
         "squash commit",
+        base_ref.as_str(),
         message,
         merged_tree_id.detach(),
         vec![our_commit.detach()],
