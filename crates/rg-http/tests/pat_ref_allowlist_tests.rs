@@ -705,6 +705,18 @@ async fn a_branch_limited_token_cannot_approve_a_pull_request() {
         201
     );
 
+    // Reviewing is an authorization decision since #19/T06: read access alone no
+    // longer allows `approve` / `request_changes`, so the reviewer is a writer.
+    // The subject of this test is the token's ref restriction, not the seat.
+    let granted = client
+        .post(format!("{base}/api/v1/repos/{owner}/work/collaborators"))
+        .bearer_auth(&owner_jwt)
+        .json(&json!({"username": reviewer, "permission": "write"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(granted.status(), 201, "{}", granted.text().await.unwrap());
+
     // A branch for a pull request, pushed with an unlimited owner token.
     let (_, owner_pat) =
         make_token(&base, &owner_jwt, json!({"name": "push", "scopes": "repo"})).await;

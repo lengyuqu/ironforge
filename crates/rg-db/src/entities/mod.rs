@@ -5,6 +5,8 @@ pub mod agent_session;
 pub mod artifact;
 pub mod attachment;
 pub mod audit_log;
+pub mod authorization_decision;
+pub mod authorization_request;
 pub mod background_job;
 pub mod board;
 pub mod board_card;

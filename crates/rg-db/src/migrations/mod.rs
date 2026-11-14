@@ -99,6 +99,7 @@ pub mod m20261109_000001_create_collab_health_baselines;
 pub mod m20261110_000001_add_user_kind_and_owner;
 pub mod m20261110_000002_add_audit_on_behalf_of;
 pub mod m20261114_000001_create_usage_counters;
+pub mod m20261114_000002_create_authorization_requests;
 
 use sea_orm_migration::prelude::*;
 
@@ -211,6 +212,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261110_000001_add_user_kind_and_owner::Migration),
             Box::new(m20261110_000002_add_audit_on_behalf_of::Migration),
             Box::new(m20261114_000001_create_usage_counters::Migration),
+            Box::new(m20261114_000002_create_authorization_requests::Migration),
         ]
     }
 }
