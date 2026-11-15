@@ -56,19 +56,33 @@ pub async fn create_issue(
     let txn = db.begin().await.context("db: begin transaction")?;
 
     let issue = model.insert(&txn).await.context("db: create issue")?;
+
+    // Trigger issue.opened webhook. The event is written on the **same**
+    // transaction as the issue (#15, step 1), so the two commit or roll back
+    // together: no committed issue without its event. The payload is exactly
+    // what `trigger_issue_opened` published before, only written earlier.
+    let payload = serde_json::json!({
+        "event": "issue.opened",
+        "issue": {
+            "id": issue.id,
+            "repo_id": issue.repo_id,
+            "number": issue.number,
+            "title": issue.title,
+            "state": issue.state,
+            "author_id": issue.author_id,
+        },
+    });
+    crate::webhook::service::record_event_in_txn(&txn, repo_id, "issue.opened", &payload).await?;
+
     txn.commit().await.context("db: commit transaction")?;
 
-    // Trigger issue.opened webhook
-    let payload = serde_json::json!({
-        "id": issue.id,
-        "repo_id": issue.repo_id,
-        "number": issue.number,
-        "title": issue.title,
-        "state": issue.state,
-        "author_id": issue.author_id,
-    });
-    if let Err(e) = crate::webhook::service::trigger_issue_opened(db, repo_id, &payload).await {
-        tracing::warn!("Failed to trigger issue.opened webhook: {e}");
+    // Delivery stays outside the transaction: a receiver must never be woken by
+    // an event whose business change did not commit, and the log row is already
+    // written, so this only finds hooks and spawns.
+    if let Err(e) =
+        crate::webhook::service::deliver_event(db, repo_id, "issue.opened", &payload).await
+    {
+        tracing::warn!("Failed to deliver issue.opened webhook: {e}");
     }
 
     // Dual-write: sync labels to issue_labels junction table

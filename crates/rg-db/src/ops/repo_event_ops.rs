@@ -5,8 +5,12 @@ use sea_orm::*;
 use crate::entities::repo_event::{self, Entity};
 
 /// Append an event. Returns its id (the new cursor).
-pub async fn append(
-    db: &DatabaseConnection,
+///
+/// Takes any [`ConnectionTrait`], so the row can be written on a
+/// [`DatabaseTransaction`](sea_orm::DatabaseTransaction) and commit or roll back
+/// together with the business change that produced it (#15, step 1).
+pub async fn append<C: ConnectionTrait>(
+    conn: &C,
     repo_id: i64,
     event_type: &str,
     payload: Option<&str>,
@@ -18,7 +22,7 @@ pub async fn append(
         payload: Set(payload.map(str::to_string)),
         created_at: Set(chrono::Utc::now()),
     }
-    .insert(db)
+    .insert(conn)
     .await?;
     Ok(row.id)
 }
