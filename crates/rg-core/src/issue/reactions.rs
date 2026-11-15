@@ -26,21 +26,28 @@ pub async fn add_issue_reaction(
 
     // Notify the issue author (never the reactor itself).
     if issue.author_id != user_id {
-        if let Err(e) = crate::notification::notify(
+        let outcome = crate::notification::dispatch::dispatch(
             db,
-            issue.author_id,
-            "issue_reaction",
-            &format!(
-                "{} reacted {} to your issue",
-                actor_name(db, user_id).await,
-                content
-            ),
-            Some(&issue.title),
-            Some(issue.repo_id),
+            None,
+            crate::notification::dispatch::NotifyRequest {
+                recipients: vec![issue.author_id],
+                event_type: "issue_reaction".to_string(),
+                repo_id: Some(issue.repo_id),
+                title: format!(
+                    "{} reacted {} to your issue",
+                    actor_name(db, user_id).await,
+                    content
+                ),
+                body: Some(issue.title.clone()),
+                action_url: None,
+            },
         )
-        .await
-        {
-            tracing::warn!("Failed to notify issue author about reaction: {e}");
+        .await;
+        if outcome.failed > 0 {
+            tracing::warn!(
+                "Failed to notify issue author about reaction: {} failure(s)",
+                outcome.failed
+            );
         }
     }
 
@@ -94,21 +101,30 @@ pub async fn add_comment_reaction(
 
     // Notify the comment author (never the reactor itself).
     if comment.author_id != user_id {
-        if let Err(e) = crate::notification::notify(
+        let outcome = crate::notification::dispatch::dispatch(
             db,
-            comment.author_id,
-            "comment_reaction",
-            &format!(
-                "{} reacted {} to your comment",
-                actor_name(db, user_id).await,
-                content
-            ),
-            Some(&truncate(&comment.body, 80)),
             None,
+            crate::notification::dispatch::NotifyRequest {
+                recipients: vec![comment.author_id],
+                event_type: "comment_reaction".to_string(),
+                // A comment reaction carries no repository: the comment row does
+                // not name one, and the original notification left it empty.
+                repo_id: None,
+                title: format!(
+                    "{} reacted {} to your comment",
+                    actor_name(db, user_id).await,
+                    content
+                ),
+                body: Some(truncate(&comment.body, 80)),
+                action_url: None,
+            },
         )
-        .await
-        {
-            tracing::warn!("Failed to notify comment author about reaction: {e}");
+        .await;
+        if outcome.failed > 0 {
+            tracing::warn!(
+                "Failed to notify comment author about reaction: {} failure(s)",
+                outcome.failed
+            );
         }
     }
 

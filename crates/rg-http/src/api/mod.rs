@@ -53,6 +53,7 @@ pub mod labels;
 pub mod lfs;
 pub mod mfa;
 pub mod mirrors;
+pub mod notification_prefs;
 pub mod notifications;
 pub mod orgs;
 pub mod packages;

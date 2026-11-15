@@ -62,6 +62,7 @@ pub mod mfa_backup_code;
 pub mod milestone;
 pub mod mirror;
 pub mod notification;
+pub mod notification_preference;
 pub mod oauth_account;
 pub mod oci_blob;
 pub mod oci_manifest;

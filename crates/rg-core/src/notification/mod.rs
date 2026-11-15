@@ -1,11 +1,21 @@
 //! Notification service — create and manage user notifications.
+//!
+//! Business code should not call [`notify`] directly: it writes a row
+//! unconditionally. Use [`dispatch::dispatch`], the single exit that honours the
+//! recipient's notification preferences and can also send the email channel.
 
 use crate::error::CoreResult;
 use sea_orm::DatabaseConnection;
 
 use rg_db::ops::notification_ops;
 
-/// Create a notification for a user.
+pub mod dispatch;
+
+/// Create a notification for a user, unconditionally.
+///
+/// Low level: no preference check, no email. Prefer
+/// [`dispatch::dispatch`] in business code; this remains for tests and for
+/// callers that already decided the row must exist.
 pub async fn notify(
     db: &DatabaseConnection,
     user_id: i64,
@@ -92,6 +102,12 @@ pub async fn delete_notification_for_user(
 // ── Watch notification helpers ─────────────────────────────────────────
 
 /// Notify all watchers of a repository about an event.
+///
+/// Goes through [`dispatch::dispatch`] so a watcher who muted this event type
+/// (globally or for this repository) does not get the row. No mailer is
+/// threaded in here on purpose: watcher fan-out is the highest-volume path in
+/// the product and every watcher is subscribed to mail by default, so wiring a
+/// mailer here would start mass-mailing. Pass `None` and keep it quiet.
 pub async fn notify_watchers(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -112,28 +128,31 @@ pub async fn notify_watchers(
             .ok()
             .flatten()
     };
-    for watcher in watchers {
-        // Don't notify the author themselves
-        if let Some(ref author) = author_opt {
-            if author.id == watcher.user_id {
-                continue;
-            }
-        }
-        if let Err(e) = notification_ops::create_notification(
-            db,
-            watcher.user_id,
-            notification_type,
-            title,
-            body.as_deref(),
-            Some(repo_id),
-        )
-        .await
-        {
-            tracing::warn!(
-                "Failed to notify watcher {} about {notification_type}: {e}",
-                watcher.user_id
-            );
-        }
+    // Don't notify the author themselves.
+    let recipients: Vec<i64> = watchers
+        .into_iter()
+        .map(|watcher| watcher.user_id)
+        .filter(|user_id| {
+            author_opt
+                .as_ref()
+                .is_none_or(|author| author.id != *user_id)
+        })
+        .collect();
+    if recipients.is_empty() {
+        return Ok(());
     }
+    dispatch::dispatch(
+        db,
+        None,
+        dispatch::NotifyRequest {
+            recipients,
+            event_type: notification_type.to_string(),
+            repo_id: Some(repo_id),
+            title: title.to_string(),
+            body,
+            action_url: None,
+        },
+    )
+    .await;
     Ok(())
 }

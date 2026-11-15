@@ -49,22 +49,30 @@ pub async fn set_issue_assignees(
         if *user_id == actor_id {
             continue;
         }
-        if let Err(e) = crate::notification::notify(
+        let outcome = crate::notification::dispatch::dispatch(
             db,
-            *user_id,
-            "issue_assigned",
-            &format!(
-                "{} assigned you to issue #{}: {}",
-                actor_username(db, actor_id).await,
-                issue.number,
-                issue.title
-            ),
-            Some(&issue.title),
-            Some(issue.repo_id),
+            None,
+            crate::notification::dispatch::NotifyRequest {
+                recipients: vec![*user_id],
+                event_type: "issue_assigned".to_string(),
+                repo_id: Some(issue.repo_id),
+                title: format!(
+                    "{} assigned you to issue #{}: {}",
+                    actor_username(db, actor_id).await,
+                    issue.number,
+                    issue.title
+                ),
+                body: Some(issue.title.clone()),
+                action_url: None,
+            },
         )
-        .await
-        {
-            tracing::warn!("Failed to notify assignee {}: {e}", resolved_names[idx]);
+        .await;
+        if outcome.failed > 0 {
+            tracing::warn!(
+                "Failed to notify assignee {}: {} failure(s)",
+                resolved_names[idx],
+                outcome.failed
+            );
         }
     }
 

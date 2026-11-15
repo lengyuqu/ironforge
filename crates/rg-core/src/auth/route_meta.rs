@@ -409,6 +409,8 @@ pub const ROUTES: &[RouteMeta] = &[
     user("/notifications/mark-all-read"),
     user("/notifications/{id}/read"),
     user("/notifications/{id}"),
+    // Notification preferences (#19 step 5): the caller's own settings.
+    user("/user/notification-preferences"),
     repo("/repos/{owner}/{name}/star"),
     repo("/repos/{owner}/{name}/starred"),
     repo("/repos/{owner}/{name}/stargazers"),
@@ -740,7 +742,11 @@ pub fn family_scope(is_read: bool, path: &str) -> Option<&'static str> {
     }
 
     // The authenticated user's own account, notifications and session.
+    // `/user/` is the singular "the caller" family introduced by the
+    // notification-preferences route (#19 step 5); it is matched with the
+    // trailing slash so it cannot shadow `/users`.
     if path.starts_with("/users")
+        || path.starts_with("/user/")
         || path == "/agents"
         || path.starts_with("/agents/")
         || path.starts_with("/notifications")

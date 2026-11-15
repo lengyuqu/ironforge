@@ -170,24 +170,37 @@ pub async fn question_asked(
     );
     let mut notified = Vec::new();
     for user_id in people {
-        match crate::notification::notify(
+        let outcome = crate::notification::dispatch::dispatch(
             db,
-            user_id,
-            EVENT_QUESTION_ASKED,
-            &title,
-            Some(&body),
-            Some(repo.id),
+            None,
+            crate::notification::dispatch::NotifyRequest {
+                recipients: vec![user_id],
+                event_type: EVENT_QUESTION_ASKED.to_string(),
+                repo_id: Some(repo.id),
+                title: title.clone(),
+                body: Some(body.clone()),
+                action_url: None,
+            },
         )
-        .await
-        {
-            Ok(row) => notified.push(Notified {
+        .await;
+        if outcome.failed > 0 {
+            tracing::warn!(
+                question = %question.id,
                 user_id,
-                notification_id: row.id,
-            }),
-            Err(err) => {
-                tracing::warn!(question = %question.id, user_id, "collab notify: could not store notification: {err}");
-            }
+                "collab notify: could not store notification"
+            );
         }
+        // A recipient who muted this event gets no row and therefore no push,
+        // which is the point of the preference.
+        notified.extend(
+            outcome
+                .created
+                .into_iter()
+                .map(|(user_id, notification_id)| Notified {
+                    user_id,
+                    notification_id,
+                }),
+        );
     }
     notified
 }
@@ -254,25 +267,30 @@ pub async fn task_blocked(
             return Vec::new();
         }
     }
-    match crate::notification::notify(
+    let outcome = crate::notification::dispatch::dispatch(
         db,
-        user_id,
-        EVENT_TASK_BLOCKED,
-        &truncate_chars(&task.title, MAX_TITLE_CHARS),
-        Some(&body),
-        Some(repo.id),
+        None,
+        crate::notification::dispatch::NotifyRequest {
+            recipients: vec![user_id],
+            event_type: EVENT_TASK_BLOCKED.to_string(),
+            repo_id: Some(repo.id),
+            title: truncate_chars(&task.title, MAX_TITLE_CHARS),
+            body: Some(body),
+            action_url: None,
+        },
     )
-    .await
-    {
-        Ok(row) => vec![Notified {
-            user_id,
-            notification_id: row.id,
-        }],
-        Err(err) => {
-            tracing::warn!(task = %task.id, "collab notify: could not store notification: {err}");
-            Vec::new()
-        }
+    .await;
+    if outcome.failed > 0 {
+        tracing::warn!(task = %task.id, "collab notify: could not store notification");
     }
+    outcome
+        .created
+        .into_iter()
+        .map(|(user_id, notification_id)| Notified {
+            user_id,
+            notification_id,
+        })
+        .collect()
 }
 
 #[cfg(test)]
