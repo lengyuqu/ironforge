@@ -74,6 +74,7 @@ git push -u cnb HEAD
 | T07 | [#19·步骤3修正版] PR 头部漂移：旧票失效事件化 + 门禁阻断 | completed | t07-head-drift | none | `tasks/T07.md` |
 | T09 | [#39] 代码智能·结构化大纲（抽取层，不含端点） | completed | t09-outline | none | `tasks/T09.md` |
 | T10 | [#39] 代码智能·`/ai/.../map` 端点 + token 预算裁剪 | completed | t10-repo-map | T09 | `tasks/T10.md` |
+| T11 | [#18] Agent 草稿分支命名空间（TTL + 不通知 + 可跑 CI） | in_progress | t11-agent-drafts | none | `tasks/T11.md` |
 
 ## Pre-Claim Checks
 
