@@ -132,6 +132,15 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
     let config = read_ci_config(repo_path, commit_sha, ref_name, trigger_type)?;
     validate_execution_semantics(&config)?;
 
+    // 1a. A draft branch (agent draft area, #18) runs the pusher's own CI
+    // config with nobody reviewing it, so host execution is never granted —
+    // whatever the instance setting says. Deciding it here keeps every consumer
+    // of these params (`spawn_internal_runner`, the merge-queue evaluator)
+    // agreeing; `PipelineRunner::run_job` refuses again at job time. This is a
+    // security prerequisite of the draft area, not an optimisation.
+    let allow_host_execution =
+        allow_host_execution && !rg_core::repo::draft::is_draft_ref(db, repo_id, ref_name).await;
+
     // 1b. Quota (R10): agents are limited per repository before any row is
     // created. Human subjects and subject-less triggers (the push hook passes
     // `triggered_by: None`) are not limited.

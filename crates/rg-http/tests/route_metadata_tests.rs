@@ -132,6 +132,11 @@ mod legacy {
                 // Added with the apply-patch route, which holds the target
                 // branch to the token's limit the same way.
                 | ["commits", "apply-patch"]
+                // Added with the agent draft area (#18): registering a
+                // namespace moves no ref, and the handler holds the prefix to
+                // the token's own limit (`ensure_token_may_write_branch`).
+                | ["agent-drafts"]
+                | ["agent-drafts", _]
         ) || matches!(
             rest,
             ["branches", first, ..] if *first != "protection"

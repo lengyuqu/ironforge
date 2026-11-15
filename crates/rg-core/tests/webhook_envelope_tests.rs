@@ -8,8 +8,8 @@
 
 use rg_core::webhook::service::{
     create_webhook, deliver_retry_job, looks_like_envelope, redeliver, trigger_event,
-    trigger_pr_opened, trigger_release_created, trigger_tag_created, CreateWebhookRequest,
-    EVENT_SCHEMA_VERSION, HEADER_DELIVERY, HEADER_EVENT,
+    trigger_event_quietly, trigger_pr_opened, trigger_release_created, trigger_tag_created,
+    CreateWebhookRequest, EVENT_SCHEMA_VERSION, HEADER_DELIVERY, HEADER_EVENT,
 };
 use rg_db::entities::background_job::status;
 use rg_db::entities::repository;
@@ -400,6 +400,65 @@ async fn webhook_stored_payload_is_an_envelope_a_reader_can_unwrap() {
         serde_json::from_str(rows.last().unwrap().payload.as_deref().unwrap()).unwrap();
     assert!(looks_like_envelope(&stored));
     assert_eq!(stored["data"], payload);
+}
+
+/// T11: the quiet path records the same envelope and delivers nothing.
+///
+/// The agent draft area relies on exactly this split: the agent waits for its
+/// own push in `repo_events`, while no receiver, retry job or delivery row is
+/// created for it.
+#[tokio::test]
+async fn a_quiet_event_is_logged_but_never_delivered() {
+    let (db, _dir, repo_id, owner_id) = test_db().await;
+    let mut receiver = Receiver::spawn(200).await;
+    subscribe(&db, repo_id, &receiver.url(), &["push"]).await;
+
+    let payload = serde_json::json!({ "after": "abc", "pushed_by": owner_id });
+    trigger_event_quietly(&db, repo_id, "push", &payload)
+        .await
+        .unwrap();
+
+    let rows = repo_event_ops::list_after(&db, repo_id, 0, &[], 10)
+        .await
+        .unwrap();
+    let stored: Value = serde_json::from_str(
+        rows.last()
+            .expect("the event was logged")
+            .payload
+            .as_deref()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        looks_like_envelope(&stored),
+        "the quiet path writes the same envelope shape: {stored}"
+    );
+    assert_eq!(stored["data"], payload);
+    assert_eq!(stored["kind"], "push");
+
+    // Nothing was delivered, nothing was queued: no receiver request, no
+    // delivery row, no durable retry.
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(400),
+            receiver.requests.recv()
+        )
+        .await
+        .is_err(),
+        "a quiet event must not reach the receiver"
+    );
+    let hook = hook_id(&db, repo_id).await;
+    assert!(
+        webhook_ops::list_deliveries_by_webhook(&db, hook)
+            .await
+            .unwrap()
+            .is_empty(),
+        "a quiet event must not create a delivery row"
+    );
+    assert!(
+        retry_jobs(&db).await.is_empty(),
+        "a quiet event must not queue a retry"
+    );
 }
 
 // ── receiver status → retry ───────────────────────────────────────────────

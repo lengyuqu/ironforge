@@ -345,6 +345,17 @@ pub const ROUTES: &[RouteMeta] = &[
     repo("/repos/{owner}/{name}/branches/{*branch}")
         .checked()
         .idem(),
+    // The agent draft area (#18). Registering, extending and closing a
+    // namespace all decide where a branch-limited token may push, so each
+    // handler holds the prefix to the token's own limit
+    // (`ensure_token_may_write_branch`) — same rule as the branch it guards.
+    // The agent draft area (#18). Registering a namespace does not move a
+    // ref, so a branch-limited token may do it; the handler then holds the
+    // prefix to the token's own limit (`ensure_token_may_write_branch`).
+    // Extend / close do not move a ref either, and their handlers make the same
+    // check, which is what `.checked()` records.
+    repo("/repos/{owner}/{name}/agent-drafts").open(),
+    repo("/repos/{owner}/{name}/agent-drafts/{id}").checked(),
     repo("/repos/{owner}/{name}/tags"),
     repo("/repos/{owner}/{name}/commits/{sha}/signature").idem(),
     repo("/repos/{owner}/{name}/commits").checked().idem(),
