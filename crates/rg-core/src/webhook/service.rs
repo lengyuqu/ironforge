@@ -8,7 +8,7 @@
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -232,14 +232,58 @@ fn actor_id(payload: &Value) -> Option<i64> {
 /// The actor of an event, when its payload names one. Best effort: a lookup
 /// failure leaves `actor` null instead of failing the delivery.
 async fn event_actor(db: &DatabaseConnection, payload: &Value) -> Option<ActorRef> {
+    event_actor_on(db, payload).await
+}
+
+/// The actor of an event resolved through `conn` — a transaction included.
+///
+/// This carries the same rule as [`crate::agent::resolve_actors`] (the `users`
+/// row, plus the owner of an agent), expressed over any connection because the
+/// event row can be written inside a business transaction (#15, step 1).
+/// `resolve_actors` is bound to `&DatabaseConnection` and widening it is outside
+/// this task's owned paths; [`event_actor`] delegates here so the service has a
+/// single rule.
+async fn event_actor_on<C: ConnectionTrait>(conn: &C, payload: &Value) -> Option<ActorRef> {
     let id = actor_id(payload)?;
-    match crate::agent::resolve_actors(db, [id]).await {
-        Ok(mut actors) => actors.remove(&id),
+    match resolve_actor(conn, id).await {
+        Ok(actor) => actor,
         Err(error) => {
             tracing::warn!(actor_id = id, %error, "could not resolve a webhook event actor");
             None
         }
     }
+}
+
+async fn resolve_actor<C: ConnectionTrait>(conn: &C, id: i64) -> Result<Option<ActorRef>> {
+    let Some(user) = rg_db::entities::user::Entity::find_by_id(id)
+        .one(conn)
+        .await?
+    else {
+        return Ok(None);
+    };
+    if !crate::agent::is_agent(&user) {
+        return Ok(Some(ActorRef {
+            id: user.id,
+            username: user.username,
+            kind: crate::agent::KIND_HUMAN,
+            owner_id: None,
+            owner_username: None,
+        }));
+    }
+    let owner_username = match user.owner_user_id {
+        Some(owner_id) => rg_db::entities::user::Entity::find_by_id(owner_id)
+            .one(conn)
+            .await?
+            .map(|owner| owner.username),
+        None => None,
+    };
+    Ok(Some(ActorRef {
+        id: user.id,
+        username: user.username,
+        kind: crate::agent::KIND_AGENT,
+        owner_id: user.owner_user_id,
+        owner_username,
+    }))
 }
 
 // ── Event dispatch ────────────────────────────────────────────────────────
@@ -248,6 +292,10 @@ async fn event_actor(db: &DatabaseConnection, payload: &Value) -> Option<ActorRe
 ///
 /// `payload` is the business payload; it is published untouched under the
 /// envelope's `data`.
+///
+/// Two halves, one envelope: the log row and the delivered body keep the same
+/// envelope id, exactly as before the split (#15, step 1). The log write stays
+/// best effort — a log failure never failed the webhook and still does not.
 pub async fn trigger_event(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -255,8 +303,48 @@ pub async fn trigger_event(
     payload: &Value,
 ) -> Result<()> {
     let actor = event_actor(db, payload).await;
-    let envelope = EventEnvelope::new(repo_id, event, actor, payload.clone());
-    dispatch(db, repo_id, event, envelope.to_value()).await
+    let envelope = EventEnvelope::new(repo_id, event, actor, payload.clone()).to_value();
+    record_envelope(db, repo_id, event, &envelope).await;
+    deliver_envelope(db, repo_id, event, envelope).await
+}
+
+/// Record an event in the repository's log **through any connection** — a
+/// transaction included — and deliver nothing.
+///
+/// This is the half of [`trigger_event`] that has to happen inside the business
+/// transaction (#15, step 1): the issue row and its `issue.opened` event then
+/// commit or roll back together, instead of the event being written after the
+/// commit where a crash loses it forever.
+///
+/// Unlike the legacy best-effort log write, an append failure is returned: the
+/// caller's transaction must abort rather than commit a business change whose
+/// event is missing. The delivery half is [`deliver_event`], called after the
+/// commit.
+pub async fn record_event_in_txn<C: ConnectionTrait>(
+    conn: &C,
+    repo_id: i64,
+    event: &str,
+    payload: &Value,
+) -> Result<()> {
+    let actor = event_actor_on(conn, payload).await;
+    let envelope = EventEnvelope::new(repo_id, event, actor, payload.clone()).to_value();
+    append_envelope(conn, repo_id, event, &envelope).await
+}
+
+/// Deliver an event whose log row was already written by
+/// [`record_event_in_txn`]. Called after the commit.
+///
+/// Deliberately **does not** append to the log: writing it again would record
+/// the event twice and move the subscribers' cursor two steps per event.
+pub async fn deliver_event(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    event: &str,
+    payload: &Value,
+) -> Result<()> {
+    let actor = event_actor(db, payload).await;
+    let envelope = EventEnvelope::new(repo_id, event, actor, payload.clone()).to_value();
+    deliver_envelope(db, repo_id, event, envelope).await
 }
 
 /// Append an event to the repository's log **only** — no webhook, no retry job.
@@ -278,8 +366,8 @@ pub async fn record_event(
     payload: &Value,
 ) -> Result<()> {
     let actor = event_actor(db, payload).await;
-    let envelope = EventEnvelope::new(repo_id, event, actor, payload.clone());
-    record_envelope(db, repo_id, event, envelope.to_value()).await;
+    let envelope = EventEnvelope::new(repo_id, event, actor, payload.clone()).to_value();
+    record_envelope(db, repo_id, event, &envelope).await;
     Ok(())
 }
 
@@ -306,10 +394,37 @@ pub async fn trigger_event_quietly(
     record_event(db, repo_id, event, payload).await
 }
 
-/// Record one already-built envelope in the repository's event log.
-async fn record_envelope(db: &DatabaseConnection, repo_id: i64, event: &str, envelope: Value) {
-    let body = serde_json::to_string(&envelope).unwrap_or_default();
-    record_repo_event(db, repo_id, event, &body).await;
+/// Record one already-built envelope in the repository's event log, best
+/// effort: it never blocks or fails the caller, as it never did before.
+async fn record_envelope<C: ConnectionTrait>(
+    conn: &C,
+    repo_id: i64,
+    event: &str,
+    envelope: &Value,
+) {
+    if let Err(error) = append_envelope(conn, repo_id, event, envelope).await {
+        tracing::warn!(repo_id, %event, %error, "failed to record a repository event");
+    }
+}
+
+/// Append one already-built envelope to the log through `conn`, replacing an
+/// oversized body with a stub that says so. Errors are returned: a caller inside
+/// a transaction wants them, the legacy best-effort path swallows them.
+async fn append_envelope<C: ConnectionTrait>(
+    conn: &C,
+    repo_id: i64,
+    event: &str,
+    envelope: &Value,
+) -> Result<()> {
+    let text = serde_json::to_string(envelope).unwrap_or_default();
+    let stored = if text.len() <= MAX_EVENT_PAYLOAD_BYTES {
+        text
+    } else {
+        serde_json::json!({ "truncated": true, "original_bytes": text.len() }).to_string()
+    };
+    let event: String = event.chars().take(64).collect();
+    rg_db::ops::repo_event_ops::append(conn, repo_id, &event, Some(&stored)).await?;
+    Ok(())
 }
 
 /// Publish one already-built envelope: append it to the event log, then deliver
@@ -320,12 +435,24 @@ async fn dispatch(
     event: &str,
     envelope: Value,
 ) -> Result<()> {
-    let body = serde_json::to_string(&envelope).unwrap_or_default();
+    record_envelope(db, repo_id, event, &envelope).await;
+    deliver_envelope(db, repo_id, event, envelope).await
+}
 
-    // Every event is also appended to the repository's event log, for
-    // subscribers that cannot receive a webhook. Best effort: it never blocks or
-    // fails the webhook.
-    record_envelope(db, repo_id, event, envelope).await;
+/// Deliver one already-built envelope to every active hook of the repository.
+///
+/// Never touches the event log: the row was written by the caller (the log half
+/// of [`trigger_event`], or [`record_event_in_txn`] before the commit). Keeping
+/// the two apart is what lets the log write happen inside a transaction while
+/// the delivery stays outside it — and what keeps the log row and the delivered
+/// body sharing one envelope.
+async fn deliver_envelope(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    event: &str,
+    envelope: Value,
+) -> Result<()> {
+    let body = serde_json::to_string(&envelope).unwrap_or_default();
 
     let hooks = webhook_ops::list_active_by_repo_and_event(db, repo_id, event).await?;
 
@@ -447,19 +574,6 @@ fn retryable_status(status: i32) -> bool {
 /// Largest payload kept in the event log. A bigger one is replaced by a stub
 /// saying so, so the log stays small and a reader knows to fetch the object.
 const MAX_EVENT_PAYLOAD_BYTES: usize = 16 * 1024;
-
-async fn record_repo_event(db: &DatabaseConnection, repo_id: i64, event: &str, text: &str) {
-    let stored = if text.len() <= MAX_EVENT_PAYLOAD_BYTES {
-        text.to_string()
-    } else {
-        serde_json::json!({ "truncated": true, "original_bytes": text.len() }).to_string()
-    };
-    let event: String = event.chars().take(64).collect();
-    if let Err(error) = rg_db::ops::repo_event_ops::append(db, repo_id, &event, Some(&stored)).await
-    {
-        tracing::warn!(repo_id, %event, %error, "failed to record a repository event");
-    }
-}
 
 /// Shared HTTP client for webhook deliveries.
 ///
