@@ -334,6 +334,8 @@ pub struct PaginatedRepoResponse {
         crate::api::notifications::mark_read,
         crate::api::notifications::mark_all_read,
         crate::api::notifications::delete_notification,
+        crate::api::notification_prefs::list_preferences,
+        crate::api::notification_prefs::update_preferences,
         // Search
         crate::api::search::search,
         // Branch Protection

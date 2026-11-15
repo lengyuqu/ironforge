@@ -1588,6 +1588,14 @@ fn build_routes(
             "/notifications/{id}",
             delete(api::notifications::delete_notification),
         )
+        // Notification preferences (#19 step 5): what the caller is subscribed
+        // to, and the batch override writer. `in_app` / `email` per event type,
+        // globally or for one repository.
+        .route(
+            "/user/notification-preferences",
+            get(api::notification_prefs::list_preferences)
+                .put(api::notification_prefs::update_preferences),
+        )
         // Star/Watch
         .route("/repos/{owner}/{name}/star", put(api::repos::star_repo))
         .route(
@@ -3660,30 +3668,48 @@ async fn post_push_hooks(
                             }),
                         );
 
-                        // Send email notification if SMTP is configured
+                        // Send the CI email through the notification exit (#19
+                        // step 5). Email only: this path never wrote an in-app
+                        // notification, so routing it through `dispatch` would
+                        // add a bell row per pipeline — a behaviour change.
+                        // The recipient's `ci_triggered` / `email` preference
+                        // now decides whether the mail goes out.
                         if let Some(smtp) = smtp_config {
-                            if let Ok(Some(owner_user)) =
-                                rg_db::ops::user_ops::find_by_id(db, repo_owner_id).await
-                            {
-                                let subject = format!(
-                                    "[IronForge] CI pipeline #{} triggered for {}/{}",
-                                    pipeline_id, owner, repo_name
-                                );
-                                let body = format!(
-                                    "A CI pipeline has been triggered for repository {}/{} on branch {}.<br/><br/>Commit: {}<br/>Pipeline ID: {}",
-                                    owner, repo_name, update.refname, update.new_sha, pipeline_id
-                                );
-                                if let Err(e) = rg_core::email::send_html_notification(
-                                    smtp,
-                                    &owner_user.email,
-                                    &subject,
-                                    &body,
-                                    None,
-                                )
+                            let owner_user = rg_db::ops::user_ops::find_by_id(db, repo_owner_id)
                                 .await
-                                {
-                                    tracing::warn!(error = %e, "Failed to send CI notification email");
-                                    // QUEUE-001: durable retry instead of dropping the email.
+                                .ok()
+                                .flatten();
+                            let subject = format!(
+                                "[IronForge] CI pipeline #{} triggered for {}/{}",
+                                pipeline_id, owner, repo_name
+                            );
+                            // The shared notification template escapes its body,
+                            // so inline `<br/>` would be printed literally;
+                            // newlines carry the same words.
+                            let body = format!(
+                                "A CI pipeline has been triggered for repository {}/{} on branch {}.\n\nCommit: {}\nPipeline ID: {}",
+                                owner, repo_name, update.refname, update.new_sha, pipeline_id
+                            );
+                            let outcome = rg_core::notification::dispatch::dispatch_email_only(
+                                db,
+                                Some(smtp),
+                                rg_core::notification::dispatch::NotifyRequest {
+                                    recipients: vec![repo_owner_id],
+                                    event_type: "ci_triggered".to_string(),
+                                    repo_id: Some(repo_id),
+                                    title: subject.clone(),
+                                    body: Some(body.clone()),
+                                    action_url: None,
+                                },
+                            )
+                            .await;
+                            if outcome.failed > 0 {
+                                tracing::warn!(
+                                    failed = outcome.failed,
+                                    "Failed to send CI notification email"
+                                );
+                                // QUEUE-001: durable retry instead of dropping the email.
+                                if let Some(owner_user) = owner_user {
                                     let queue = rg_core::background_jobs::BackgroundJobQueue::new(
                                         (*db).clone(),
                                     );

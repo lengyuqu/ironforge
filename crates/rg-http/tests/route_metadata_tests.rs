@@ -48,6 +48,9 @@ mod legacy {
             return Some("admin");
         }
         if path.starts_with("/users")
+            // The singular `/user/` family (notification preferences, #19
+            // step 5). The trailing slash keeps `/users` in charge of the rest.
+            || path.starts_with("/user/")
             || path == "/agents"
             || path.starts_with("/agents/")
             || path.starts_with("/notifications")
