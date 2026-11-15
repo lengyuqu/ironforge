@@ -349,18 +349,40 @@ pub async fn poll_job(
                         variables.remove(reserved);
                     }
                     if let Some(pipeline) = &pipeline {
-                        match decrypted_repo_secrets(&state, pipeline.repo_id).await {
-                            Ok(secrets) => {
-                                for (name, value) in secrets {
-                                    variables.insert(name, serde_json::json!(value));
+                        // A draft branch (#18) runs the pusher's own CI config
+                        // unreviewed, so the repository's secrets are never sent
+                        // to a runner for it. This is the external-runner half
+                        // of the gate `PipelineRunner::job_environment` holds
+                        // for the internal one: with `external_runners = true`
+                        // that runner does not run at all (R18-7), so guarding
+                        // only there would leave the hole open. The whole
+                        // injection is skipped, not a per-secret filter.
+                        if rg_core::repo::draft::is_draft_ref(
+                            &state.db,
+                            pipeline.repo_id,
+                            &pipeline.ref_name,
+                        )
+                        .await
+                        {
+                            tracing::info!(
+                                pipeline_id,
+                                ref_name = %pipeline.ref_name,
+                                "draft branch: no repository secrets are sent to the runner"
+                            );
+                        } else {
+                            match decrypted_repo_secrets(&state, pipeline.repo_id).await {
+                                Ok(secrets) => {
+                                    for (name, value) in secrets {
+                                        variables.insert(name, serde_json::json!(value));
+                                    }
                                 }
-                            }
-                            Err(error) => {
-                                tracing::error!(pipeline_id, %error, "failed to load CI secrets for external runner");
-                                return Err(AppError::internal(
-                                    "failed to prepare job environment",
-                                )
-                                .into_response());
+                                Err(error) => {
+                                    tracing::error!(pipeline_id, %error, "failed to load CI secrets for external runner");
+                                    return Err(AppError::internal(
+                                        "failed to prepare job environment",
+                                    )
+                                    .into_response());
+                                }
                             }
                         }
                     }

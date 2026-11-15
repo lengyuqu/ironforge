@@ -1,3 +1,4 @@
+pub mod agent_draft_ops;
 pub mod agent_session_ops;
 pub mod artifact_ops;
 pub mod attachment_ops;

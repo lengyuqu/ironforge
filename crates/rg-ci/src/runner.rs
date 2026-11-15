@@ -482,6 +482,22 @@ impl PipelineRunner {
             .and_then(|seconds| u64::try_from(seconds).ok())
             .unwrap_or(self.job_timeout_secs)
             .min(86_400);
+        // A draft branch (agent draft area, #18) is written by the party whose
+        // CI config runs here, and no one reviews it. Host execution is never
+        // granted there, whatever `ci.allow_host_execution` says: the setting is
+        // about a repository its owners trust, and a draft is not that.
+        let draft_ref = match pipeline_ops::get_pipeline(&self.db, self.pipeline_id).await? {
+            Some(pipeline) => {
+                rg_core::repo::draft::is_draft_ref(&self.db, pipeline.repo_id, &pipeline.ref_name)
+                    .await
+            }
+            None => false,
+        };
+        if image.is_none() && draft_ref {
+            let msg = "Job has no `image` and this branch is an agent draft; draft CI runs in a container only (host execution is never granted to a draft branch).";
+            tracing::warn!(job_id, "{}", msg);
+            return Err(anyhow::anyhow!("{}", msg));
+        }
         // A job with no `image` would run `sh -c <script>` directly on the
         // server host. That script is repository content, so executing it is
         // remote code execution as the server user. It is refused unless the
@@ -741,7 +757,21 @@ impl PipelineRunner {
             }
         }
         if self.repo_id > 0 {
-            if let Some(jwt_secret) = &self.jwt_secret {
+            // A draft branch is written by the party whose CI config runs here,
+            // and nobody reviews a draft. Injecting the repository's secrets
+            // into a job whose script the pusher chose would hand every secret
+            // to that pusher (T11, issue #18). This is not a filter on which
+            // secret: the whole injection is skipped.
+            let draft =
+                rg_core::repo::draft::is_draft_ref(&self.db, self.repo_id, &pipeline.ref_name)
+                    .await;
+            if draft {
+                tracing::info!(
+                    pipeline_id = self.pipeline_id,
+                    ref_name = %pipeline.ref_name,
+                    "draft branch: no repository secrets are injected"
+                );
+            } else if let Some(jwt_secret) = &self.jwt_secret {
                 let key = rg_core::auth::encryption::derive_key(jwt_secret);
                 for secret in
                     rg_db::ops::ci_secret_ops::list_by_repo(&self.db, self.repo_id).await?
@@ -1853,5 +1883,194 @@ mod tests {
         let committer = repo.committer().unwrap().unwrap();
         assert_eq!(committer.name, "Real Person");
         assert_eq!(committer.email, "real@example.com");
+    }
+    /// #18 / T11: the draft area's security prerequisite.
+    ///
+    /// A draft branch runs the pusher's own CI config with nobody reviewing it,
+    /// so its jobs get **no** repository secrets and **no** host execution —
+    /// even when the instance enables host execution for everything else. Both
+    /// halves are asserted against a control pipeline on `main`, so a regression
+    /// that switched the feature off wholesale would fail here too.
+    #[tokio::test]
+    async fn a_draft_branch_gets_no_secrets_and_no_host_execution() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = rg_db::connect(&format!(
+            "sqlite://{}?mode=rwc",
+            temp.path().join("draft-ci.db").display()
+        ))
+        .await
+        .unwrap();
+        rg_db::run_migrations(&db).await.unwrap();
+        let user = rg_db::ops::user_ops::create_user(
+            &db,
+            "draft-ci",
+            "draft-ci@example.com",
+            "unused",
+            "Draft CI",
+        )
+        .await
+        .unwrap();
+        let now = chrono::Utc::now();
+        let repo = rg_db::ops::repo_ops::create(
+            &db,
+            rg_db::entities::repository::ActiveModel {
+                id: NotSet,
+                owner_id: Set(user.id),
+                name: Set("drafts".into()),
+                description: Set(None),
+                is_private: Set(true),
+                default_branch: Set("main".into()),
+                fork_id: Set(None),
+                stars_count: Set(0),
+                forks_count: Set(0),
+                org_id: Set(None),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+                origin_repo_id: Set(None),
+            },
+        )
+        .await
+        .unwrap();
+        let repo_path = temp.path().join("repos/draft-ci/drafts.git");
+        std::fs::create_dir_all(&repo_path).unwrap();
+        let git = rg_git::cli_gateway::global_gateway().as_ref().unwrap();
+        for args in [
+            &["init"][..],
+            &["config", "user.name", "CI Test"][..],
+            &["config", "user.email", "ci@example.com"][..],
+        ] {
+            assert!(git.run(args, Some(&repo_path)).unwrap().success());
+        }
+        std::fs::write(repo_path.join("README.md"), "workspace").unwrap();
+        assert!(git
+            .run(&["add", "README.md"], Some(&repo_path))
+            .unwrap()
+            .success());
+        assert!(git
+            .run(&["commit", "-m", "initial"], Some(&repo_path))
+            .unwrap()
+            .success());
+        let commit_sha = git
+            .run(&["rev-parse", "HEAD"], Some(&repo_path))
+            .unwrap()
+            .stdout_str()
+            .trim()
+            .to_owned();
+
+        // One secret, and a draft namespace for this repository.
+        let jwt_secret = "draft-encryption-key";
+        let encrypted = rg_core::auth::encryption::encrypt(
+            "super-secret-value",
+            &rg_core::auth::encryption::derive_key(jwt_secret),
+        )
+        .unwrap();
+        rg_db::ops::ci_secret_ops::upsert(&db, repo.id, "DEPLOY_SECRET", &encrypted, user.id)
+            .await
+            .unwrap();
+        let prefix = format!("agent/{}/", user.id);
+        rg_db::ops::agent_draft_ops::create(
+            &db,
+            repo.id,
+            &prefix,
+            user.id,
+            3600,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+            60,
+        )
+        .await
+        .unwrap();
+
+        // 1. The environment of a draft job carries no secret at all.
+        let draft_pipeline = rg_db::ops::pipeline_ops::create_pipeline(
+            &db,
+            repo.id,
+            &commit_sha,
+            &format!("refs/heads/{prefix}probe"),
+            "push",
+            Some(user.id),
+        )
+        .await
+        .unwrap();
+        let mut runner = PipelineRunner::new_local_only(db.clone(), &repo_path, draft_pipeline.id);
+        runner.set_repo_id(repo.id);
+        runner.set_jwt_secret(jwt_secret.into());
+        let (draft_env, draft_secret_values) = runner.job_environment(None, None).await.unwrap();
+        assert!(
+            !draft_env.iter().any(|(name, _)| name == "DEPLOY_SECRET"),
+            "a draft job must not receive repository secrets: {draft_env:?}"
+        );
+        assert!(
+            draft_secret_values.is_empty(),
+            "nothing has to be masked because nothing was injected"
+        );
+
+        // Control: the same pipeline on `main` does get it, so the gate is the
+        // ref and not "secrets are off".
+        let main_pipeline = rg_db::ops::pipeline_ops::create_pipeline(
+            &db,
+            repo.id,
+            &commit_sha,
+            "refs/heads/main",
+            "push",
+            Some(user.id),
+        )
+        .await
+        .unwrap();
+        let mut main_runner =
+            PipelineRunner::new_local_only(db.clone(), &repo_path, main_pipeline.id);
+        main_runner.set_repo_id(repo.id);
+        main_runner.set_jwt_secret(jwt_secret.into());
+        let (main_env, main_secret_values) = main_runner.job_environment(None, None).await.unwrap();
+        assert!(
+            main_env
+                .iter()
+                .any(|(name, value)| name == "DEPLOY_SECRET" && value == "super-secret-value"),
+            "an ordinary branch still gets its secret: {main_env:?}"
+        );
+        assert_eq!(main_secret_values, vec!["super-secret-value".to_string()]);
+
+        // 2. A draft job with no image never runs on the host, even though the
+        //    runner was told host execution is allowed.
+        let stage = rg_db::ops::pipeline_ops::create_stage(&db, draft_pipeline.id, "test", 0)
+            .await
+            .unwrap();
+        let job = rg_db::ops::pipeline_ops::create_job(
+            &db,
+            stage.id,
+            "host-execution-probe",
+            "echo should-not-run",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let mut draft_runner =
+            PipelineRunner::new_local_only(db.clone(), &repo_path, draft_pipeline.id);
+        draft_runner.set_repo_id(repo.id);
+        draft_runner.set_jwt_secret(jwt_secret.into());
+        draft_runner.set_allow_host_execution(true);
+        draft_runner.run().await.unwrap();
+        let completed = rg_db::ops::pipeline_ops::get_job(&db, job.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(completed.status, "failed");
+        let log = completed.log.unwrap_or_default();
+        assert!(
+            log.contains("agent draft") && log.contains("container only"),
+            "the refusal must name the draft rule: {log}"
+        );
+        assert!(
+            !log.to_lowercase().contains("should-not-run"),
+            "the script must never have executed: {log}"
+        );
     }
 }

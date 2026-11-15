@@ -259,6 +259,59 @@ pub async fn trigger_event(
     dispatch(db, repo_id, event, envelope.to_value()).await
 }
 
+/// Append an event to the repository's log **only** — no webhook, no retry job.
+///
+/// This is the log half of [`trigger_event`], split out (T11) because the agent
+/// draft area has to be silent towards people while still being observable to
+/// the agent: `wait_repo_events` must see the push, no receiver may be woken by
+/// it. Callers that mean "a webhook event the log also records" keep using
+/// [`trigger_event`]; callers that mean "record this, deliver nothing" use this
+/// or [`trigger_event_quietly`].
+///
+/// The envelope is the same one the delivered event would carry, so a reader
+/// cannot tell a quiet event from a delivered one by shape — only by the absence
+/// of `webhook_deliveries` rows.
+pub async fn record_event(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    event: &str,
+    payload: &Value,
+) -> Result<()> {
+    let actor = event_actor(db, payload).await;
+    let envelope = EventEnvelope::new(repo_id, event, actor, payload.clone());
+    record_envelope(db, repo_id, event, envelope.to_value()).await;
+    Ok(())
+}
+
+/// Trigger an event that is deliberately **not** delivered to any webhook.
+///
+/// Identical to [`record_event`] in effect; the separate name is the point. A
+/// delivery channel added to [`trigger_event`] later must be considered here
+/// explicitly, where a `deliver: false` flag threaded through one function would
+/// make it easy to switch off a channel that the quiet path never chose to
+/// suppress (and, worse, to leave a new channel on for events that were meant to
+/// be silent). Read this as "this event *would* have been delivered, and the
+/// suppression is intentional".
+pub async fn trigger_event_quietly(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    event: &str,
+    payload: &Value,
+) -> Result<()> {
+    tracing::debug!(
+        repo_id,
+        event,
+        "webhook event recorded without delivery (draft namespace)"
+    );
+    record_event(db, repo_id, event, payload).await
+}
+
+/// Record one already-built envelope in the repository's event log.
+async fn record_envelope(db: &DatabaseConnection, repo_id: i64, event: &str, envelope: Value) {
+    let body = serde_json::to_string(&envelope).unwrap_or_default();
+    record_repo_event(db, repo_id, event, &body).await;
+}
+
 /// Publish one already-built envelope: append it to the event log, then deliver
 /// it to every active hook of the repository.
 async fn dispatch(
@@ -272,7 +325,7 @@ async fn dispatch(
     // Every event is also appended to the repository's event log, for
     // subscribers that cannot receive a webhook. Best effort: it never blocks or
     // fails the webhook.
-    record_repo_event(db, repo_id, event, &body).await;
+    record_envelope(db, repo_id, event, envelope).await;
 
     let hooks = webhook_ops::list_active_by_repo_and_event(db, repo_id, event).await?;
 

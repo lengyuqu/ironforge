@@ -279,6 +279,18 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
             }
         },
     ));
+    // Agent draft area (#18): close expired namespaces' gates, then delete the
+    // branches whose grace period is over.
+    tokio::spawn(rg_core::task_supervisor::supervise(
+        "agent_drafts.cleanup",
+        {
+            let state = state.clone();
+            move || {
+                let state = state.clone();
+                async move { api::drafts::run_cleanup_loop(state).await }
+            }
+        },
+    ));
 
     // QUEUE-001: durable background job worker (webhook/email retries,
     // periodic mirror sync).
@@ -1352,6 +1364,15 @@ fn build_routes(
         .route(
             "/repos/{owner}/{name}/tags/protection",
             get(api::tag_protection::list).post(api::tag_protection::create),
+        )
+        // Agent draft area (#18): TTL, no notifications, still runs CI.
+        .route(
+            "/repos/{owner}/{name}/agent-drafts",
+            get(api::drafts::list).post(api::drafts::create),
+        )
+        .route(
+            "/repos/{owner}/{name}/agent-drafts/{id}",
+            patch(api::drafts::extend).delete(api::drafts::delete),
         )
         .route(
             "/repos/{owner}/{name}/tags/protection/{id}",
@@ -3035,6 +3056,32 @@ async fn handle_git_receive_pack(
     let mut rejected_refs =
         rg_core::branch_protection::service::direct_push_rejections(&protection_rules, actor_id);
     rejected_refs.extend(tag_protection_rejected_refs(tag_protection_rules, actor_id));
+    // The agent draft area (#18): a namespace whose gate is closed (expired, or
+    // cleaned up) refuses pushes to its directory — that is the "close first,
+    // delete later" half of the TTL. An open namespace refuses only the
+    // directory itself, which is not a branch.
+    //
+    // A failed lookup refuses the push rather than letting it through: the
+    // namespace is what says whether the agent may write here, so "we could not
+    // tell" must not read as "yes".
+    let draft_namespaces =
+        match rg_db::ops::agent_draft_ops::list_by_repo(&state.db, repo_model.id).await {
+            Ok(namespaces) => namespaces,
+            Err(error) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    [(
+                        header::CONTENT_TYPE,
+                        "application/x-git-receive-pack-result",
+                    )],
+                    Body::from(format!("failed to load draft namespaces: {:#}", error)),
+                );
+            }
+        };
+    rejected_refs.extend(rg_core::repo::draft::push_rejections(
+        &draft_namespaces,
+        chrono::Utc::now(),
+    ));
     // `git push --delete` runs the same policy as
     // `DELETE /repos/{o}/{n}/branches/{x}`: the branch limit, the default
     // branch, protection rules and open pull requests. The guard owns the
@@ -3083,14 +3130,30 @@ async fn handle_git_receive_pack(
                                 )
                                 .await;
                             }
-                            if let Err(error) = rg_core::webhook::service::trigger_branch_deleted(
-                                &db,
-                                repo.id,
-                                &report.branch,
+                            // `post_push_hooks` cannot suppress this one: the
+                            // delete happens in this guard, before it runs, and
+                            // a `git push --delete` of a draft branch would
+                            // otherwise deliver the very `branch.deleted` the
+                            // draft area exists to hide (#18, R18-5).
+                            let deleted_ref = format!("refs/heads/{}", report.branch);
+                            let is_draft = rg_core::repo::draft::find_namespace(
+                                &db, repo.id, &deleted_ref,
                             )
                             .await
-                            {
-                                tracing::warn!(%error, "branch.deleted webhook failed");
+                            .ok()
+                            .flatten()
+                            .is_some();
+                            if !is_draft {
+                                if let Err(error) =
+                                    rg_core::webhook::service::trigger_branch_deleted(
+                                        &db,
+                                        repo.id,
+                                        &report.branch,
+                                    )
+                                    .await
+                                {
+                                    tracing::warn!(%error, "branch.deleted webhook failed");
+                                }
                             }
                             Ok(())
                         }
@@ -3443,9 +3506,21 @@ async fn post_push_hooks(
             continue;
         }
 
+        // The agent draft area (#18): a branch under a registered draft
+        // namespace is pushed by an agent whose work nobody has reviewed yet.
+        // It runs CI and lands in `repo_events` (the agent waits for its own
+        // push there), but it must not wake anyone: no push webhook, no branch
+        // webhook, no WebSocket fan-out, no mail.
+        let is_draft = rg_core::repo::draft::find_namespace(db, repo_id, &update.refname)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+
         tracing::info!(
             refname = %update.refname,
             new_sha = %update.new_sha,
+            draft = is_draft,
             "Post-push: triggering hooks"
         );
 
@@ -3552,69 +3627,84 @@ async fn post_push_hooks(
                     triggered_by: *pushed_by,
                     docker_enabled: *docker_enabled,
                     external_runners: *external_runners,
-                    allow_host_execution: *allow_host_execution,
+                    // A draft branch never gets host execution (#18): its CI
+                    // config is the pusher's own, and no one reviews a draft.
+                    allow_host_execution: *allow_host_execution && !is_draft,
                     jwt_secret: Some(jwt_secret),
                     external_url: *external_url,
                 })
                 .await
             {
                 Ok(pipeline_id) => {
-                    tracing::info!(pipeline_id, "CI pipeline triggered");
+                    tracing::info!(pipeline_id, draft = is_draft, "CI pipeline triggered");
 
-                    // Push real-time notification to repo owner
-                    ws::push_notification(
-                        notification_hub,
-                        repo_owner_id,
-                        "ci_triggered",
-                        serde_json::json!({
-                            "pipeline_id": pipeline_id,
-                            "repo": format!("{}/{}", owner, repo_name),
-                            "ref": update.refname,
-                            "commit": update.new_sha,
-                        }),
-                    );
+                    if is_draft {
+                        // The pipeline exists and will run; the human-facing
+                        // channels stay quiet (§5.3 of the design).
+                        tracing::debug!(
+                            pipeline_id,
+                            refname = %update.refname,
+                            "draft branch: no CI notification or email"
+                        );
+                    } else {
+                        // Push real-time notification to repo owner
+                        ws::push_notification(
+                            notification_hub,
+                            repo_owner_id,
+                            "ci_triggered",
+                            serde_json::json!({
+                                "pipeline_id": pipeline_id,
+                                "repo": format!("{}/{}", owner, repo_name),
+                                "ref": update.refname,
+                                "commit": update.new_sha,
+                            }),
+                        );
 
-                    // Send email notification if SMTP is configured
-                    if let Some(smtp) = smtp_config {
-                        if let Ok(Some(owner_user)) =
-                            rg_db::ops::user_ops::find_by_id(db, repo_owner_id).await
-                        {
-                            let subject = format!(
-                                "[IronForge] CI pipeline #{} triggered for {}/{}",
-                                pipeline_id, owner, repo_name
-                            );
-                            let body = format!(
-                                "A CI pipeline has been triggered for repository {}/{} on branch {}.<br/><br/>Commit: {}<br/>Pipeline ID: {}",
-                                owner, repo_name, update.refname, update.new_sha, pipeline_id
-                            );
-                            if let Err(e) = rg_core::email::send_html_notification(
-                                smtp,
-                                &owner_user.email,
-                                &subject,
-                                &body,
-                                None,
-                            )
-                            .await
+                        // Send email notification if SMTP is configured
+                        if let Some(smtp) = smtp_config {
+                            if let Ok(Some(owner_user)) =
+                                rg_db::ops::user_ops::find_by_id(db, repo_owner_id).await
                             {
-                                tracing::warn!(error = %e, "Failed to send CI notification email");
-                                // QUEUE-001: durable retry instead of dropping the email.
-                                let queue = rg_core::background_jobs::BackgroundJobQueue::new(
-                                    (*db).clone(),
+                                let subject = format!(
+                                    "[IronForge] CI pipeline #{} triggered for {}/{}",
+                                    pipeline_id, owner, repo_name
                                 );
-                                let payload = serde_json::json!({
-                                    "to": owner_user.email,
-                                    "subject": subject,
-                                    "message": body,
-                                    "action_url": null,
-                                });
-                                if let Err(retry_err) = queue
-                                    .enqueue(rg_core::background_jobs::TASK_EMAIL_SEND, &payload)
-                                    .await
+                                let body = format!(
+                                    "A CI pipeline has been triggered for repository {}/{} on branch {}.<br/><br/>Commit: {}<br/>Pipeline ID: {}",
+                                    owner, repo_name, update.refname, update.new_sha, pipeline_id
+                                );
+                                if let Err(e) = rg_core::email::send_html_notification(
+                                    smtp,
+                                    &owner_user.email,
+                                    &subject,
+                                    &body,
+                                    None,
+                                )
+                                .await
                                 {
-                                    tracing::error!(
-                                        error = %retry_err,
-                                        "failed to enqueue CI notification email retry"
+                                    tracing::warn!(error = %e, "Failed to send CI notification email");
+                                    // QUEUE-001: durable retry instead of dropping the email.
+                                    let queue = rg_core::background_jobs::BackgroundJobQueue::new(
+                                        (*db).clone(),
                                     );
+                                    let payload = serde_json::json!({
+                                        "to": owner_user.email,
+                                        "subject": subject,
+                                        "message": body,
+                                        "action_url": null,
+                                    });
+                                    if let Err(retry_err) = queue
+                                        .enqueue(
+                                            rg_core::background_jobs::TASK_EMAIL_SEND,
+                                            &payload,
+                                        )
+                                        .await
+                                    {
+                                        tracing::error!(
+                                            error = %retry_err,
+                                            "failed to enqueue CI notification email retry"
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -3638,14 +3728,27 @@ async fn post_push_hooks(
             },
         });
 
-        if let Err(e) =
+        // A draft push is still an event the agent can wait on
+        // (`GET /repos/.../events`); it is simply not delivered to anyone.
+        let push_event = if is_draft {
+            rg_core::webhook::service::trigger_event_quietly(db, repo_id, "push", &payload).await
+        } else {
             rg_core::webhook::service::trigger_event(db, repo_id, "push", &payload).await
-        {
+        };
+        if let Err(e) = push_event {
             tracing::warn!(error = %e, "Failed to trigger push webhook");
         }
 
-        // 3. Trigger branch/tag-specific webhooks
-        if let Some(branch_name) = update.refname.strip_prefix("refs/heads/") {
+        // 3. Trigger branch/tag-specific webhooks. A draft branch produces
+        // neither: `branch.created` / `branch.deleted` are exactly the
+        // human-facing notifications the area exists to suppress (and the
+        // design keeps them out of the event log too).
+        if is_draft {
+            tracing::debug!(
+                refname = %update.refname,
+                "draft branch: no branch/tag webhook"
+            );
+        } else if let Some(branch_name) = update.refname.strip_prefix("refs/heads/") {
             if update.old_sha.is_empty()
                 || update.old_sha == "0000000000000000000000000000000000000000"
             {
@@ -3701,17 +3804,20 @@ async fn post_push_hooks(
             }
         }
 
-        // Push real-time notification for push event
-        ws::push_notification(
-            notification_hub,
-            repo_owner_id,
-            "push",
-            serde_json::json!({
-                "repo": format!("{}/{}", owner, repo_name),
-                "ref": update.refname,
-                "commit": update.new_sha,
-            }),
-        );
+        // Push real-time notification for push event. A draft push is silent
+        // here as well: the agent already has what it needs in the event log.
+        if !is_draft {
+            ws::push_notification(
+                notification_hub,
+                repo_owner_id,
+                "push",
+                serde_json::json!({
+                    "repo": format!("{}/{}", owner, repo_name),
+                    "ref": update.refname,
+                    "commit": update.new_sha,
+                }),
+            );
+        }
     }
 }
 
