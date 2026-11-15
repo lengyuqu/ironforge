@@ -75,6 +75,7 @@ git push -u cnb HEAD
 | T09 | [#39] 代码智能·结构化大纲（抽取层，不含端点） | completed | t09-outline | none | `tasks/T09.md` |
 | T10 | [#39] 代码智能·`/ai/.../map` 端点 + token 预算裁剪 | completed | t10-repo-map | T09 | `tasks/T10.md` |
 | T11 | [#18] Agent 草稿分支命名空间（TTL + 不通知 + 可跑 CI） | completed | t11-agent-drafts | none | `tasks/T11.md` |
+| T12 | [#19·步骤5] 通知偏好 + 邮件单一出口 | in_progress | t12-notify-prefs | none | `tasks/T12.md` |
 
 ## Pre-Claim Checks
 
