@@ -47,7 +47,7 @@ pub async fn create_org(
 }
 
 /// Get an organization by ID.
-pub async fn get_org(db: &DatabaseConnection, id: i64) -> Result<Option<organization::Model>> {
+pub async fn get_org<C: ConnectionTrait>(db: &C, id: i64) -> Result<Option<organization::Model>> {
     organization::Entity::find_by_id(id)
         .one(db)
         .await
@@ -55,8 +55,8 @@ pub async fn get_org(db: &DatabaseConnection, id: i64) -> Result<Option<organiza
 }
 
 /// Get an organization by name.
-pub async fn get_org_by_name(
-    db: &DatabaseConnection,
+pub async fn get_org_by_name<C: ConnectionTrait>(
+    db: &C,
     name: &str,
 ) -> Result<Option<organization::Model>> {
     organization::Entity::find()
@@ -67,8 +67,8 @@ pub async fn get_org_by_name(
 }
 
 /// List all organizations with pagination (admin use).
-pub async fn list_all_orgs(
-    db: &DatabaseConnection,
+pub async fn list_all_orgs<C: ConnectionTrait>(
+    db: &C,
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<organization::Model>, i64)> {
@@ -86,8 +86,8 @@ pub async fn list_all_orgs(
 }
 
 /// List organizations owned by or belonging to a user.
-pub async fn list_user_orgs(
-    db: &DatabaseConnection,
+pub async fn list_user_orgs<C: ConnectionTrait>(
+    db: &C,
     user_id: i64,
 ) -> Result<Vec<organization::Model>> {
     // Find org IDs where the user is a member
@@ -110,8 +110,8 @@ pub async fn list_user_orgs(
 }
 
 /// Update an organization.
-pub async fn update_org(
-    db: &DatabaseConnection,
+pub async fn update_org<C: ConnectionTrait>(
+    db: &C,
     id: i64,
     display_name: Option<&str>,
     description: Option<&str>,
@@ -139,7 +139,7 @@ pub async fn update_org(
 }
 
 /// Delete an organization.
-pub async fn delete_org(db: &DatabaseConnection, id: i64) -> Result<()> {
+pub async fn delete_org<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     let model = organization::Entity::find_by_id(id)
         .one(db)
         .await
@@ -170,7 +170,11 @@ pub async fn add_org_member<C: ConnectionTrait>(
 }
 
 /// Remove a member from an organization.
-pub async fn remove_org_member(db: &DatabaseConnection, org_id: i64, user_id: i64) -> Result<()> {
+pub async fn remove_org_member<C: ConnectionTrait>(
+    db: &C,
+    org_id: i64,
+    user_id: i64,
+) -> Result<()> {
     let member = organization_member::Entity::find()
         .filter(organization_member::Column::OrgId.eq(org_id))
         .filter(organization_member::Column::UserId.eq(user_id))
@@ -185,8 +189,8 @@ pub async fn remove_org_member(db: &DatabaseConnection, org_id: i64, user_id: i6
 }
 
 /// List members of an organization.
-pub async fn list_org_members(
-    db: &DatabaseConnection,
+pub async fn list_org_members<C: ConnectionTrait>(
+    db: &C,
     org_id: i64,
 ) -> Result<Vec<organization_member::Model>> {
     organization_member::Entity::find()
@@ -197,7 +201,7 @@ pub async fn list_org_members(
 }
 
 /// Check if a user is a member of an organization.
-pub async fn is_org_member(db: &DatabaseConnection, org_id: i64, user_id: i64) -> Result<bool> {
+pub async fn is_org_member<C: ConnectionTrait>(db: &C, org_id: i64, user_id: i64) -> Result<bool> {
     let member = organization_member::Entity::find()
         .filter(organization_member::Column::OrgId.eq(org_id))
         .filter(organization_member::Column::UserId.eq(user_id))
@@ -209,8 +213,8 @@ pub async fn is_org_member(db: &DatabaseConnection, org_id: i64, user_id: i64) -
 }
 
 /// Find a specific org member (returns the membership model).
-pub async fn find_org_member(
-    db: &DatabaseConnection,
+pub async fn find_org_member<C: ConnectionTrait>(
+    db: &C,
     org_id: i64,
     user_id: i64,
 ) -> Result<Option<organization_member::Model>> {
@@ -225,8 +229,8 @@ pub async fn find_org_member(
 // ── Team ops ────────────────────────────────────────────────
 
 /// Create a team within an organization.
-pub async fn create_team(
-    db: &DatabaseConnection,
+pub async fn create_team<C: ConnectionTrait>(
+    db: &C,
     org_id: i64,
     name: &str,
     description: Option<&str>,
@@ -246,15 +250,15 @@ pub async fn create_team(
 }
 
 /// Get a team by ID.
-pub async fn get_team(db: &DatabaseConnection, id: i64) -> Result<Option<team::Model>> {
+pub async fn get_team<C: ConnectionTrait>(db: &C, id: i64) -> Result<Option<team::Model>> {
     team::Entity::find_by_id(id)
         .one(db)
         .await
         .context("db: get team")
 }
 
-pub async fn find_team_by_name(
-    db: &DatabaseConnection,
+pub async fn find_team_by_name<C: ConnectionTrait>(
+    db: &C,
     org_id: i64,
     name: &str,
 ) -> Result<Option<team::Model>> {
@@ -267,7 +271,7 @@ pub async fn find_team_by_name(
 }
 
 /// List teams for an organization.
-pub async fn list_org_teams(db: &DatabaseConnection, org_id: i64) -> Result<Vec<team::Model>> {
+pub async fn list_org_teams<C: ConnectionTrait>(db: &C, org_id: i64) -> Result<Vec<team::Model>> {
     team::Entity::find()
         .filter(team::Column::OrgId.eq(org_id))
         .all(db)
@@ -276,7 +280,7 @@ pub async fn list_org_teams(db: &DatabaseConnection, org_id: i64) -> Result<Vec<
 }
 
 /// Delete a team.
-pub async fn delete_team(db: &DatabaseConnection, id: i64) -> Result<()> {
+pub async fn delete_team<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     let model = team::Entity::find_by_id(id)
         .one(db)
         .await
@@ -290,8 +294,8 @@ pub async fn delete_team(db: &DatabaseConnection, id: i64) -> Result<()> {
 // ── Team Member ops ──────────────────────────────────────────
 
 /// Add a member to a team.
-pub async fn add_team_member(
-    db: &DatabaseConnection,
+pub async fn add_team_member<C: ConnectionTrait>(
+    db: &C,
     team_id: i64,
     user_id: i64,
     role: &str,
@@ -307,7 +311,11 @@ pub async fn add_team_member(
 }
 
 /// Remove a member from a team.
-pub async fn remove_team_member(db: &DatabaseConnection, team_id: i64, user_id: i64) -> Result<()> {
+pub async fn remove_team_member<C: ConnectionTrait>(
+    db: &C,
+    team_id: i64,
+    user_id: i64,
+) -> Result<()> {
     let member = team_member::Entity::find()
         .filter(team_member::Column::TeamId.eq(team_id))
         .filter(team_member::Column::UserId.eq(user_id))
@@ -322,8 +330,8 @@ pub async fn remove_team_member(db: &DatabaseConnection, team_id: i64, user_id: 
 }
 
 /// List members of a team.
-pub async fn list_team_members(
-    db: &DatabaseConnection,
+pub async fn list_team_members<C: ConnectionTrait>(
+    db: &C,
     team_id: i64,
 ) -> Result<Vec<team_member::Model>> {
     team_member::Entity::find()
@@ -334,7 +342,11 @@ pub async fn list_team_members(
 }
 
 /// Check if a user is a member of a team.
-pub async fn is_team_member(db: &DatabaseConnection, team_id: i64, user_id: i64) -> Result<bool> {
+pub async fn is_team_member<C: ConnectionTrait>(
+    db: &C,
+    team_id: i64,
+    user_id: i64,
+) -> Result<bool> {
     let member = team_member::Entity::find()
         .filter(team_member::Column::TeamId.eq(team_id))
         .filter(team_member::Column::UserId.eq(user_id))
@@ -346,7 +358,7 @@ pub async fn is_team_member(db: &DatabaseConnection, team_id: i64, user_id: i64)
 }
 
 /// List teams that a user belongs to (across all orgs).
-pub async fn list_user_teams(db: &DatabaseConnection, user_id: i64) -> Result<Vec<team::Model>> {
+pub async fn list_user_teams<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<Vec<team::Model>> {
     let memberships = team_member::Entity::find()
         .filter(team_member::Column::UserId.eq(user_id))
         .all(db)
@@ -370,8 +382,8 @@ pub async fn list_user_teams(db: &DatabaseConnection, user_id: i64) -> Result<Ve
 /// The team only counts when it has **no** repo mapping (the historical,
 /// org-wide behaviour) or when it is mapped to exactly this repository. A team
 /// with `permission = 'read'` never grants write and is not consulted here.
-pub async fn is_member_of_write_team_for_repo(
-    db: &DatabaseConnection,
+pub async fn is_member_of_write_team_for_repo<C: ConnectionTrait>(
+    db: &C,
     org_id: i64,
     user_id: i64,
     repo_id: i64,
@@ -409,8 +421,8 @@ pub async fn is_member_of_write_team_for_repo(
 // enforced boundary. See `can_read_repo` for the current rule.
 
 /// List the repositories a team is mapped to.
-pub async fn list_team_repositories(
-    db: &DatabaseConnection,
+pub async fn list_team_repositories<C: ConnectionTrait>(
+    db: &C,
     team_id: i64,
 ) -> Result<Vec<crate::entities::team_repository::Model>> {
     use crate::entities::team_repository::{Column, Entity};
@@ -460,8 +472,8 @@ pub async fn set_team_repositories(
     Ok(())
 }
 /// Check whether a user belongs to an admin-permission team in an organization.
-pub async fn is_member_of_admin_team(
-    db: &DatabaseConnection,
+pub async fn is_member_of_admin_team<C: ConnectionTrait>(
+    db: &C,
     org_id: i64,
     user_id: i64,
 ) -> Result<bool> {
