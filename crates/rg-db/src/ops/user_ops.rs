@@ -7,7 +7,7 @@ use sea_orm::*;
 use crate::entities::user::{self, ActiveModel, Entity as UserEntity, Model as User};
 
 /// Find a user by username (case-insensitive on SQLite).
-pub async fn find_by_username(db: &DatabaseConnection, username: &str) -> Result<Option<User>> {
+pub async fn find_by_username<C: ConnectionTrait>(db: &C, username: &str) -> Result<Option<User>> {
     UserEntity::find()
         .filter(user::Column::Username.eq(username))
         .one(db)
@@ -16,7 +16,7 @@ pub async fn find_by_username(db: &DatabaseConnection, username: &str) -> Result
 }
 
 /// Find a user by email.
-pub async fn find_by_email(db: &DatabaseConnection, email: &str) -> Result<Option<User>> {
+pub async fn find_by_email<C: ConnectionTrait>(db: &C, email: &str) -> Result<Option<User>> {
     UserEntity::find()
         .filter(user::Column::Email.eq(email))
         .one(db)
@@ -25,14 +25,14 @@ pub async fn find_by_email(db: &DatabaseConnection, email: &str) -> Result<Optio
 }
 
 /// Find a user by id.
-pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<User>> {
+pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<Option<User>> {
     UserEntity::find_by_id(id)
         .one(db)
         .await
         .context("db: find user by id")
 }
 
-pub async fn count_by_ldap_provider(db: &DatabaseConnection, provider_id: i64) -> Result<u64> {
+pub async fn count_by_ldap_provider<C: ConnectionTrait>(db: &C, provider_id: i64) -> Result<u64> {
     UserEntity::find()
         .filter(user::Column::LdapProviderId.eq(provider_id))
         .count(db)
@@ -41,8 +41,8 @@ pub async fn count_by_ldap_provider(db: &DatabaseConnection, provider_id: i64) -
 }
 
 /// List all users with optional pagination.
-pub async fn list_users(
-    db: &DatabaseConnection,
+pub async fn list_users<C: ConnectionTrait>(
+    db: &C,
     page: u64,
     per_page: u64,
 ) -> Result<(Vec<User>, i64)> {
@@ -57,12 +57,12 @@ pub async fn list_users(
 }
 
 /// Create a new user and return the persisted model.
-pub async fn create(db: &DatabaseConnection, model: ActiveModel) -> Result<User> {
+pub async fn create<C: ConnectionTrait>(db: &C, model: ActiveModel) -> Result<User> {
     model.insert(db).await.context("db: create user")
 }
 
 /// Update a user.
-pub async fn update(db: &DatabaseConnection, model: ActiveModel) -> Result<User> {
+pub async fn update<C: ConnectionTrait>(db: &C, model: ActiveModel) -> Result<User> {
     model.update(db).await.context("db: update user")
 }
 
@@ -85,8 +85,8 @@ pub async fn update(db: &DatabaseConnection, model: ActiveModel) -> Result<User>
 ///
 /// `update_many().col_expr(...)` is still appropriate for atomic counters where
 /// a read-modify-write ActiveModel cycle would lose concurrent increments.
-pub async fn update_by_id(
-    db: &DatabaseConnection,
+pub async fn update_by_id<C: ConnectionTrait>(
+    db: &C,
     id: i64,
     display_name: Option<Option<String>>,
     bio: Option<Option<String>>,
@@ -122,7 +122,11 @@ pub async fn update_by_id(
 /// `create_user` inserts `auth_provider = "oauth2"` (it exists for SSO
 /// provisioning); password login only accepts `"local"`, so locally
 /// provisioned accounts must say so explicitly.
-pub async fn set_auth_provider(db: &DatabaseConnection, id: i64, provider: &str) -> Result<User> {
+pub async fn set_auth_provider<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+    provider: &str,
+) -> Result<User> {
     let model = UserEntity::find_by_id(id)
         .one(db)
         .await
@@ -141,7 +145,7 @@ pub async fn set_auth_provider(db: &DatabaseConnection, id: i64, provider: &str)
 /// from both qualifying: only one row can hold the minimum id. Soft-deleted
 /// rows still count, so an instance that has had users never hands out admin
 /// to a later registrant.
-pub async fn promote_if_first_user(db: &DatabaseConnection, user_id: i64) -> Result<bool> {
+pub async fn promote_if_first_user<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<bool> {
     let first = UserEntity::find()
         .order_by_asc(user::Column::Id)
         .one(db)
@@ -160,8 +164,8 @@ pub async fn promote_if_first_user(db: &DatabaseConnection, user_id: i64) -> Res
 }
 
 /// Create a user with high-level parameters (used by SSO).
-pub async fn create_user(
-    db: &DatabaseConnection,
+pub async fn create_user<C: ConnectionTrait>(
+    db: &C,
     username: &str,
     email: &str,
     password_hash: &str,
@@ -210,8 +214,8 @@ pub async fn create_user(
 }
 
 /// Create a directory-backed user after successful LDAP authentication.
-pub async fn create_ldap_user(
-    db: &DatabaseConnection,
+pub async fn create_ldap_user<C: ConnectionTrait>(
+    db: &C,
     ldap_provider_id: i64,
     username: &str,
     email: &str,
@@ -258,8 +262,8 @@ pub async fn create_ldap_user(
 /// Refresh non-authoritative LDAP identity metadata after a successful bind.
 /// Email is deliberately not changed here because it is globally unique and
 /// may require an administrator to resolve a directory collision.
-pub async fn sync_ldap_identity(
-    db: &DatabaseConnection,
+pub async fn sync_ldap_identity<C: ConnectionTrait>(
+    db: &C,
     user_id: i64,
     ldap_provider_id: i64,
     display_name: Option<&str>,
@@ -280,8 +284,8 @@ pub async fn sync_ldap_identity(
 }
 
 /// Update the TOTP secret for a user (encrypted).
-pub async fn update_totp_secret(
-    db: &DatabaseConnection,
+pub async fn update_totp_secret<C: ConnectionTrait>(
+    db: &C,
     user_id: i64,
     encrypted_secret: &str,
 ) -> Result<User> {
@@ -299,7 +303,7 @@ pub async fn update_totp_secret(
 }
 
 /// Enable MFA for a user.
-pub async fn enable_mfa(db: &DatabaseConnection, user_id: i64, mfa_type: &str) -> Result<User> {
+pub async fn enable_mfa<C: ConnectionTrait>(db: &C, user_id: i64, mfa_type: &str) -> Result<User> {
     let model = UserEntity::find_by_id(user_id)
         .one(db)
         .await?
@@ -315,7 +319,7 @@ pub async fn enable_mfa(db: &DatabaseConnection, user_id: i64, mfa_type: &str) -
 }
 
 /// Disable MFA for a user.
-pub async fn disable_mfa(db: &DatabaseConnection, user_id: i64) -> Result<User> {
+pub async fn disable_mfa<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<User> {
     let model = UserEntity::find_by_id(user_id)
         .one(db)
         .await?
@@ -333,7 +337,7 @@ pub async fn disable_mfa(db: &DatabaseConnection, user_id: i64) -> Result<User> 
 }
 
 /// Record a successful login and reset login_attempts/locked_until.
-pub async fn record_successful_login(db: &DatabaseConnection, user_id: i64) -> Result<User> {
+pub async fn record_successful_login<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<User> {
     let model = UserEntity::find_by_id(user_id)
         .one(db)
         .await?
@@ -350,7 +354,7 @@ pub async fn record_successful_login(db: &DatabaseConnection, user_id: i64) -> R
 
 /// Reset primary-factor failures while MFA is still pending. This deliberately
 /// does not update `last_login_at`, which represents a completed login.
-pub async fn reset_login_failures(db: &DatabaseConnection, user_id: i64) -> Result<User> {
+pub async fn reset_login_failures<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<User> {
     let model = UserEntity::find_by_id(user_id)
         .one(db)
         .await?
@@ -366,8 +370,8 @@ pub async fn reset_login_failures(db: &DatabaseConnection, user_id: i64) -> Resu
 }
 
 /// Increment failed login attempts and lock account if threshold exceeded.
-pub async fn record_failed_login(
-    db: &DatabaseConnection,
+pub async fn record_failed_login<C: ConnectionTrait>(
+    db: &C,
     user_id: i64,
     max_attempts: i32,
 ) -> Result<bool> {
@@ -408,7 +412,7 @@ pub async fn record_failed_login(
 }
 
 /// Delete a user by ID.
-pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
+pub async fn delete_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     let model = UserEntity::find_by_id(id)
         .one(db)
         .await
@@ -423,7 +427,7 @@ pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
 /// JWT for the user (claims embed the version at issuance time; the session
 /// guard rejects mismatches). Call on password reset, MFA disable and admin
 /// deactivation.
-pub async fn bump_token_version(db: &DatabaseConnection, user_id: i64) -> Result<()> {
+pub async fn bump_token_version<C: ConnectionTrait>(db: &C, user_id: i64) -> Result<()> {
     let result = UserEntity::update_many()
         .col_expr(
             user::Column::TokenVersion,
@@ -445,8 +449,8 @@ pub async fn bump_token_version(db: &DatabaseConnection, user_id: i64) -> Result
 /// The row has no usable password (`password_hash` is not a hash, so every
 /// verification fails) and `auth_provider = "agent"`, which no login path
 /// accepts. It is never an administrator.
-pub async fn create_agent(
-    db: &DatabaseConnection,
+pub async fn create_agent<C: ConnectionTrait>(
+    db: &C,
     username: &str,
     email: &str,
     owner_user_id: i64,
@@ -486,8 +490,8 @@ pub async fn create_agent(
 }
 
 /// The agents `owner_user_id` owns, oldest first.
-pub async fn list_agents_by_owner(
-    db: &DatabaseConnection,
+pub async fn list_agents_by_owner<C: ConnectionTrait>(
+    db: &C,
     owner_user_id: i64,
 ) -> Result<Vec<User>> {
     UserEntity::find()
@@ -500,7 +504,7 @@ pub async fn list_agents_by_owner(
 }
 
 /// How many agents `owner_user_id` owns (active or not).
-pub async fn count_agents_by_owner(db: &DatabaseConnection, owner_user_id: i64) -> Result<u64> {
+pub async fn count_agents_by_owner<C: ConnectionTrait>(db: &C, owner_user_id: i64) -> Result<u64> {
     UserEntity::find()
         .filter(user::Column::Kind.eq("agent"))
         .filter(user::Column::OwnerUserId.eq(owner_user_id))
@@ -510,8 +514,8 @@ pub async fn count_agents_by_owner(db: &DatabaseConnection, owner_user_id: i64) 
 }
 
 /// Set an agent's description and/or active flag. `None` leaves a field alone.
-pub async fn update_agent(
-    db: &DatabaseConnection,
+pub async fn update_agent<C: ConnectionTrait>(
+    db: &C,
     agent_id: i64,
     description: Option<Option<String>>,
     is_active: Option<bool>,
@@ -534,7 +538,7 @@ pub async fn update_agent(
 
 /// Users by id, in one query per 500 ids (no N+1 for a page of rows). Ids that
 /// do not exist are simply absent from the result.
-pub async fn find_by_ids(db: &DatabaseConnection, ids: &[i64]) -> Result<Vec<User>> {
+pub async fn find_by_ids<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<Vec<User>> {
     let mut found = Vec::with_capacity(ids.len());
     for chunk in ids.chunks(500) {
         let mut rows = UserEntity::find()

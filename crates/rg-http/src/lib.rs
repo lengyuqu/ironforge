@@ -3675,7 +3675,7 @@ async fn post_push_hooks(
                         // The recipient's `ci_triggered` / `email` preference
                         // now decides whether the mail goes out.
                         if let Some(smtp) = smtp_config {
-                            let owner_user = rg_db::ops::user_ops::find_by_id(db, repo_owner_id)
+                            let owner_user = rg_db::ops::user_ops::find_by_id(*db, repo_owner_id)
                                 .await
                                 .ok()
                                 .flatten();

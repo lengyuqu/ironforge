@@ -360,7 +360,7 @@ impl Handler for SshHandler {
             return Ok(Auth::Accept);
         };
 
-        match rg_db::ops::user_ops::find_by_username(db, username).await {
+        match rg_db::ops::user_ops::find_by_username(db.as_ref(), username).await {
             // An agent has no password and never signs in over SSH.
             Ok(Some(user)) if rg_core::agent::is_agent(&user) => {
                 tracing::warn!(username, "SSH password auth rejected: agent account");
@@ -643,7 +643,8 @@ impl Handler for SshHandler {
                                                 if let Some(user_id) = actor_id {
                                                     let username =
                                                         rg_db::ops::user_ops::find_by_id(
-                                                            &db, user_id,
+                                                            db.as_ref(),
+                                                            user_id,
                                                         )
                                                         .await
                                                         .ok()
