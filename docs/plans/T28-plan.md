@@ -18,13 +18,30 @@
 | 表 | 列 | 约束 |
 |---|---|---|
 | `symbol_commits` | `id` INTEGER PK、`repo_id` BIGINT、`commit_sha` VARCHAR(40)、`created_at` timestamp | `UNIQUE (repo_id, commit_sha)`；FK `repo_id → repositories.id ON DELETE CASCADE` |
-| `symbol_definitions` | `id` INTEGER PK、`repo_id` BIGINT、`commit_id` INTEGER、`path` VARCHAR(512)、`name` VARCHAR(255)、`kind` VARCHAR(32)、`start_line`/`end_line` INTEGER、`signature` TEXT NULL | FK `commit_id → symbol_commits.id ON DELETE CASCADE`；3 个索引（下） |
+| `symbol_definitions` | `id` INTEGER PK、`repo_id` BIGINT、`commit_id` INTEGER、`path` VARCHAR(512)、`name` VARCHAR(255)、`kind` VARCHAR(32)、`start_line`/`end_line` INTEGER、`signature` TEXT NULL | FK `commit_id → symbol_commits.id ON DELETE CASCADE`；2 个索引（下） |
 
 索引：
 
 1. `idx_symbol_definitions_lookup (repo_id, commit_id, name)` — 按名查定义的主路径。
-2. `idx_symbol_definitions_path (repo_id, commit_id, path)` — 按文件列定义（`/map`、outline）。
-3. `uq_symbol_definitions_anchor UNIQUE (commit_id, path, name, kind, start_line)` — 幂等锚点。
+2. `uq_symbol_definitions_anchor UNIQUE (commit_id, path, name, kind, start_line)` — 幂等锚点，
+   **同时是按文件查询的索引**。
+
+**不建单独的 `(repo_id, commit_id, path)` 索引**（协调者裁决，2026-11-18）。理由：`commit_id`
+在 `symbol_commits` 里唯一确定一个仓库，`repo_id` 在 definitions 表里只是反规范化冗余列；锚点的
+前两列 `(commit_id, path)` 已经按 path 排序，`WHERE repo_id=? AND commit_id=? AND path=?` 和
+「列出该文件的定义」都走它。实测这个索引占 704 KiB/commit（12,208 行），却服务不了锚点之外的
+任何查询 —— 删掉后本仓从 3.59 MiB 降到 2.95 MiB。
+
+查询计划实测（SQLite，12,000 行 + `ANALYZE`）：
+
+```
+EXPLAIN QUERY PLAN SELECT name, kind, start_line FROM symbol_definitions
+  WHERE repo_id=1 AND commit_id=2 AND path='dir7/file7.rs';
+-- SEARCH symbol_definitions USING INDEX uq_symbol_definitions_anchor (commit_id=? AND path=?)
+```
+
+空表/极小表时规划器会选 `lookup` 的 `(repo_id, commit_id)` 前缀，同样是一次索引查找；
+两种计划都不需要额外索引。
 
 `repo_id` 在 definitions 里是冗余列，故意不加 FK：`symbol_commits.repo_id` 已经级联到
 `repositories`，两条路径都能在仓库删除时清干净，而查询侧省掉一次 join。
@@ -121,29 +138,31 @@ txn commit
 
 | # | 验收项 | 手段 | 结果 |
 |---|---|---|---|
-| 1 | 本仓行数 12,208 ±5% | `#[ignore] measure_this_repository_symbols` | **12,208（100.0%）** |
-| 2 | DB 增长 ≤ 3.5 MiB | 同上，`page_count × page_size` 差值 | **3.59 MiB —— 超 0.09 MiB，见下** |
+| 1 | 本仓行数 12,208 ±5% | `#[ignore] measure_this_repository_symbols` | **12,208（100.0%，`c628195`）/ 12,301（+0.76%，`c1db0bf`，含本任务新增的源文件）** |
+| 2 | DB 增长 ≤ 3.5 MiB | 同上，`page_count × page_size` 差值 | **2.95 MiB**（删冗余 path 索引后） |
 | 3 | 幂等 | `indexing_the_same_commit_twice_…` + 跨后端 round trip | 通过 |
 | 4 | 修剪 D+2 → 剩 D | `pruning_keeps_only_the_retention_window` | 通过（8 → 6，pruned=2） |
 | 5 | 迁移 SQLite/PG/MySQL up+down | 迁移单测 + `IRONFORGE_TEST_DATABASE_URL`（本机 docker：postgres:16、mysql:8.4） | 三后端全绿 |
 | 6 | 端点 403 / 200 / 404 | `ai_index_route_tests.rs` 三个新测试 | 通过 |
-| 7 | `kind='impl'` 入表 | 单测 + 端点测试 + 本仓实测 678 行 | 通过 |
+| 7 | `kind='impl'` 入表 | 单测 + 端点测试 + 本仓实测 678 行（`c628195`）/ 684 行（`c1db0bf`） | 通过 |
 
-### 验收 #2 的冲突说明（必须让协调者知道）
+### 验收 #2 的决策记录
 
-任务书要求三个索引（含 `UNIQUE (commit_id, path, name, kind, start_line)`），而 3.5 MiB 的预算
-来自设计文档只含 **2 个**索引的实测（2.61 MiB）。本仓 12,208 行实测分解：
+初版按任务书的三个索引实现，实测 **3.59 MiB**，超 3.5 MiB 上限 0.09 MiB。原因是 3.5 MiB 的预算
+来自设计文档只含 **2 个**索引的 2.61 MiB 实测，而任务书的 schema 多了一个 UNIQUE 锚点（1,072 KiB）。
+
+协调者裁决：**删 `idx_symbol_definitions_path`，保留 UNIQUE 锚点**。锚点不是索引优化，是数据库层的
+幂等保证（应用层的「先删后插」只有一处代码保证）；path 索引则是重复覆盖。
+
+删掉后的实测（`c1db0bf`，12,301 行）：
 
 | 对象 | 体积 |
 |---|---|
-| `symbol_definitions` 表 | 1,552 KiB |
-| `uq_symbol_definitions_anchor`（任务强制的第三个索引） | 1,072 KiB |
-| `idx_symbol_definitions_path` | 704 KiB |
-| `idx_symbol_definitions_lookup` | 360 KiB |
+| `symbol_definitions` 表 | 1,568 KiB |
+| `uq_symbol_definitions_anchor`（幂等锚点，兼按文件查询） | 1,080 KiB |
+| `idx_symbol_definitions_lookup` | 380 KiB |
 | `symbol_commits` + 唯一索引 | 8 KiB |
-| **合计** | **3,696 KiB = 3.61 MiB**（页级增长 3.59 MiB） |
+| **合计** | **3,036 KiB = 2.96 MiB**（页级增长 3,088,384 B = **2.95 MiB**） |
 
-按任务书 schema 实现，两个数字无法同时满足。选择**保 schema**：锚点是任务明确要求的幂等保证，
-也是三个后端写路径的兜底；3.5 MiB 是设计文档基于 2 索引的外推。若协调者优先过门槛，改动只有
-一处（删掉 `idx_symbol_definitions_path`，`uq_symbol_definitions_anchor` 的前两列
-`(commit_id, path)` 已能服务同一查询），体积降到 ≈2.9 MiB；本计划不改，留给 T29 一并定。
+按 50k 文件档外推：2.95 MiB / 12,301 行 × 479,000 行 ≈ **115 MiB**（设计值 103 MiB），
+而不是三索引的 141 MiB。

@@ -15,8 +15,15 @@
 //! * an `impl` filter — `impl` rows are stored like any other definition
 //!   (4.1% of names are not identifiers) and excluded by the query side instead.
 //!
+//! Only **two** indexes are created: the by-name lookup and the unique
+//! idempotency anchor. The anchor's leading `(commit_id, path)` columns already
+//! serve "list this file's definitions" (a `commit_id` picks exactly one
+//! repository, so the denormalised `repo_id` adds nothing to a path seek), and
+//! a separate `(repo_id, commit_id, path)` index measured 704 KiB/commit for no
+//! query the anchor cannot answer.
+//!
 //! `up` is idempotent (tables, columns and indexes are each guarded) and `down`
-//! drops the indexes first, then the tables in foreign-key order.
+//! drops the tables in foreign-key order.
 
 use sea_orm::DatabaseBackend;
 use sea_orm_migration::prelude::*;
@@ -34,7 +41,6 @@ const SYMBOL_DEFINITIONS: &str = "symbol_definitions";
 
 const UQ_SYMBOL_COMMITS_REPO_SHA: &str = "uq_symbol_commits_repo_sha";
 const IX_SYMBOL_DEFINITIONS_LOOKUP: &str = "idx_symbol_definitions_lookup";
-const IX_SYMBOL_DEFINITIONS_PATH: &str = "idx_symbol_definitions_path";
 const UQ_SYMBOL_DEFINITIONS_ANCHOR: &str = "uq_symbol_definitions_anchor";
 
 // Explicit plural table names matching the entities' `table_name` (CLAUDE.md
@@ -125,14 +131,6 @@ impl MigrationTrait for Migration {
         {
             manager
                 .create_index(symbol_definitions_lookup_index())
-                .await?;
-        }
-        if !manager
-            .has_index(SYMBOL_DEFINITIONS, IX_SYMBOL_DEFINITIONS_PATH)
-            .await?
-        {
-            manager
-                .create_index(symbol_definitions_path_index())
                 .await?;
         }
         if !manager
@@ -343,20 +341,12 @@ fn symbol_definitions_lookup_index() -> IndexCreateStatement {
         .to_owned()
 }
 
-/// "List the definitions of this file" (`/map`, file outline).
-fn symbol_definitions_path_index() -> IndexCreateStatement {
-    Index::create()
-        .if_not_exists()
-        .name(IX_SYMBOL_DEFINITIONS_PATH)
-        .table(SymbolDefinitions::Table)
-        .col(SymbolDefinitions::RepoId)
-        .col(SymbolDefinitions::CommitId)
-        .col(SymbolDefinitions::Path)
-        .to_owned()
-}
-
 /// Idempotent-write anchor: re-indexing the same commit cannot duplicate a
-/// definition. MySQL cannot index the complete `path`/`name` pair inside
+/// definition. It is also the only "by file" index — the leading
+/// `(commit_id, path)` columns order a file's rows, so no separate path index
+/// is needed.
+///
+/// MySQL cannot index the complete `path`/`name` pair inside
 /// InnoDB's 3072-byte key limit with `utf8mb4`, so `path` is indexed by a
 /// 400-character prefix there (the same trade-off as
 /// `m20260714_000001_create_attachments`). Real paths are far shorter.
@@ -458,7 +448,6 @@ mod tests {
                 IX_SYMBOL_DEFINITIONS_LOOKUP,
                 symbol_definitions_lookup_index(),
             ),
-            (IX_SYMBOL_DEFINITIONS_PATH, symbol_definitions_path_index()),
             (
                 UQ_SYMBOL_DEFINITIONS_ANCHOR,
                 symbol_definitions_anchor_index(DatabaseBackend::Sqlite),
@@ -516,7 +505,7 @@ mod tests {
         assert_eq!(table_exists(&db, SYMBOL_COMMITS).await, 1);
         assert_eq!(table_exists(&db, SYMBOL_DEFINITIONS).await, 1);
         assert_eq!(index_exists(&db, UQ_SYMBOL_DEFINITIONS_ANCHOR).await, 1);
-        assert_eq!(index_exists(&db, IX_SYMBOL_DEFINITIONS_PATH).await, 1);
+        assert_eq!(index_exists(&db, IX_SYMBOL_DEFINITIONS_LOOKUP).await, 1);
     }
 
     #[tokio::test]
