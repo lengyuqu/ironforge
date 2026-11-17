@@ -114,9 +114,7 @@ async fn symbols(
     query: &[(&str, &str)],
 ) -> (u16, Value) {
     let response = reqwest::Client::new()
-        .get(format!(
-            "{base}/api/v1/ai/repos/{owner}/{name}/symbols"
-        ))
+        .get(format!("{base}/api/v1/ai/repos/{owner}/{name}/symbols"))
         .bearer_auth(token)
         .query(query)
         .send()
@@ -149,7 +147,14 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
     assert_eq!(report["commit_sha"], sha.as_str());
 
     // 1. Exact name: one row, marked exact, with the right file.
-    let (status, body) = symbols(&base, &token, "symbols-owner-a", "queryable", &[("name", "index_commit")]).await;
+    let (status, body) = symbols(
+        &base,
+        &token,
+        "symbols-owner-a",
+        "queryable",
+        &[("name", "index_commit")],
+    )
+    .await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["commit_sha"], sha.as_str());
     assert_eq!(names(&body), ["index_commit"]);
@@ -163,7 +168,14 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
         .contains("index_commit"));
 
     // 2. Prefix search: several rows, every one a `name_match`.
-    let (status, body) = symbols(&base, &token, "symbols-owner-a", "queryable", &[("name", "index_")]).await;
+    let (status, body) = symbols(
+        &base,
+        &token,
+        "symbols-owner-a",
+        "queryable",
+        &[("name", "index_")],
+    )
+    .await;
     assert_eq!(status, 200, "{body}");
     assert!(names(&body).len() >= 2, "{body}");
     for item in body["items"].as_array().unwrap() {
@@ -172,7 +184,14 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
     }
 
     // 3. By path: that file's declarations only, and no `impl` row.
-    let (status, body) = symbols(&base, &token, "symbols-owner-a", "queryable", &[("path", "src/lib.rs")]).await;
+    let (status, body) = symbols(
+        &base,
+        &token,
+        "symbols-owner-a",
+        "queryable",
+        &[("path", "src/lib.rs")],
+    )
+    .await;
     assert_eq!(status, 200, "{body}");
     let listed = names(&body);
     assert!(listed.contains(&"Widget".to_string()), "{body}");
@@ -228,7 +247,14 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
     //    no failure and `partial` is false. The static language limits are
     //    still stated — they are the extractor's boundary, not this commit's
     //    defect — and no per-commit failure is invented.
-    let (status, body) = symbols(&base, &token, "symbols-owner-a", "queryable", &[("name", "index_commit")]).await;
+    let (status, body) = symbols(
+        &base,
+        &token,
+        "symbols-owner-a",
+        "queryable",
+        &[("name", "index_commit")],
+    )
+    .await;
     assert_eq!(status, 200);
     assert_eq!(body["partial"], false, "{body}");
     let limitations = body["limitations"].as_array().expect("limitations array");
@@ -257,7 +283,14 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
     assert_eq!(status, 200, "{body}");
     assert!(body["items"].as_array().unwrap().is_empty(), "{body}");
 
-    let (status, body) = symbols(&base, &token, "symbols-owner-a", "queryable", &[("name", "std::fmt::")]).await;
+    let (status, body) = symbols(
+        &base,
+        &token,
+        "symbols-owner-a",
+        "queryable",
+        &[("name", "std::fmt::")],
+    )
+    .await;
     assert_eq!(status, 200, "{body}");
     assert!(body["items"].as_array().unwrap().is_empty(), "{body}");
 }
@@ -309,13 +342,28 @@ async fn seed_two_commits(
 async fn an_unindexed_commit_is_404_and_never_answered_from_head() {
     let (base, _db, repo_root) = spawn_test_app_on_env_db_with_root().await;
     let (token, _) = register_full(&base, "symbols-owner-b", "symbols-owner-b@example.com").await;
-    let (first, second) = seed_two_commits(&base, &repo_root, &token, "symbols-owner-b", "two-commits").await;
+    let (first, second) =
+        seed_two_commits(&base, &repo_root, &token, "symbols-owner-b", "two-commits").await;
 
     // Index the *first* commit only.
-    index(&base, &token, "symbols-owner-b", "two-commits", Some(&first)).await;
+    index(
+        &base,
+        &token,
+        "symbols-owner-b",
+        "two-commits",
+        Some(&first),
+    )
+    .await;
 
     // The default branch now resolves to the second, unindexed commit.
-    let (status, body) = symbols(&base, &token, "symbols-owner-b", "two-commits", &[("name", "index_commit")]).await;
+    let (status, body) = symbols(
+        &base,
+        &token,
+        "symbols-owner-b",
+        "two-commits",
+        &[("name", "index_commit")],
+    )
+    .await;
     assert_eq!(status, 404, "{body}");
     assert_coded_error(&body, "SYMBOLS_NOT_INDEXED");
     let message = body["error"]["message"].as_str().unwrap_or("");
@@ -381,7 +429,14 @@ async fn a_commit_with_a_parse_failure_is_partial_and_names_the_count() {
     let report = index(&base, &token, "symbols-owner-c", "broken", None).await;
     assert_eq!(report["commit_sha"], sha.as_str());
 
-    let (status, body) = symbols(&base, &token, "symbols-owner-c", "broken", &[("name", "Widget")]).await;
+    let (status, body) = symbols(
+        &base,
+        &token,
+        "symbols-owner-c",
+        "broken",
+        &[("name", "Widget")],
+    )
+    .await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["partial"], true, "{body}");
     let joined = body["limitations"]
