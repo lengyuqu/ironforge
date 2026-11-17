@@ -99,8 +99,8 @@ async fn lock_sqlite_ci_writer(txn: &DatabaseTransaction) -> Result<()> {
 // ── Pipeline ops ─────────────────────────────────────────────────
 
 /// Create a new pipeline record.
-pub async fn create_pipeline(
-    db: &DatabaseConnection,
+pub async fn create_pipeline<C: ConnectionTrait>(
+    db: &C,
     repo_id: i64,
     commit_sha: &str,
     ref_name: &str,
@@ -163,8 +163,8 @@ async fn get_pipeline_on<C: ConnectionTrait>(db: &C, id: i64) -> Result<Option<p
 
 /// Pipelines of a repository that ran against exactly `commit_sha`, newest
 /// (highest id) first.
-pub async fn list_by_repo_and_commit(
-    db: &DatabaseConnection,
+pub async fn list_by_repo_and_commit<C: ConnectionTrait>(
+    db: &C,
     repo_id: i64,
     commit_sha: &str,
     limit: u64,
@@ -188,8 +188,8 @@ pub async fn list_by_repo_and_commit(
 }
 
 /// List pipelines for a repo.
-pub async fn list_pipelines_by_repo(
-    db: &DatabaseConnection,
+pub async fn list_pipelines_by_repo<C: ConnectionTrait>(
+    db: &C,
     repo_id: i64,
 ) -> Result<Vec<pipeline::Model>> {
     if db.get_database_backend() == DatabaseBackend::Postgres {
@@ -208,8 +208,8 @@ pub async fn list_pipelines_by_repo(
 }
 
 /// Paginated list of pipelines for a repo. Returns (data, total).
-pub async fn list_pipelines_by_repo_paginated(
-    db: &DatabaseConnection,
+pub async fn list_pipelines_by_repo_paginated<C: ConnectionTrait>(
+    db: &C,
     repo_id: i64,
     offset: u64,
     limit: u64,
@@ -441,7 +441,7 @@ pub async fn create_job(
 
 /// Atomically release a manual job for execution. Returns false if another
 /// request already released it or the job is not manual.
-pub async fn play_manual_job(db: &DatabaseConnection, id: i64) -> Result<bool> {
+pub async fn play_manual_job<C: ConnectionTrait>(db: &C, id: i64) -> Result<bool> {
     let now = chrono::Utc::now().naive_utc();
     let result = pipeline_job::Entity::update_many()
         .filter(pipeline_job::Column::Id.eq(id))
@@ -464,8 +464,8 @@ pub async fn play_manual_job(db: &DatabaseConnection, id: i64) -> Result<bool> {
 
 /// Put a stage and pipeline back into schedulable state after a manual job is
 /// released. Existing start timestamps are retained for duration accounting.
-pub async fn resume_pipeline_chain(
-    db: &DatabaseConnection,
+pub async fn resume_pipeline_chain<C: ConnectionTrait>(
+    db: &C,
     pipeline_id: i64,
     stage_id: i64,
 ) -> Result<()> {
@@ -494,8 +494,8 @@ pub async fn resume_pipeline_chain(
     Ok(())
 }
 
-pub async fn resume_approval_chain(
-    db: &DatabaseConnection,
+pub async fn resume_approval_chain<C: ConnectionTrait>(
+    db: &C,
     pipeline_id: i64,
     stage_id: i64,
 ) -> Result<()> {
@@ -517,7 +517,7 @@ pub async fn resume_approval_chain(
 }
 
 /// Get a job by ID.
-pub async fn get_job(db: &DatabaseConnection, id: i64) -> Result<Option<pipeline_job::Model>> {
+pub async fn get_job<C: ConnectionTrait>(db: &C, id: i64) -> Result<Option<pipeline_job::Model>> {
     job_query(db)
         .filter(pipeline_job::Column::Id.eq(id))
         .one(db)
@@ -526,7 +526,7 @@ pub async fn get_job(db: &DatabaseConnection, id: i64) -> Result<Option<pipeline
 }
 
 /// Update just the log field of a job (lightweight, used by log write queue).
-pub async fn update_job_log(db: &DatabaseConnection, id: i64, log: &str) -> Result<()> {
+pub async fn update_job_log<C: ConnectionTrait>(db: &C, id: i64, log: &str) -> Result<()> {
     let model = job_query(db)
         .filter(pipeline_job::Column::Id.eq(id))
         .one(db)
@@ -566,8 +566,8 @@ async fn list_jobs_by_stage_on<C: ConnectionTrait>(
         .context("db: list jobs by stage")
 }
 
-pub async fn stage_has_job_status(
-    db: &DatabaseConnection,
+pub async fn stage_has_job_status<C: ConnectionTrait>(
+    db: &C,
     stage_id: i64,
     status: &str,
 ) -> Result<bool> {
@@ -665,8 +665,8 @@ async fn list_jobs_by_pipeline_on<C: ConnectionTrait>(
 
 /// Find the latest pipeline for a repo + commit SHA.
 /// Used by branch protection status checks to verify CI passed.
-pub async fn find_latest_by_repo_and_commit(
-    db: &DatabaseConnection,
+pub async fn find_latest_by_repo_and_commit<C: ConnectionTrait>(
+    db: &C,
     repo_id: i64,
     commit_sha: &str,
 ) -> Result<Option<pipeline::Model>> {
@@ -867,7 +867,7 @@ async fn try_update_pipeline_on<C: ConnectionTrait>(
 
 /// Find a pending job (status = "pending" and runner_id is NULL).
 /// Returns the oldest pending job (by id).
-pub async fn find_pending_job(db: &DatabaseConnection) -> Result<Option<pipeline_job::Model>> {
+pub async fn find_pending_job<C: ConnectionTrait>(db: &C) -> Result<Option<pipeline_job::Model>> {
     let jobs = job_query(db)
         .filter(pipeline_job::Column::Status.eq("pending"))
         .filter(pipeline_job::Column::RunnerId.is_null())
@@ -888,8 +888,8 @@ pub async fn find_pending_job(db: &DatabaseConnection) -> Result<Option<pipeline
 /// A job matches if:
 /// - It has no tags (any runner can pick it up)
 /// - OR at least one of its tags matches one of the runner's labels
-pub async fn find_pending_job_matching_labels(
-    db: &DatabaseConnection,
+pub async fn find_pending_job_matching_labels<C: ConnectionTrait>(
+    db: &C,
     runner_labels: &[String],
 ) -> Result<Option<pipeline_job::Model>> {
     let all_pending: Vec<pipeline_job::Model> = job_query(db)
@@ -929,7 +929,7 @@ pub async fn find_pending_job_matching_labels(
     Ok(None)
 }
 
-async fn job_is_schedulable(db: &DatabaseConnection, job: &pipeline_job::Model) -> Result<bool> {
+async fn job_is_schedulable<C: ConnectionTrait>(db: &C, job: &pipeline_job::Model) -> Result<bool> {
     let Some(stage) = get_stage_by_id_on(db, job.stage_id).await? else {
         return Ok(false);
     };
@@ -953,8 +953,8 @@ async fn job_is_schedulable(db: &DatabaseConnection, job: &pipeline_job::Model) 
 }
 
 /// Find stuck jobs: "assigned"/"running" but not updated within timeout.
-pub async fn find_stuck_jobs(
-    db: &DatabaseConnection,
+pub async fn find_stuck_jobs<C: ConnectionTrait>(
+    db: &C,
     timeout_secs: i64,
 ) -> Result<Vec<pipeline_job::Model>> {
     let cutoff = chrono::Utc::now().naive_utc() - chrono::Duration::seconds(timeout_secs);
@@ -972,8 +972,8 @@ pub async fn find_stuck_jobs(
 }
 
 /// Find offline runners: online/busy but no heartbeat within threshold.
-pub async fn find_offline_runners(
-    db: &DatabaseConnection,
+pub async fn find_offline_runners<C: ConnectionTrait>(
+    db: &C,
     heartbeat_timeout_secs: i64,
 ) -> Result<Vec<crate::entities::runner::Model>> {
     let cutoff = chrono::Utc::now() - chrono::Duration::seconds(heartbeat_timeout_secs);
@@ -1049,7 +1049,7 @@ pub async fn fail_runner_jobs(
 }
 
 /// Assign a CI job to a specific runner.
-pub async fn assign_job(db: &DatabaseConnection, job_id: i64, runner_id: i64) -> Result<()> {
+pub async fn assign_job<C: ConnectionTrait>(db: &C, job_id: i64, runner_id: i64) -> Result<()> {
     let now = chrono::Utc::now().naive_utc();
     let model = job_query(db)
         .filter(pipeline_job::Column::Id.eq(job_id))
@@ -1295,7 +1295,7 @@ pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()
 // ── Concurrency Control ──────────────────────────────────────────
 
 /// Count active (pending + running) pipelines for a repository.
-pub async fn count_active_pipelines(db: &DatabaseConnection, repo_id: i64) -> Result<usize> {
+pub async fn count_active_pipelines<C: ConnectionTrait>(db: &C, repo_id: i64) -> Result<usize> {
     let count = pipeline::Entity::find()
         .filter(pipeline::Column::RepoId.eq(repo_id))
         .filter(pipeline::Column::Status.is_in([
@@ -1312,8 +1312,8 @@ pub async fn count_active_pipelines(db: &DatabaseConnection, repo_id: i64) -> Re
 
 /// Find active pipelines on a specific git ref (branch/tag).
 /// Used for concurrency control by ref name.
-pub async fn find_active_pipelines_by_ref(
-    db: &DatabaseConnection,
+pub async fn find_active_pipelines_by_ref<C: ConnectionTrait>(
+    db: &C,
     repo_id: i64,
     ref_name: &str,
 ) -> Result<Vec<pipeline::Model>> {
@@ -1399,12 +1399,12 @@ pub fn resolve_concurrency_group(template: &str, ref_name: &str) -> String {
 // Public wrappers preserve the original DatabaseConnection API. Internal
 // helpers also accept transactions to keep multi-row updates atomic.
 
-pub async fn get_pipeline(db: &DatabaseConnection, id: i64) -> Result<Option<pipeline::Model>> {
+pub async fn get_pipeline<C: ConnectionTrait>(db: &C, id: i64) -> Result<Option<pipeline::Model>> {
     get_pipeline_on(db, id).await
 }
 
-pub async fn update_pipeline_status(
-    db: &DatabaseConnection,
+pub async fn update_pipeline_status<C: ConnectionTrait>(
+    db: &C,
     id: i64,
     status: &str,
     started_at: Option<chrono::NaiveDateTime>,
@@ -1413,15 +1413,15 @@ pub async fn update_pipeline_status(
     update_pipeline_status_on(db, id, status, started_at, finished_at).await
 }
 
-pub async fn list_stages_by_pipeline(
-    db: &DatabaseConnection,
+pub async fn list_stages_by_pipeline<C: ConnectionTrait>(
+    db: &C,
     pipeline_id: i64,
 ) -> Result<Vec<pipeline_stage::Model>> {
     list_stages_by_pipeline_on(db, pipeline_id).await
 }
 
-pub async fn update_stage_status(
-    db: &DatabaseConnection,
+pub async fn update_stage_status<C: ConnectionTrait>(
+    db: &C,
     id: i64,
     status: &str,
     started_at: Option<chrono::NaiveDateTime>,
@@ -1430,15 +1430,15 @@ pub async fn update_stage_status(
     update_stage_status_on(db, id, status, started_at, finished_at).await
 }
 
-pub async fn list_jobs_by_stage(
-    db: &DatabaseConnection,
+pub async fn list_jobs_by_stage<C: ConnectionTrait>(
+    db: &C,
     stage_id: i64,
 ) -> Result<Vec<pipeline_job::Model>> {
     list_jobs_by_stage_on(db, stage_id).await
 }
 
-pub async fn update_job_result(
-    db: &DatabaseConnection,
+pub async fn update_job_result<C: ConnectionTrait>(
+    db: &C,
     id: i64,
     status: &str,
     exit_code: Option<i32>,
@@ -1449,38 +1449,38 @@ pub async fn update_job_result(
     update_job_result_on(db, id, status, exit_code, log, started_at, finished_at).await
 }
 
-pub async fn get_stage_by_id(
-    db: &DatabaseConnection,
+pub async fn get_stage_by_id<C: ConnectionTrait>(
+    db: &C,
     id: i64,
 ) -> Result<Option<pipeline_stage::Model>> {
     get_stage_by_id_on(db, id).await
 }
 
-pub async fn list_jobs_by_pipeline(
-    db: &DatabaseConnection,
+pub async fn list_jobs_by_pipeline<C: ConnectionTrait>(
+    db: &C,
     pipeline_id: i64,
 ) -> Result<Vec<pipeline_job::Model>> {
     list_jobs_by_pipeline_on(db, pipeline_id).await
 }
 
-pub async fn check_stage_jobs(db: &DatabaseConnection, stage_id: i64) -> Result<(bool, bool)> {
+pub async fn check_stage_jobs<C: ConnectionTrait>(db: &C, stage_id: i64) -> Result<(bool, bool)> {
     check_stage_jobs_on(db, stage_id).await
 }
 
-pub async fn check_pipeline_stages(
-    db: &DatabaseConnection,
+pub async fn check_pipeline_stages<C: ConnectionTrait>(
+    db: &C,
     pipeline_id: i64,
 ) -> Result<(bool, bool)> {
     check_pipeline_stages_on(db, pipeline_id).await
 }
 
-pub async fn try_update_pipeline(
-    db: &DatabaseConnection,
+pub async fn try_update_pipeline<C: ConnectionTrait>(
+    db: &C,
     pipeline_id: i64,
 ) -> Result<Option<String>> {
     try_update_pipeline_on(db, pipeline_id).await
 }
 
-pub async fn mark_job_timeout(db: &DatabaseConnection, job_id: i64) -> Result<()> {
+pub async fn mark_job_timeout<C: ConnectionTrait>(db: &C, job_id: i64) -> Result<()> {
     mark_job_timeout_on(db, job_id).await
 }
