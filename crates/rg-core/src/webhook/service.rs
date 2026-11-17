@@ -885,23 +885,16 @@ pub async fn trigger_issue_comment(
     trigger_event(db, repo_id, "issue.comment", &payload).await
 }
 
-/// Trigger a pull_request.opened webhook event.
-pub async fn trigger_pr_opened(db: &DatabaseConnection, repo_id: i64, pr: &Value) -> Result<()> {
-    let payload = serde_json::json!({
-        "event": "pull_request.opened",
-        "pull_request": pr,
-    });
-    trigger_event(db, repo_id, "pull_request.opened", &payload).await
-}
-
-/// Trigger a pull_request.closed webhook event.
-pub async fn trigger_pr_closed(db: &DatabaseConnection, repo_id: i64, pr: &Value) -> Result<()> {
-    let payload = serde_json::json!({
-        "event": "pull_request.closed",
-        "pull_request": pr,
-    });
-    trigger_event(db, repo_id, "pull_request.closed", &payload).await
-}
+// `trigger_pr_opened` and `trigger_pr_closed` used to live here. Both wrote the
+// event *after* the pull request write, and the closed one was worse: it was
+// called *before* `update_pr` wrote the state change, so a failed update still
+// announced a close that never happened (#15, step 6). Creation and update now
+// write their log rows inside the business transaction
+// (`pull_request::service::{create_pr, update_pr}`) and only deliver after the
+// commit. The helpers had no other caller and were removed so the old shape
+// cannot be reintroduced by accident. A caller that really needs "record and
+// deliver after the fact" should use `trigger_event` explicitly and say why in a
+// comment.
 
 // `trigger_pr_merged` used to live here and recorded the event *after* the merge
 // transaction committed, which is exactly the crash window #15 is about. The

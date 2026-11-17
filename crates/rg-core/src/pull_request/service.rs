@@ -177,9 +177,16 @@ pub async fn create_pr(
         merged_at: Set(None),
     };
 
-    let pr = pull_request_ops::create(db, model).await?;
+    // The PR row, its timeline entry, and the `pull_request.opened` log row
+    // commit together (#15, step 6): a crash between them must not leave a PR
+    // whose opening event is missing.
+    let txn = db
+        .begin()
+        .await
+        .context("db: begin PR creation transaction")?;
+    let pr = pull_request_ops::create(&txn, model).await?;
     rg_db::ops::pr_event_ops::record(
-        db,
+        &txn,
         pr.repo_id,
         pr.id,
         Some(author_id),
@@ -197,7 +204,6 @@ pub async fn create_pr(
     )
     .await?;
 
-    // Trigger pull_request.opened webhook
     let payload = serde_json::json!({
         "id": pr.id,
         "repo_id": pr.repo_id,
@@ -209,8 +215,30 @@ pub async fn create_pr(
         "head_repo_id": pr.head_repo_id,
         "author_id": pr.author_id,
     });
-    if let Err(e) = crate::webhook::service::trigger_pr_opened(db, repo_id, &payload).await {
-        tracing::warn!("Failed to trigger PR opened webhook: {e}");
+    let event_payload = serde_json::json!({
+        "event": "pull_request.opened",
+        "pull_request": payload,
+    });
+    // An append failure aborts the transaction: better no PR at all than a PR
+    // whose opening event is gone forever.
+    crate::webhook::service::record_event_in_txn(
+        &txn,
+        repo_id,
+        "pull_request.opened",
+        &event_payload,
+    )
+    .await?;
+    txn.commit()
+        .await
+        .context("db: commit PR creation transaction")?;
+
+    // Delivery is outside the transaction, and failing to deliver it must not
+    // fail the creation that already committed.
+    if let Err(e) =
+        crate::webhook::service::deliver_event(db, repo_id, "pull_request.opened", &event_payload)
+            .await
+    {
+        tracing::warn!("Failed to deliver PR opened webhook: {e}");
     }
 
     Ok(pr)
@@ -399,33 +427,19 @@ pub async fn update_pr(
         }
         pr.is_draft = draft;
     }
+    // Computed before the state change and kept for the event block below: the
+    // `pull_request.closed` event is written *after* the row is actually
+    // updated, so it must not be built here.
+    let was_open = pr.state == "open";
     if let Some(s) = &state {
         match s.as_str() {
             "open" | "closed" | "merged" => {
-                let was_open = pr.state == "open";
                 pr.state = s.clone();
                 if s != "open" {
                     pr.auto_merge_enabled = false;
                 }
                 if s == "closed" && pr.closed_at.is_none() {
                     pr.closed_at = Some(Utc::now());
-                }
-
-                // Trigger pull_request.closed webhook when transitioning to closed
-                if was_open && s == "closed" {
-                    let close_payload = serde_json::json!({
-                        "id": pr.id,
-                        "repo_id": pr.repo_id,
-                        "number": pr.number,
-                        "title": pr.title,
-                        "state": s,
-                    });
-                    if let Err(e) =
-                        crate::webhook::service::trigger_pr_closed(db, pr.repo_id, &close_payload)
-                            .await
-                    {
-                        tracing::warn!("Failed to trigger PR closed webhook: {e}");
-                    }
                 }
             }
             _ => return Err(CoreError::InvalidInput(format!("invalid PR state: {}", s))),
@@ -453,10 +467,19 @@ pub async fn update_pr(
     active.closed_at = Set(final_closed_at);
     active.milestone_id = Set(final_milestone_id);
     active.updated_at = Set(final_updated_at);
-    let updated = pull_request_ops::update(db, active).await?;
+    // One transaction for the row and everything that reports on it: the
+    // timeline entries and the `pull_request.closed` log row commit with the
+    // state change or not at all (#15, step 6). The event used to be published
+    // *before* this update, so a failed update could announce a close that
+    // never happened — the ordering, not just the transaction, is the fix.
+    let txn = db
+        .begin()
+        .await
+        .context("db: begin PR update transaction")?;
+    let updated = pull_request_ops::update(&txn, active).await?;
     if previous_draft != updated.is_draft {
         rg_db::ops::pr_event_ops::record(
-            db,
+            &txn,
             updated.repo_id,
             updated.id,
             Some(actor_id),
@@ -477,7 +500,7 @@ pub async fn update_pr(
             _ => "pull_request_state_changed",
         };
         rg_db::ops::pr_event_ops::record(
-            db,
+            &txn,
             updated.repo_id,
             updated.id,
             Some(actor_id),
@@ -487,6 +510,52 @@ pub async fn update_pr(
         )
         .await?;
     }
+
+    // Only an open PR that is now closed is a close worth announcing; a title
+    // edit writes and delivers nothing.
+    let closed_event = if was_open && updated.state == "closed" {
+        let close_payload = serde_json::json!({
+            "id": updated.id,
+            "repo_id": updated.repo_id,
+            "number": updated.number,
+            "title": updated.title,
+            "state": updated.state,
+        });
+        let event_payload = serde_json::json!({
+            "event": "pull_request.closed",
+            "pull_request": close_payload,
+        });
+        crate::webhook::service::record_event_in_txn(
+            &txn,
+            updated.repo_id,
+            "pull_request.closed",
+            &event_payload,
+        )
+        .await?;
+        Some(event_payload)
+    } else {
+        None
+    };
+
+    txn.commit()
+        .await
+        .context("db: commit PR update transaction")?;
+
+    // Delivery happens after the commit, and a delivery failure never fails an
+    // update that is already durable.
+    if let Some(event_payload) = closed_event {
+        if let Err(e) = crate::webhook::service::deliver_event(
+            db,
+            updated.repo_id,
+            "pull_request.closed",
+            &event_payload,
+        )
+        .await
+        {
+            tracing::warn!("Failed to deliver PR closed webhook: {e}");
+        }
+    }
+
     Ok(updated)
 }
 
