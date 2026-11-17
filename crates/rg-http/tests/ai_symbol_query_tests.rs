@@ -203,10 +203,13 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
     let (status, body) = symbols(&base, &token, "queryable", &[]).await;
     assert_eq!(status, 400, "{body}");
 
-    // 7. `partial` and `limitations` are present and honest.
+    // 7. Completeness: every file here parses cleanly, so the indexer recorded
+    //    no failure and `partial` is false. The static language limits are
+    //    still stated — they are the extractor's boundary, not this commit's
+    //    defect — and no per-commit failure is invented.
     let (status, body) = symbols(&base, &token, "queryable", &[("name", "index_commit")]).await;
     assert_eq!(status, 200);
-    assert_eq!(body["partial"], true, "{body}");
+    assert_eq!(body["partial"], false, "{body}");
     let limitations = body["limitations"].as_array().expect("limitations array");
     assert!(!limitations.is_empty(), "{body}");
     let joined = limitations
@@ -216,6 +219,9 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
         .join(" | ");
     assert!(joined.contains("svelte"), "{joined}");
     assert!(joined.contains("Rust macro"), "{joined}");
+    assert!(joined.contains("Go interface"), "{joined}");
+    assert!(!joined.contains("failed to parse"), "{joined}");
+    assert!(!joined.contains("unknown"), "{joined}");
 
     // 9. A name that only exists as an `impl` first line returns nothing —
     //    with either an exact or a prefix query.
@@ -309,4 +315,67 @@ async fn an_unindexed_commit_is_404_and_never_answered_from_head() {
         "the failure must tell the caller to index the commit: {body}"
     );
     assert_eq!(body["error"]["retryable"], true, "{body}");
+}
+
+/// `partial` must distinguish a clean index from a defective one: a commit
+/// containing a file the parser rejected is `partial: true` **and** says how
+/// many files were affected. Hedging on every commit would make the flag
+/// useless; being silent here would hide real gaps.
+#[tokio::test]
+async fn a_commit_with_a_parse_failure_is_partial_and_names_the_count() {
+    let (base, _db, repo_root) = spawn_test_app_with_root().await;
+    let (token, _) = register_full(&base, "symbols-owner", "symbols-owner@example.com").await;
+    let created = reqwest::Client::new()
+        .post(format!("{base}/api/v1/repos"))
+        .bearer_auth(&token)
+        .json(&json!({"name": "broken", "is_private": true}))
+        .send()
+        .await
+        .expect("create repo");
+    assert_eq!(created.status(), 201);
+
+    let bare = repo_root.join("symbols-owner/broken.git");
+    let worktree = tempfile::tempdir().expect("worktree");
+    let path = worktree.path();
+    let path_arg = path.to_string_lossy().to_string();
+    git(&["init", "--initial-branch=main", &path_arg], None);
+    configure_worktree(path);
+    std::fs::create_dir_all(path.join("src")).unwrap();
+    std::fs::write(path.join("src/lib.rs"), LIB_RS).expect("write lib.rs");
+    // Unbalanced paren: tree-sitter reports an ERROR node for this file.
+    std::fs::write(
+        path.join("src/broken.ts"),
+        "export function broken( {\n    return 1;\n}\n",
+    )
+    .expect("write broken.ts");
+    git(&["add", "."], Some(path));
+    git(&["commit", "-m", "symbols"], Some(path));
+    let bare_arg = bare.to_string_lossy().to_string();
+    git(&["remote", "add", "origin", &bare_arg], Some(path));
+    git(&["push", "origin", "main"], Some(path));
+    let sha = git_stdout(&["rev-parse", "HEAD"], Some(path));
+
+    let report = index(&base, &token, "broken", None).await;
+    assert_eq!(report["commit_sha"], sha.as_str());
+
+    let (status, body) = symbols(&base, &token, "broken", &[("name", "Widget")]).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["partial"], true, "{body}");
+    let joined = body["limitations"]
+        .as_array()
+        .expect("limitations array")
+        .iter()
+        .filter_map(|line| line.as_str())
+        .collect::<Vec<_>>()
+        .join(" | ");
+    assert!(
+        joined.contains("1 files failed to parse and are only partially indexed"),
+        "{joined}"
+    );
+    assert!(
+        joined.contains("svelte"),
+        "static limits stay listed: {joined}"
+    );
+    // The clean file is still answered.
+    assert!(!names(&body).is_empty(), "{body}");
 }

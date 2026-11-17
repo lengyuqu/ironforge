@@ -27,6 +27,16 @@
 //! Indexing the same commit twice deletes that commit's definitions first, so
 //! the row count is stable. The unique anchor
 //! `(commit_id, path, name, kind, start_line)` is a second line of defence.
+//! The completeness counters are overwritten by the second run for the same
+//! reason: they describe the index that is actually stored.
+//!
+//! # Completeness
+//!
+//! Per commit the writer records `files_total`, `files_failed` and
+//! `files_truncated` (see [`Completeness`]). They exist so the reader can say
+//! "this index is complete" with evidence instead of hedging for every commit;
+//! rows written before the columns existed keep the `-1` sentinel and stay
+//! `partial`.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -138,9 +148,42 @@ struct Snapshot {
     /// Fully resolved 40-hex commit SHA.
     commit_sha: String,
     definitions: Vec<SymbolDefinition>,
+    /// Completeness of *this* run, stored on `symbol_commits` so the reader can
+    /// distinguish "nothing failed" from "nobody counted".
+    stats: Completeness,
     /// Commits the prune step must keep (`rev-list -n D <default branch>` plus
     /// the indexed commit).
     retained: Vec<String>,
+}
+
+/// Per-run counts of what the extractor could and could not see.
+///
+/// These describe the *data*, not the extractor's ability: a file the parser
+/// rejected, or one whose item list was capped, makes the index for this commit
+/// incomplete in a way that is specific to this commit. The language limits
+/// that apply to every commit (svelte markup, macros, dynamic dispatch) are not
+/// recorded here — they are not a defect of any particular run.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Completeness {
+    /// Files read and handed to the extractor.
+    pub files_total: i32,
+    /// Of those, files whose outline carried a parse error.
+    pub files_failed: i32,
+    /// Of those, files whose outline hit the item cap.
+    pub files_truncated: i32,
+}
+
+impl Completeness {
+    /// Whether this run could not produce a complete index.
+    ///
+    /// A negative [`Self::files_total`] is
+    /// [`rg_db::entities::symbol_commit::UNKNOWN_FILES_TOTAL`]: the row predates
+    /// the counters, so completeness is unknown and must not be reported as
+    /// complete. Zero failures on a measured run is the only case that is not
+    /// partial.
+    pub fn is_partial(&self) -> bool {
+        self.files_total < 0 || self.files_failed > 0 || self.files_truncated > 0
+    }
 }
 
 /// Index `commit_ref` of `repo_id` and prune the retained window, atomically.
@@ -171,7 +214,7 @@ pub async fn index_commit(
         .await
         .map_err(|error| CoreError::internal(format!("db: begin symbol index: {error}")))?;
 
-    let commit_id = upsert_commit(&txn, repo_id, &snapshot.commit_sha).await?;
+    let commit_id = upsert_commit(&txn, repo_id, &snapshot.commit_sha, snapshot.stats).await?;
 
     // Idempotency: drop this commit's previous rows before writing the new ones.
     execute(
@@ -211,26 +254,52 @@ async fn execute<C: ConnectionTrait>(conn: &C, sql: &str, values: Vec<Value>) ->
 
 /// `SELECT id FROM symbol_commits WHERE repo_id = ? AND commit_sha = ?`, then
 /// insert when absent. The unique `(repo_id, commit_sha)` key is the backstop.
+///
+/// An existing row is **updated** with the new counters: re-indexing the same
+/// commit replaces the previous measurement instead of adding to it, exactly
+/// like its definitions are replaced. A stale `partial` from an older run would
+/// otherwise outlive the reason it was set.
 async fn upsert_commit<C: ConnectionTrait>(
     conn: &C,
     repo_id: i64,
     commit_sha: &str,
+    stats: Completeness,
 ) -> CoreResult<i32> {
-    use rg_db::entities::symbol_commit::{ActiveModel, Entity};
+    use rg_db::entities::symbol_commit::{ActiveModel, Column, Entity};
 
     let existing = Entity::find()
-        .filter(rg_db::entities::symbol_commit::Column::RepoId.eq(repo_id))
-        .filter(rg_db::entities::symbol_commit::Column::CommitSha.eq(commit_sha))
+        .filter(Column::RepoId.eq(repo_id))
+        .filter(Column::CommitSha.eq(commit_sha))
         .one(conn)
         .await
         .map_err(|error| CoreError::internal(format!("db: read symbol commit: {error}")))?;
     if let Some(model) = existing {
+        if model.files_total != stats.files_total
+            || model.files_failed != stats.files_failed
+            || model.files_truncated != stats.files_truncated
+        {
+            ActiveModel {
+                id: Set(model.id),
+                files_total: Set(stats.files_total),
+                files_failed: Set(stats.files_failed),
+                files_truncated: Set(stats.files_truncated),
+                ..Default::default()
+            }
+            .update(conn)
+            .await
+            .map_err(|error| {
+                CoreError::internal(format!("db: update symbol commit stats: {error}"))
+            })?;
+        }
         return Ok(model.id);
     }
     ActiveModel {
         repo_id: Set(repo_id),
         commit_sha: Set(commit_sha.to_string()),
         created_at: Set(chrono::Utc::now()),
+        files_total: Set(stats.files_total),
+        files_failed: Set(stats.files_failed),
+        files_truncated: Set(stats.files_truncated),
         ..Default::default()
     }
     .insert(conn)
@@ -353,20 +422,39 @@ fn collect_snapshot(
     let mut blobs = Vec::new();
     collect_blobs(&repo, tree_id, "", &mut blobs)?;
 
-    let indexer = SymbolIndexer;
+    let indexer = OutlineIndexer;
     let mut definitions = Vec::new();
+    let mut stats = Completeness::default();
     for blob in blobs {
-        let object = match repo.find_object(blob.oid) {
-            Ok(object) => object,
-            Err(_) => continue,
+        // Every admitted blob counts as "seen": `files_total` is the
+        // denominator of the two failure counters, so a file that disappears
+        // here would silently shrink the measurement.
+        stats.files_total += 1;
+        let Ok(object) = repo.find_object(blob.oid) else {
+            stats.files_failed += 1;
+            continue;
         };
         let Ok(blob_object) = object.try_into_blob() else {
+            stats.files_failed += 1;
             continue;
         };
         let Ok(source) = std::str::from_utf8(&blob_object.data) else {
+            // Undecodable source is source the extractor never saw; calling it
+            // "indexed" would be a claim of completeness.
+            stats.files_failed += 1;
             continue;
         };
-        definitions.extend(indexer.extract(&blob.path, source));
+        // The outline is taken directly rather than through
+        // `SymbolIndexer::extract`, so `error`/`truncated` — the evidence the
+        // reader needs — are visible before the item tree is flattened.
+        let outline = indexer.extract(&blob.path, source);
+        if outline.error.is_some() {
+            stats.files_failed += 1;
+        }
+        if outline.truncated {
+            stats.files_truncated += 1;
+        }
+        flatten(&outline.items, &blob.path, &mut definitions);
     }
 
     // The unique anchor tolerates no duplicate; collapse identical rows before
@@ -387,6 +475,7 @@ fn collect_snapshot(
     Ok(Snapshot {
         commit_sha: commit_id.to_string(),
         definitions,
+        stats,
         retained,
     })
 }
