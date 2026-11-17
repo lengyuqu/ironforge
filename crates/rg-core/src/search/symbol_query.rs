@@ -43,6 +43,7 @@
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, Value};
 
 use crate::error::{CoreError, CoreResult};
+use crate::search::symbol_indexer::Completeness;
 
 /// Rows returned when the caller does not ask for a specific `limit`.
 pub const DEFAULT_LIMIT: usize = 50;
@@ -91,36 +92,64 @@ pub struct SymbolHit {
 pub struct SymbolPage {
     /// The full 40-hex SHA that was queried.
     pub commit_sha: String,
-    /// The index for this commit is known to be incomplete.
+    /// This commit's index is incomplete, or its completeness was never
+    /// measured. False means the indexing run recorded zero failed and zero
+    /// truncated files — it does **not** mean static extraction sees
+    /// everything; that boundary is [`Self::limitations`].
     pub partial: bool,
-    /// What static parsing cannot see, in plain sentences. Never empty.
+    /// What static parsing cannot see, plus this commit's measured defects, in
+    /// plain sentences. Never empty.
     pub limitations: Vec<String>,
     pub items: Vec<SymbolHit>,
 }
 
 /// What a static tree-sitter index cannot answer, stated as known facts.
 ///
-/// These are static truths about the extractor, not measurements of a
-/// particular commit: the indexer does not record which files failed to parse
-/// or which languages a commit contains, so per-commit numbers cannot be given
-/// here and are not invented.
-const LIMITATIONS: &[&str] = &[
+/// These are static truths about the extractor and hold for **every** commit:
+/// they describe the *capability boundary*, not the quality of one indexing
+/// run. They are therefore always listed, and they never make a page
+/// [`SymbolPage::partial`] — a svelte-heavy repository is not "incompletely
+/// indexed", it is indexed by an extractor whose reach has a known edge.
+///
+/// Defects that belong to one commit (files the parser rejected, files whose
+/// item list was capped, rows written before the counters existed) are read
+/// from `symbol_commits` and appended by [`measured_limitations`].
+const STATIC_LIMITATIONS: &[&str] = &[
     "svelte files are parsed only inside <script>: markup, props and template bindings are not in the symbol table",
-    "parse failures are not recorded per commit: a file the parser rejected contributes whatever the partial tree yielded, or nothing, and this response cannot say which",
     "Rust macro-generated symbols and dyn Trait dispatch are not resolvable by tree-sitter",
     "TypeScript/JavaScript dynamic property access (obj[key]) and `any` propagation are not resolvable",
     "Python getattr(obj, \"x\") and monkey patching are not resolvable",
     "Go interface method sets are decided at run time: interface calls are not resolvable",
 ];
 
-/// Why every page is `partial`.
+/// Append the sentences that describe *this commit's* measured defects.
 ///
-/// Static extraction is incomplete for every supported language (macro
-/// expansion, dynamic dispatch, reflection), and the index does not record
-/// parse failures, so there is no commit for which completeness can be proven.
-/// Claiming `partial: false` would require evidence the writer never kept;
-/// `partial: true` with named [`LIMITATIONS`] is the honest answer.
-const PARTIAL: bool = true;
+/// Empty for a measured, clean run: there is nothing to disclose beyond
+/// [`STATIC_LIMITATIONS`]. The counts are the reason `partial` is true, so the
+/// two always agree.
+fn measured_limitations(stats: Completeness) -> Vec<String> {
+    let mut lines = Vec::new();
+    if stats.files_total < 0 {
+        lines.push(
+            "this commit was indexed before completeness stats were recorded; \
+             completeness is unknown"
+                .to_string(),
+        );
+    }
+    if stats.files_failed > 0 {
+        lines.push(format!(
+            "{} files failed to parse and are only partially indexed",
+            stats.files_failed
+        ));
+    }
+    if stats.files_truncated > 0 {
+        lines.push(format!(
+            "{} files exceeded the item cap and were truncated",
+            stats.files_truncated
+        ));
+    }
+    lines
+}
 
 /// Read definitions of `commit_sha` by `name` and/or `path`.
 ///
@@ -153,7 +182,8 @@ pub async fn find_symbols(
         ));
     }
 
-    let commit_id = commit_id_of(db, repo_id, commit_sha).await?;
+    let commit = commit_stats_of(db, repo_id, commit_sha).await?;
+    let commit_id = commit.id;
 
     let backend = db.get_database_backend();
     let mut sql = String::from(
@@ -169,7 +199,10 @@ pub async fn find_symbols(
         // PostgreSQL and MySQL (`_` and `%` in a symbol name are literals).
         sql.push_str(" AND (name = ? OR substr(name, 1, ?) = ?)");
         params.push(Value::from(query));
-        params.push(Value::from(query.chars().count() as i64));
+        // `i32`: PostgreSQL resolves `substr(character varying, integer,
+        // bigint)` to no function at all, so the length must be bound at
+        // `INT4` width there.
+        params.push(Value::from(query.chars().count() as i32));
         params.push(Value::from(query));
     }
     if let Some(query) = path {
@@ -210,30 +243,51 @@ pub async fn find_symbols(
             name: row_name,
             kind: text(&row, 1)?,
             path: text(&row, 2)?,
-            start_line: integer(&row, 3)? as i32,
-            end_line: integer(&row, 4)? as i32,
+            start_line: integer(&row, 3)?,
+            end_line: integer(&row, 4)?,
             signature: optional_text(&row, 5)?,
             confidence,
         });
     }
 
+    let mut limitations: Vec<String> = STATIC_LIMITATIONS
+        .iter()
+        .map(|line| (*line).to_string())
+        .collect();
+    limitations.extend(measured_limitations(commit.completeness));
+
     Ok(SymbolPage {
         commit_sha: commit_sha.to_string(),
-        partial: PARTIAL,
-        limitations: LIMITATIONS.iter().map(|line| line.to_string()).collect(),
+        partial: commit.completeness.is_partial(),
+        limitations,
         items,
     })
 }
 
-/// `symbol_commits.id` for this exact commit, or `SYMBOLS_NOT_INDEXED`.
-async fn commit_id_of(db: &DatabaseConnection, repo_id: i64, commit_sha: &str) -> CoreResult<i32> {
+/// One `symbol_commits` row as the reader needs it.
+struct CommitStats {
+    id: i32,
+    completeness: Completeness,
+}
+
+/// The `symbol_commits` row for this exact commit, or `SYMBOLS_NOT_INDEXED`.
+///
+/// The counters are read in the same statement as the id: `partial` must
+/// describe the row whose definitions are being returned, and a second query
+/// could disagree with the first if the commit were re-indexed in between.
+async fn commit_stats_of(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    commit_sha: &str,
+) -> CoreResult<CommitStats> {
     let backend = db.get_database_backend();
     let row = db
         .query_one(Statement::from_sql_and_values(
             backend,
             rg_db::prepare_sql(
                 backend,
-                "SELECT id FROM symbol_commits WHERE repo_id = ? AND commit_sha = ?",
+                "SELECT id, files_total, files_failed, files_truncated \
+                 FROM symbol_commits WHERE repo_id = ? AND commit_sha = ?",
             ),
             [Value::from(repo_id), Value::from(commit_sha)],
         ))
@@ -241,7 +295,14 @@ async fn commit_id_of(db: &DatabaseConnection, repo_id: i64, commit_sha: &str) -
         .map_err(|error| CoreError::internal(format!("db: read symbol commit: {error}")))?;
 
     match row {
-        Some(row) => Ok(integer(&row, 0)? as i32),
+        Some(row) => Ok(CommitStats {
+            id: integer(&row, 0)?,
+            completeness: Completeness {
+                files_total: integer(&row, 1)?,
+                files_failed: integer(&row, 2)?,
+                files_truncated: integer(&row, 3)?,
+            },
+        }),
         // Deliberately no fallback to the default branch HEAD: see the module
         // documentation. The message carries the commit that was asked for, so
         // the caller can index exactly that commit and retry.
@@ -263,8 +324,14 @@ fn optional_text(row: &sea_orm::QueryResult, index: usize) -> CoreResult<Option<
         .map_err(|error| CoreError::internal(format!("db: decode symbol row: {error}")))
 }
 
-fn integer(row: &sea_orm::QueryResult, index: usize) -> CoreResult<i64> {
-    row.try_get_by_index::<i64>(index)
+/// Decode an `INTEGER` column.
+///
+/// `i32`, not `i64`: PostgreSQL maps the schema's `INTEGER` to `INT4`, and
+/// asking sqlx for an `INT8` fails with `ColumnDecode` on that backend (MySQL
+/// and SQLite accept both). Every column read through this helper is declared
+/// `INTEGER`, so `i32` is the exact width.
+fn integer(row: &sea_orm::QueryResult, index: usize) -> CoreResult<i32> {
+    row.try_get_by_index::<i32>(index)
         .map_err(|error| CoreError::internal(format!("db: decode symbol row: {error}")))
 }
 
@@ -516,23 +583,125 @@ mod tests {
         assert!(matches!(error, CoreError::InvalidInput(_)), "{error:?}");
     }
 
+    /// Overwrite the counters of the seeded commit row (id 1).
+    async fn set_stats(db: &DatabaseConnection, total: i32, failed: i32, truncated: i32) {
+        db.execute(Statement::from_sql_and_values(
+            db.get_database_backend(),
+            "UPDATE symbol_commits SET files_total = ?, files_failed = ?, \
+             files_truncated = ? WHERE id = 1",
+            [
+                Value::from(total),
+                Value::from(failed),
+                Value::from(truncated),
+            ],
+        ))
+        .await
+        .unwrap();
+    }
+
+    fn joined(page: &SymbolPage) -> String {
+        page.limitations.join(" | ")
+    }
+
+    /// The static sentences are always present — they describe the extractor,
+    /// not this commit — but a measured clean run is not `partial`.
     #[tokio::test]
-    async fn limitations_are_always_stated_and_partial_is_honest() {
+    async fn a_measured_clean_commit_is_not_partial_and_still_states_the_static_limits() {
         let db = memory_db().await;
         seed(&db).await;
+        set_stats(&db, 12, 0, 0).await;
+
+        let page = find_symbols(&db, REPO, SHA, None, Some("a.rs"), 50)
+            .await
+            .unwrap();
+        assert!(!page.partial, "{:#?}", page.limitations);
+        let joined = joined(&page);
+        for expected in [
+            "svelte",
+            "Rust macro",
+            "TypeScript",
+            "Python",
+            "Go interface",
+        ] {
+            assert!(joined.contains(expected), "{expected} missing: {joined}");
+        }
+        assert!(
+            !joined.contains("failed to parse"),
+            "a clean run must not invent failures: {joined}"
+        );
+        assert!(!joined.contains("unknown"), "{joined}");
+    }
+
+    /// Failures recorded by the writer make the page partial, with the number
+    /// the caller needs to judge what is missing.
+    #[tokio::test]
+    async fn recorded_parse_failures_make_the_page_partial_with_the_count() {
+        let db = memory_db().await;
+        seed(&db).await;
+        set_stats(&db, 16, 3, 0).await;
 
         let page = find_symbols(&db, REPO, SHA, None, Some("a.rs"), 50)
             .await
             .unwrap();
         assert!(page.partial);
-        assert!(page.limitations.iter().any(|line| line.contains("svelte")));
-        assert!(page
-            .limitations
-            .iter()
-            .any(|line| line.contains("Rust macro")));
-        assert!(page
-            .limitations
-            .iter()
-            .any(|line| line.contains("Go interface")));
+        assert!(
+            joined(&page).contains("3 files failed to parse and are only partially indexed"),
+            "{}",
+            joined(&page)
+        );
+        assert!(
+            joined(&page).contains("svelte"),
+            "static limits stay listed next to the measured defect: {}",
+            joined(&page)
+        );
+        assert!(!joined(&page).contains("exceeded the item cap"));
+    }
+
+    #[tokio::test]
+    async fn recorded_truncation_makes_the_page_partial_with_the_count() {
+        let db = memory_db().await;
+        seed(&db).await;
+        set_stats(&db, 5, 0, 2).await;
+
+        let page = find_symbols(&db, REPO, SHA, None, Some("a.rs"), 50)
+            .await
+            .unwrap();
+        assert!(page.partial);
+        assert!(
+            joined(&page).contains("2 files exceeded the item cap and were truncated"),
+            "{}",
+            joined(&page)
+        );
+        assert!(!joined(&page).contains("failed to parse"));
+    }
+
+    /// A row written before the counters existed cannot prove anything, so it
+    /// must stay partial and say why.
+    #[tokio::test]
+    async fn a_row_without_stats_is_partial_and_says_completeness_is_unknown() {
+        use rg_db::entities::symbol_commit::UNKNOWN_FILES_TOTAL;
+
+        let db = memory_db().await;
+        seed(&db).await;
+        set_stats(&db, UNKNOWN_FILES_TOTAL, 0, 0).await;
+
+        let page = find_symbols(&db, REPO, SHA, None, Some("a.rs"), 50)
+            .await
+            .unwrap();
+        assert!(page.partial);
+        assert!(
+            joined(&page).contains(
+                "this commit was indexed before completeness stats were recorded; \
+                 completeness is unknown"
+            ),
+            "{}",
+            joined(&page)
+        );
+        // Unknown is not the same as "we know files failed": no invented count.
+        assert!(
+            !joined(&page).contains("failed to parse"),
+            "{}",
+            joined(&page)
+        );
     }
 }

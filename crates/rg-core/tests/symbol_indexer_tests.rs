@@ -111,7 +111,179 @@ async fn count(db: &DatabaseConnection, sql: &str) -> i64 {
     row.try_get_by_index::<i64>(0).expect("count")
 }
 
+/// `(files_total, files_failed, files_truncated)` of the only commit row.
+async fn stats(db: &DatabaseConnection) -> (i64, i64, i64) {
+    let row = db
+        .query_one(Statement::from_string(
+            db.get_database_backend(),
+            "SELECT files_total, files_failed, files_truncated FROM symbol_commits".to_string(),
+        ))
+        .await
+        .expect("query")
+        .expect("row");
+    (
+        row.try_get_by_index::<i64>(0).expect("files_total"),
+        row.try_get_by_index::<i64>(1).expect("files_failed"),
+        row.try_get_by_index::<i64>(2).expect("files_truncated"),
+    )
+}
+
+async fn page_for(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    sha: &str,
+    name: &str,
+) -> rg_core::search::symbol_query::SymbolPage {
+    rg_core::search::symbol_query::find_symbols(db, repo_id, sha, Some(name), None, 50)
+        .await
+        .expect("find symbols")
+}
+
 // ── tests ─────────────────────────────────────────────────────────────────
+
+/// A commit every supported file parses cleanly: the writer records
+/// `(total, 0, 0)` and the reader answers `partial: false`.
+///
+/// The static language limits are still listed — they describe the extractor,
+/// not this commit — so "not partial" is not a claim that tree-sitter sees
+/// everything.
+#[tokio::test]
+async fn a_clean_commit_is_recorded_as_complete_and_reads_back_not_partial() {
+    let (db, _db_dir, repo_id) = seed_database().await;
+    let repo = TestRepo::new();
+    let sha = repo.commit(
+        &[
+            ("src/a.rs", "pub fn clean_one() {}\n"),
+            ("src/b.go", "package main\n\nfunc CleanTwo() {}\n"),
+            // Unsupported extension: never admitted, so it is not a failure
+            // and not part of the denominator either.
+            ("README.md", "# ignored\n"),
+        ],
+        "clean",
+    );
+
+    let report = index_commit(&db, repo.path(), repo_id, &sha, "main")
+        .await
+        .expect("index");
+    assert_eq!(report.definitions_written, 2);
+    assert_eq!(stats(&db).await, (2, 0, 0));
+
+    let page = page_for(&db, repo_id, &sha, "clean_one").await;
+    assert!(!page.partial, "{:#?}", page.limitations);
+    let joined = page.limitations.join(" | ");
+    assert!(joined.contains("svelte"), "{joined}");
+    assert!(joined.contains("Rust macro"), "{joined}");
+    assert!(!joined.contains("failed to parse"), "{joined}");
+    assert!(!joined.contains("unknown"), "{joined}");
+}
+
+/// Files the parser rejects are counted, the page is `partial` for a reason,
+/// and re-indexing the same commit replaces the counters instead of adding a
+/// second run's files on top.
+#[tokio::test]
+async fn parse_failures_are_counted_and_reindexing_overwrites_the_counters() {
+    let (db, _db_dir, repo_id) = seed_database().await;
+    let repo = TestRepo::new();
+    let sha = repo.commit(
+        &[
+            ("src/a.rs", "pub fn good_one() {}\n"),
+            (
+                "src/broken.ts",
+                "export function broken( {\n    return 1;\n}\n",
+            ),
+        ],
+        "one broken file",
+    );
+
+    for _ in 0..2 {
+        index_commit(&db, repo.path(), repo_id, &sha, "main")
+            .await
+            .expect("index");
+        assert_eq!(
+            stats(&db).await,
+            (2, 1, 0),
+            "the second run must overwrite, not accumulate"
+        );
+    }
+    assert_eq!(
+        count(&db, "SELECT COUNT(*) FROM symbol_commits").await,
+        1,
+        "one row per commit"
+    );
+
+    // The good file is still searchable: partial does not mean empty.
+    let page = page_for(&db, repo_id, &sha, "good_one").await;
+    assert_eq!(page.items.len(), 1);
+    assert!(page.partial);
+    assert!(
+        page.limitations
+            .join(" | ")
+            .contains("1 files failed to parse and are only partially indexed"),
+        "{:#?}",
+        page.limitations
+    );
+}
+
+/// A file over the item cap is recorded as truncated; the page says so with
+/// the count.
+#[tokio::test]
+async fn truncated_files_are_counted_and_reported() {
+    let (db, _db_dir, repo_id) = seed_database().await;
+    let repo = TestRepo::new();
+    let mut dense = String::new();
+    for index in 0..2001 {
+        dense.push_str(&format!("pub fn dense_{index}() {{}}\n"));
+    }
+    let sha = repo.commit(&[("src/dense.rs", &dense)], "dense");
+
+    index_commit(&db, repo.path(), repo_id, &sha, "main")
+        .await
+        .expect("index");
+    assert_eq!(stats(&db).await, (1, 0, 1));
+
+    let page = page_for(&db, repo_id, &sha, "dense_0").await;
+    assert!(page.partial);
+    assert!(
+        page.limitations
+            .join(" | ")
+            .contains("1 files exceeded the item cap and were truncated"),
+        "{:#?}",
+        page.limitations
+    );
+}
+
+/// A row written before the counters existed (the `-1` sentinel) reads back as
+/// `partial` with "completeness is unknown", never as complete.
+#[tokio::test]
+async fn a_row_without_stats_stays_partial_and_says_why() {
+    let (db, _db_dir, repo_id) = seed_database().await;
+    let repo = TestRepo::new();
+    let sha = repo.commit(&[("src/a.rs", "pub fn known() {}\n")], "legacy");
+    index_commit(&db, repo.path(), repo_id, &sha, "main")
+        .await
+        .expect("index");
+
+    db.execute(Statement::from_string(
+        db.get_database_backend(),
+        "UPDATE symbol_commits SET files_total = -1, files_failed = 0, files_truncated = 0"
+            .to_string(),
+    ))
+    .await
+    .expect("emulate a pre-counter row");
+
+    let page = page_for(&db, repo_id, &sha, "known").await;
+    assert_eq!(page.items.len(), 1, "the definitions are still served");
+    assert!(page.partial);
+    let joined = page.limitations.join(" | ");
+    assert!(
+        joined.contains(
+            "this commit was indexed before completeness stats were recorded; \
+             completeness is unknown"
+        ),
+        "{joined}"
+    );
+    assert!(!joined.contains("failed to parse"), "{joined}");
+}
 
 /// Re-indexing the same commit does not duplicate rows, and `impl` rows are
 /// persisted (they are excluded by the query side, not by the writer).
@@ -304,6 +476,10 @@ async fn measure_this_repository_symbols() {
     println!("commit: {head}");
     println!("definitions_written: {}", report.definitions_written);
     println!(
+        "completeness (files_total, files_failed, files_truncated): {:?}",
+        stats(&db).await
+    );
+    println!(
         "symbol_definitions rows: {}",
         count(&db, "SELECT COUNT(*) FROM symbol_definitions").await
     );
@@ -383,6 +559,59 @@ async fn write_path_round_trip_on_the_backend_from_the_environment() {
     );
 
     // Clean up the shared database: rows first, then their parents.
+    for sql in [
+        format!("DELETE FROM symbol_definitions WHERE repo_id = {repo_id}"),
+        format!("DELETE FROM symbol_commits WHERE repo_id = {repo_id}"),
+        format!("DELETE FROM repositories WHERE id = {repo_id}"),
+        format!("DELETE FROM users WHERE id = {user_id}"),
+    ] {
+        db.execute(Statement::from_string(db.get_database_backend(), sql))
+            .await
+            .expect("cleanup");
+    }
+}
+
+/// The read path (`find_symbols`) decodes the counters as well; run it once on
+/// the backend named by `IRONFORGE_TEST_DATABASE_URL` so PostgreSQL's `INT4`
+/// columns and MySQL's `int` are real coverage. Without the variable there is
+/// nothing to do (SQLite is covered above).
+#[tokio::test]
+async fn symbol_query_round_trip_on_the_backend_from_the_environment() {
+    let Ok(url) = std::env::var("IRONFORGE_TEST_DATABASE_URL") else {
+        return;
+    };
+    let db = rg_db::connect_with_pool(&url, 10, 60, 4)
+        .await
+        .expect("connect to IRONFORGE_TEST_DATABASE_URL");
+    rg_db::run_migrations(&db).await.expect("migrations");
+    let (repo_id, user_id) = seed_repository_rows(&db, "query").await;
+
+    let repo = TestRepo::new();
+    let sha = repo.commit(
+        &[
+            ("src/a.rs", "pub fn queried_one() {}\n"),
+            (
+                "src/broken.ts",
+                "export function broken( {\n    return 1;\n}\n",
+            ),
+        ],
+        "queryable",
+    );
+    index_commit(&db, repo.path(), repo_id, &sha, "main")
+        .await
+        .expect("index");
+
+    let page = page_for(&db, repo_id, &sha, "queried_one").await;
+    assert_eq!(page.items.len(), 1, "the clean file is answered: {page:#?}");
+    assert!(page.partial, "the broken file makes this commit partial");
+    assert!(
+        page.limitations
+            .join(" | ")
+            .contains("1 files failed to parse"),
+        "{:#?}",
+        page.limitations
+    );
+
     for sql in [
         format!("DELETE FROM symbol_definitions WHERE repo_id = {repo_id}"),
         format!("DELETE FROM symbol_commits WHERE repo_id = {repo_id}"),
