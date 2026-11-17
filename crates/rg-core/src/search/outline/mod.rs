@@ -342,4 +342,6 @@ fn truncate_items(items: &mut Vec<OutlineItem>, budget: &mut usize) {
 }
 
 #[cfg(test)]
+mod measure;
+#[cfg(test)]
 mod tests;
