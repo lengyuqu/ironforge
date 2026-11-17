@@ -4,7 +4,7 @@
 > 提供踩坑记录、依赖版本速查、常见错误排查和实现现状清单。
 > 轻量概览见 [AGENT.md](AGENT.md)；完整文档索引见 [ironforge-docs/README.md](ironforge-docs/README.md)。
 
-> **状态**：维护中 ｜ **可信度**：确认 ｜ **来源**：仓库代码 / 文档 / 运行结果 ｜ **最后更新**：2026-11-14
+> **状态**：维护中 ｜ **可信度**：确认 ｜ **来源**：仓库代码 / 文档 / 运行结果 ｜ **最后更新**：2026-11-18
 
 ---
 
@@ -84,7 +84,7 @@ MCP Server（`ironforge-mcp`，stdio-only）暴露仓库数据给 AI Agent。完
 
 ---
 
-## 实现现状（2026-07-14）
+## 实现现状（2026-11-18）
 
 ### 功能概览
 
@@ -140,7 +140,7 @@ Phase 1~21 全部完成。核心能力：
 | 数据导入 | `rg-core/src/import/` | GitHub/GitLab 导入 |
 | 搜索 | `rg-core/src/search/` | FTS5 全文搜索（repos/issues/wiki/code） |
 | 附件 | `rg-core/src/attachment.rs` | 四类归属、统一 BlobStorage、配额、IDOR 防护 |
-| 多数据库后端 | `rg-db::connect_with_pool` | SQLite/PostgreSQL/MySQL，backend-aware 迁移 |
+| 多数据库后端 | `rg-db::connect_with_pool` | SQLite/PostgreSQL/MySQL，backend-aware 迁移；`crates/rg-db/src/migrations/mod.rs::Migrator::migrations()` 现有 **106** 条，`Migrator::down` 从最后一条起可回滚 **32** 步（`rg-db/src/lib.rs` 的迁移回滚测试按这个窗口断言，加迁移要同步 +1） |
 | TLS/HTTPS | `rg-http/src/lib.rs` | axum-server + rustls |
 | TOML 配置 | `rg-cli/src/main.rs` | CLI > config > defaults |
 | API 分页 | `rg-http/src/pagination.rs` | PaginationParams + PaginatedResponse\<T\> |
@@ -174,8 +174,14 @@ Phase 1~21 全部完成。核心能力：
 | 协作 Web UI（首版） | `web/src/routes/[owner]/[repo]/collaboration/` + `web/src/lib/api/collaboration.ts` + `web/src/lib/components/collaboration/` | 仓库「协作」标签：任务列表/详情、等待你处理（就地回答/取消问题）、概览、完成状态/依赖/重叠/决定/交接/消息/诊断（只读）。用登录身份，不发会话头；客户端字段一律当文本渲染；声明标为声明。通知与任务写入/消息/交接**无**用户侧端点，未做。2026-11-06 增补「已定义的完成条件」卡片（`ConditionsCard.svelte`）：显示条件与判定、对 `manual_confirmation` 做用户确认（绑定分支头）、记录并查看快照；仍仅展示，不阻止任何事。服务端拒绝对 `stale` 问题作答，UI 不给表单。页面只在 SQLite + 内置浏览器手工验证过；它依赖的后端协作套件已在 PostgreSQL 17 与 MySQL 8.4 上通过（见 [agent-collab-backends-verification-2026-11.md](ironforge-docs/architecture/agent-collab-backends-verification-2026-11.md)）。证据见 [agent-collaboration-web-ui-verification-2026-11.md](ironforge-docs/architecture/agent-collaboration-web-ui-verification-2026-11.md)。2026-11-06 并行增补四组（各有独立证据文档，均仅 SQLite + 内置浏览器，无截图，未看手机宽度）：决定创建/变更、用户提问、工作包只读（[decisions](ironforge-docs/architecture/agent-collaboration-web-ui-decisions-verification-2026-11.md)）；依赖编辑、用户重指派、接手记录、预算与用量（[relations](ironforge-docs/architecture/agent-collaboration-web-ui-relations-verification-2026-11.md)）；协作组列表/详情与健康指标页（[groups](ironforge-docs/architecture/agent-collaboration-web-ui-groups-verification-2026-11.md)）；模板、搜索、规则、设置页（[ops](ironforge-docs/architecture/agent-collaboration-web-ui-ops-verification-2026-11.md)）。`ApiError` 现保留服务端 `error.details`（不可信数据）。**未做**：从模板创建任务（后端要求会话凭据，无用户入口）、通知的用户侧视图（产品决定）。健康基线的「已建立」现在由迁移 `m20261109_000001` 的 `collab_health_baselines`（每仓库一行）记录，新增 0 条时 `taken_at` 也不再为空（`baseline_taken_at` 取该行与旧的基线事件中较早者）；覆盖起点仍是第一条事件，基线不为指标发明起点，空仓库建基线后指标仍是 unknown，直到出现第一个事件 |
 | Agent 主体身份（第一期，2026-11-10） | 迁移 `m20261110_000001` + `rg-core/src/agent.rs` + `rg-http/src/api/agents.rs` + `rg-http/tests/agent_principal_tests.rs` | agent 是 `users` 表里 `kind = "agent"` 的一行，带 `owner_user_id`（人类账号），用户名固定为 `<所有者>-agent-<名字>`；人类用户名与组织名禁止包含 `-agent-`（`rg_core::agent::is_reserved_username`，两处 `validate_username` 都检查）。`/agents`、`/agents/{username}`、`/agents/{username}/tokens[/{id}]` 只有**人**能调用（PAT 需 `user` scope），别人的 agent 与不存在的同样 404。**没有人类入口**：`auth_provider = "agent"`、`password_hash` 不是哈希、邮箱在 `@agents.invalid`；密码登录、密码重置、SSO 按邮箱匹配、SSH 密码、添加 SSH 密钥、设为管理员都显式拒绝——**新增登录方式必须同步拒绝 agent 并加进 `an_agent_has_no_human_entrance`**。agent 令牌只能带仓库类 scope（默认 `repo:write`），因此够不到 `/users`、`/agents`、`/admin`。**权限上限**（`repo::service::apply_owner_cap`）：agent 需要自己被授权**且**所有者当前也有该权限，所有者不存在/被停用则一律拒绝；`can_admin_repo` 对 agent 恒为 false；agent 的判权结果**不进** 30 秒权限缓存（所有者一侧走所有者自己的缓存项）。agent 不能建仓库/fork/接收转移/建组织（`agent::ensure_human`）；名下有 agent 的账号不能删除（409）；停用 agent 会递增 `token_version`。**绕过 `can_*_repo` 直接查协作者表或组织成员的判权点已排查并修（issue #42，PR #53 已合并）：`is_collab_member`、`can_admin_org`（agent 恒不能管理组织）、`can_read_org`、`list_user_orgs`、`repos::list_repos`、`get_effective_permission` 现在都受所有者上限约束；`org_ops` 的 SQL 只在调用方层面复核，`add_org_member` 是否禁止给 agent `admin/owner` 角色是未决的产品决定，见 `agent-owner-cap-bypass-audit-2026-11.md`。新增判权点仍要自己套上限。**已修（PR #22，`0fe75a5`）**：批准按账号类型判定（`ensure_reviewer_may_approve`，agent 403 带稳定码 `AGENT_MAY_NOT_APPROVE`，不再依赖请求带 Bearer），批准计数只数人类（`count_current_human_approvals`，过滤 `users.kind = "human"`），受保护环境的批准人名单（写名单拒绝 agent + release 前再判一次）同批修。**协作用户门只服务人类（issue #34，T22）**：`write_actor` 在无会话头时拒绝 agent（`reason = AGENT_MUST_USE_SESSION`），`confirm_condition`（`AGENT_MAY_NOT_CONFIRM`，带会话也不行）与 `reassign_task`（`AGENT_MAY_NOT_REASSIGN`）只允许人；`PUT …/inbox/user/read` 保留给 agent（待裁决）；读不受限。验证仅本机 SQLite，见 [collab-agent-gate-verification-2026-11.md](ironforge-docs/architecture/collab-agent-gate-verification-2026-11.md)。**第二期已实现并合入 main（2026-11-13，PR #49–#55，均为本机验证、未经 CI）**：T23 审计 `audit_log.on_behalf_of_user_id`（PR #50，迁移 `m20261110_000002`，`Migrator::down` 步数 25→26，三库跑过 `audit_on_behalf_of_tests`；只有走 `record_write` 的写路径填该列，另 5 处自建 `ActiveModel` 的审计点写 NULL）；T24 通知转给 agent 的所有者（PR #51，`agent::accountable_user`，`task_blocked` 无回退，三库跑过 `collab_human_notify_tests`）；T25 REST 提交的 agent 身份（PR #52，`agent::commit_identity`，agent 以 `<username>@agents.invalid` 署名，覆盖 contents 创建/更新、contents 删除、批量提交、应用评审建议四处入口，push 事件载荷新增 `pushed_by`，已推送提交的作者不改写，仅 SQLite，审计 `on_behalf_of` 断言现在可以补（T23 已合并））；issue #42 把所有者上限补到绕过 `can_*_repo` 的判权点（PR #53，仅 SQLite）。上面四项与 #34（PR #49）、#48 `commit_files`（PR #54）、R1（PR #55）合入本地集成分支后联合测试（合并到 main 的树与该集成树只差 #45 的文档/注释提交，未重跑）：clippy `-D warnings` 干净，SQLite 全工作区 1299 项、PostgreSQL 17 + MySQL 8.4 的 `scripts/ci-db-tests.sh all` 共 628 项通过，0 失败（`ci-db-tests.sh` 清单外的新增测试目标只在 SQLite 跑过）。**T26 响应携带主体类型（issue #37，PR #57，已合并，仅 SQLite）**：PR 详情与列表、评审列表、issue 评论、`/admin/audit/logs` 新增键 `author_ref`（PR、评论）/`reviewer_ref`/`user_ref`（`rg_core::agent::ActorRef { id, username, kind, owner_id, owner_username }`，批量解析至多 2 条查询）；**旧字段不动**，因为前端把 `author` 当字符串；能力发现用 `api_capabilities` 的 `actors.ref.v1`，**没有**进 `capabilities::REGISTRY`（`collab_contract_tests` 只收含 `collaboration` 的路由），`CONTRACT_MINOR` 不 bump；创建 PR 响应、评审时间线、代码行评论、issue 列表/详情、`/users/me` 的 `kind` 与前端未做；解析失败与账号已删都渲染 `null`；`user_ref.kind` 反映当前账号类型而非事件当时，见 [t26-actor-ref-verification-2026-11.md](ironforge-docs/architecture/t26-actor-ref-verification-2026-11.md)。**未做（第二期）**：评审规则（所有者批准自己 agent 的 PR）、Web UI、组织所有的 agent。验证（第一期）：`cargo test -p rg-http --test agent_principal_tests`（19 项）与 `cargo test -p rg-db`（含迁移回滚重放）通过，**仅 SQLite**；PostgreSQL/MySQL 未跑。设计、第二/三期与其他 agent 友好化路线图、已知缺口见 [agent-principals-design-and-roadmap-2026-11.md](ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md) |
 | 合并就绪与更新分支（#17） | `rg-core/src/branch_protection/merge_gates.rs` + `rg-core/src/pull_request/{readiness,update_branch}.rs` + `rg-git/src/merge_analysis.rs` + `rg-http/src/api/pull_readiness.rs` | `GET …/pulls/{n}/merge-readiness?strategy=`（只读、实时：冲突文件/类型/区块、分支保护逐门控判定带稳定机器码、必需检查；"读不到"与"不满足"分开）与 `POST …/pulls/{n}/update-branch`（`expected_head_sha`，同 head 重复返回 `already_up_to_date`，冲突 409 不改 ref，`dry_run`；沿用 push 到该分支的同一套保护规则，fork PR 拒绝，分支白名单令牌默认拒绝；**更新会使已有批准失效**，批准绑定 head_sha）。`merge_pr` 与预览共用 `merge_gates`，现有合并行为未变。**已知问题**：合并路径对 `required_status_checks` 坏 JSON 仍放行（fail open，预览报 UNKNOWN）；**疑似缺陷（读代码，未复现，issue #60）**：PR 合并写到仓库 `HEAD` 而不是 `pr.base_branch`（`gix_set_head_to_branch` 无调用方）。预览会向对象库写不可达的冲突标记 blob，树合并有 10 秒超时。未做：`CHANGES_REQUESTED`/CODEOWNERS/合并队列门控、rebase 的真实重放冲突、MCP 工具。SQLite 全量、PostgreSQL 17 与 MySQL 8.4（`ci-db-tests.sh agent` 各 86 项）通过，未经 CI。证据见 [merge-readiness-verification-2026-11.md](ironforge-docs/architecture/merge-readiness-verification-2026-11.md) |
+| 事件写入的事务性与 outbox（#15） | 迁移 `m20261117_000001` + `rg-db/src/ops/repo_event_ops.rs` + `rg-core/src/webhook/{service,outbox}.rs` + issue/release/pull_request 三个服务 | `repo_event_ops::append<C: ConnectionTrait>`（`repo_event_ops.rs:17`）接任意连接，可挂在事务上。`webhook::service::record_event_in_txn`（`service.rs:327`）只在事务内写日志、**失败返回错误要求事务回滚**（宁可不建 PR 也不要没有事件的 PR）；`deliver_event`（`:351`）在提交后按 payload 找回那一行再投递，**不再写日志**（重写会让订阅者游标一次前进两步），投递失败只 `warn!`，不影响已提交的业务。已迁移 5 条：`issue.opened`（`issue/service.rs:75`）、`pull_request.merged`（`pull_request/service.rs:1754`）、`release.created`（`release/service.rs:87`）、`pull_request.opened`（`pull_request/service.rs:224`）、`pull_request.closed`（`:528`）；`branch.*`/`tag.*` 仍是提交后写事件，没有事务保护（`docs/plans/T19-task.md` §6 第 3 条）。**`pull_request.closed` 原本是「先发 webhook 再写库」**，T18 改成事务内写、提交后投递；旧顺序下崩溃会出现「hook 收到了关闭通知，PR 还是 open」。`repo_events.dispatched_at`（迁移 `m20261117_000001`）的语义是「**已交给投递系统**」，**不是**「投递成功」（成功/失败仍在 `webhook_deliveries`）；`NULL` = 待补投。加列那一趟把历史行按 `created_at` 回填，`up` 幂等、重跑不回填（否则第一次跑 sweep 会把保留期内全部旧事件重投）。静默路径 `record_event`/`trigger_event_quietly`（`service.rs:440`/`:461`，agent 草稿区）写入即带 `dispatched_at`，**sweep 绝不补投**——否则草稿 push 会被投给仓库所有 hook。`outbox::run_sweep_loop`（`outbox.rs:196`）：默认 60 s（`DEFAULT_INTERVAL_SECS`），窗口 `[now-15min, now-2min]`（2 分钟留给正常投递，15 分钟外的旧 miss 交给人），`IRONFORGE_WEBHOOK_OUTBOX_SWEEP_SECS=0` 关闭；坏 JSON、非 envelope 与 >16 KiB 的截断 stub 只 `warn!` 并标记，不重放。**遗留**：仍是至少一次投递（标记与 spawn 之间崩溃会重复，未做幂等键）；事务路径按 payload 认领，并发的完全相同事件可能被 sweep 再投一次；超 15 分钟不再补投，也不计入 `scanned` |
+| 通用审批原语（#19） | 迁移 `m20261114_000002` + `rg-core/src/authorization/{mod,payload,evaluator,scope_expand}.rs` + `rg-db/src/ops/authorization_ops.rs` | **两张表**：`authorization_requests`（一票请求，绑定 `(repo, action, subject, head_sha)`）与 `authorization_decisions`（一人一票，唯一键 `(request_id, decider_user_id)`）。`authorization_set_id` 是**规则摘要**（`payload.rs:33`），不是表也不是外键——`authorization_sets` 尚未建，T06 计划将其列为步骤 2/3 的可选提升。`payload_hash`（`payload.rs:22`）的规范形是 `(repo_id, action, subject, head_sha)`，没有 `parameters` 列；批准时重算比对（`require_payload_unchanged`，不一致 409 `PAYLOAD_CHANGED`），挡住「申请时 SHA 是 A、批准时成了 B」的 TOCTOU。`consume<C: ConnectionTrait>`（`mod.rs:323`）必须与它授权的业务写在**同一个事务**里，CAS 在 `authorization_ops::consume_guarded`（`authorization_ops.rs:190`，`UPDATE ... WHERE state='pending'`，影响行数 0 → 409 `ALREADY_CONSUMED`）；事务回滚则票据仍是 `pending` 可重试，单独提交消费会「授权用掉但动作没跑」。过期 409 `EXPIRED`、票数不足 409 `NOT_APPROVED`、自批 403 `SELF_APPROVAL`。`scope_expand` 执行面（`scope_expand.rs`）：subject 必须是 `"{token_id}:{target_scopes}"`（例 `10:repo:write`），**目标必须编码进 subject 才能进 `payload_hash`**；`consume_scope_expand` 精确比对 subject，只靠 scope 阶梯不够（批准 `repo:write` 却执行 `repo` 会扩得更多）。执行时原地改 `access_tokens.scopes`（不换令牌、**永久生效且没有收窄 API**），只扩 `repo` 族，要求令牌是 active agent 令牌且 `repo_allowlist` 恰为该仓库；scopes 用 CAS 更新，变了报 409 `SCOPE_EXPAND_TOKEN_CHANGED`。`agent::is_human_account`（`agent.rs:59`）是「这个账号能否做出决策」的**唯一**判定：人类 true，agent / 不存在 / 软删 false，停用账号仍 true（要拒停用的调用方自己判）。调用点三处：`ensure_reviewer_may_approve`（`rg-http/src/api/auth.rs:175`）、`ensure_human_decider`（`authorization/evaluator.rs:330`）、CI 受保护环境审批（`rg-http/src/api/ci_environments.rs:288`）；批准计数另在 SQL 里过滤 `kind='human'`（`count_current_human_approvals`），不走这个函数。`issue.closed` **没有搬进事务**：`update_issue` 的 labels/assignees 是 fail-soft（`issue/service.rs:288`/`:297` 只 `warn!`），包事务会把「标签没设上」升级成「整个更新回滚」；它仍是提交后写事件（`:325`）。`milestone.closed` **不该改**：`notify_milestone_closed`（`:481`）是纯通知函数，只写事件、无业务写，给它加事务只是把单条写入包进单语句事务 |
+| CI 容器默认用户（#41） | `rg-ci-isolation/src/lib.rs` + `rg-ci/src/runner.rs` + `rg-runner/src/main.rs` + `rg-cli/src/main.rs` | `DockerLimits::default().user` = **IronForge 进程自己的 `uid:gid`**（`lib.rs:140`，`unsafe { libc::getuid(), libc::getgid() }`）。**刻意不用 `Command::new("id")`**：极简镜像（distroless/busybox-mini）没有 `id`，只能静默回退到 root——正好是这次要关的洞；`id` 只在测试里做交叉校验（`:304`）。用数字而非用户名：Docker 接受任意 uid/gid，不要求镜像里有同名 `/etc/passwd` 条目；workspace 由 IronForge 进程创建，属主天然匹配，不需要任何 chown/chmod（固定 `1000:1000` 在非 1000 的宿主要么 chown（需 root）要么 `chmod 777`，比 root 属主更糟）。`IRONFORGE_CI_RUNNER_USER`（`lib.rs:36`，`resolve_runner_user` `:114`）三态：未设/空 = 进程 uid:gid；`root`/`0` = 不发 `--user`、回退镜像默认并**首次 `warn!` 一次**（`Once`）；其它值原样传 `docker run --user`。Windows 没有 uid/gid 语义，返回 `None` 并同样告警。`rg-ci`、`rg-runner`、`rg-cli` 内联 runner 三个使用点都经 `DockerLimits::default()`，改一处全局生效。硬化其余部分不变：`--cap-drop ALL` 后只回补 `CHOWN`/`DAC_OVERRIDE`/`FOWNER`/`SETGID`/`SETUID`、`no-new-privileges`、memory/cpus/pids 限额、镜像名校验。**未做**：daemon 级 `userns-remap`（部署层配置、影响整台 daemon、也不解决宿主文件属主）、seccomp/AppArmor 沙箱、`--network none`（默认关，构建要拉依赖）。证据见 [T26-plan.md](docs/plans/T26-plan.md) |
+| 符号定义索引与查询（#63） | 迁移 `m20261118_000001` + `rg-core/src/search/{symbol_indexer,symbol_query}.rs` + `rg-http/src/api/ai.rs` + `rg-mcp/src/tools/mod.rs` | 表 `symbol_commits`（`(repo_id, commit_sha)` 唯一） + `symbol_definitions`（只存 `commit_id` 外键，不在每行放 40 字节 sha：实测那样每 commit 多 60 MiB）。**`symbol_definitions` 上只有 2 个索引**：`uq_symbol_definitions_anchor`（幂等锚点 `(commit_id, path, name, kind, start_line)`）与 `idx_symbol_definitions_lookup`（按名）；「列某文件的定义」由锚点前两列服务（`commit_id` 唯一确定仓库），单独的 `(repo_id, commit_id, path)` 实测 704 KiB/commit 且无独占查询，已删（3.59 → 2.94 MiB/commit）。索引器 `SymbolIndexer` 复用 `OutlineIndexer::extract`（展平含子项）；`index_commit`（`symbol_indexer.rs:151`）同一事务内先 `DELETE ... WHERE commit_id=?` 再插（幂等，唯一锚点兜底），并 `prune` 到默认分支最近 `D` 个提交 + 刚索引的提交（索引侧分支不会删掉自己）；`D = clamp(⌊128 MiB/(224 B×定义数)⌋, 1, 6)`（`:128`），本仓 12,208 定义 → D=6。入口只有 `POST /api/v1/ai/repos/{o}/{r}/index`（写权限，`ai.rs:923`）——**push 不自动索引**，没索引过的 commit 查不到。查询 `GET /api/v1/ai/repos/{o}/{r}/symbols`（读权限，`ai.rs:1082`；`name`/`path` 至少给一个，`limit` 默认 50、上限 200，超过是 400 `INVALID_LIMIT` 不是静默截断）与 MCP `find_definition`（`rg-mcp/src/tools/mod.rs:58`）共用 `symbol_query::find_symbols`。**`partial` 恒为 `true`**（`symbol_query.rs:123`）：写入方没有记录每 commit 的解析失败数，`partial:false` 是无证据的断言；`limitations` 是 6 条静态已知为真的描述（svelte 只解析 `<script>`、Rust 宏与 dyn Trait、TS `obj[key]`/`any`、Python getattr、Go 接口方法集、未记录的解析失败），所以查不到不等于不存在。**缺索引时 404 `SYMBOLS_NOT_INDEXED`，不回落 HEAD**（`ai.rs:1181`）：按另一个提交回答会给出「形状正确的错答案」，比报错更糟。**查询无条件排除 `kind='impl'`**：那些行的 name 是首行不是标识符（本仓实测 684 行），按名查询会返回同名异目标的伪符号。实测本仓 12,208 定义 / 1,273 文件 / 2.94 MiB / commit（`c628195`）；**引用部分经实测否决不实施**（引用体积是定义的 30 倍，73.9% 落在出现 >100 次的通用名上） |
 
 ### 技术债与后续方向
+
+**本轮已关闭（2026-11-18，细节见上表）**：#15 事件写入事务化（5 条路径） + outbox 最小版本；#19 通用审批原语、`scope_expand` 执行面与 R19-1~5；#41 CI 容器默认以调用进程 uid:gid 运行；#63 符号定义表、查询端点与 `find_definition`。剩余面见下。
 
 **gix 迁移**：生产路径 git CLI 调用仅剩 1 处边缘点（mirror 的 clone/同步，见下表），核心热路径 100% gix 原生。Phase A+B+C-lite+Rebase+全量覆盖完成：rev-parse/update-ref/show/cat-file/verify-commit/auto_init/merge-tree/commit-tree/ls-tree/archive/rebase/pack 生成/ thin-pack 摄取/rev-list 图遍历/文件编辑直写（edit_tree+commit_as+引用乐观锁）/fork 对象搬运/fork 裸克隆/import 裸克隆 均已 gix 化；rebase 与 fork fetch 为自研实现（characterization 测试钉死语义，gix 出原生 API 时可替换）。`GitCommandGateway` 仅测试造数据与上述 1 处边缘点使用。等待 gix 上游成熟项（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.90.0）：
 
@@ -197,9 +203,18 @@ Phase 1~21 全部完成。核心能力：
 实例设置（`rg-http/src/instance.rs`，maintenance/banner 不跨实例传播）。解除条件：共享缓存（Redis）或
 pub/sub 失效总线；在此之前建议单实例部署，详见 `deploy/README.md`。
 
-**CI 容器隔离的剩余面**：容器默认以 `--user <IronForge 进程 uid:gid>` 运行（`rg-ci-isolation::DockerLimits::default`），
+**CI 容器隔离的剩余面**：容器默认以 `--user <IronForge 进程 uid:gid>` 运行（`rg-ci-isolation::DockerLimits::default`，T26/#41），
 工作区由该进程创建、属主天然匹配，宿主不再产生 root 属主文件；需要 root 的镜像（`run:` 里 `apt-get install`、
-写 `/usr/local`）用 `IRONFORGE_CI_RUNNER_USER=root` 回退到镜像默认用户。镜像/资源/capability 已加固。
+写 `/usr/local`）用 `IRONFORGE_CI_RUNNER_USER=root`（或 `0`）回退到镜像默认用户并首次 `warn!` 一次，其它值原样传给
+`docker run --user`。镜像名/资源/capability/`no-new-privileges` 已加固。**未做**：daemon 级 `userns-remap`（部署层配置，
+影响整台 daemon，且不解决宿主文件属主问题）、seccomp/AppArmor 沙箱、默认 `--network none`（构建要拉依赖，默认关闭）。
+
+**本轮新增遗留（2026-11-18）**：
+
+- **`issue.closed` 的 fail-soft 语义未决**：`update_issue` 里 labels/assignees 只 `warn!`，所以整段（含关闭事件）没有事务；要不要改成「标签失败即整体失败」是产品决定，先保持现状（`issue/service.rs:325`）。
+- **完整 outbox 状态机未做**：`repo_events.dispatched_at` 只回答「有没有人欠这次首次投递」，没有 `pending`/`processing`/`sent`、没有幂等键、没有顺序保证，投递仍是至少一次；失败重试仍靠 `background_jobs`（QUEUE-001）。`branch.*`/`tag.*` 四类事件还没有事务保护（`docs/plans/T19-task.md` §6 第 3 条）。
+- **符号图引用部分否决后的备选**：引用行被实测否掉（30 倍体积、73.9% 通用名噪音），当前只有定义表。若将来要做「谁引用了我」，备选是按需解析而非预存全量 postings，但性能与一致性都未验证，先不立任务。
+- **`partial` 恒 true 的前提**：只要写入方仍不记录每 commit 的解析失败数，`partial:false` 就没有证据支撑；要解除得让索引器连同「哪些文件/语言没解析成功」一起落库，否则不要改这个常量。
 
 **安全加固台账（2026-10-23，对应 GitHub issue #1）**：
 
@@ -410,6 +425,30 @@ MySQL 的协作时间戳列是秒精度，同一秒创建的两条记录 `create
 - 新建对象时间用 `rg_core::collaboration::creation_timestamp` 截到整秒，避免 MySQL 向上取整后落到“未来”
 - 其他按 `(created_at, id)` 排序的协作列表（问题、接手记录、通知、交接等）在 MySQL 上同秒仍可能不定。2026-11-05 在 MySQL 8.4 上对全部 `collab_*_tests` 各用全新库连跑 3 遍均通过，说明现有测试没有断言同秒插入顺序；这**不**证明这些列表的顺序稳定，新增断言前仍须按此条处理
 - 用 `IRONFORGE_TEST_DATABASE_URL` 指向**全新**库跑 HTTP 测试：先建用户的测试（如 `ci_integer_compat`）会占掉“首个账号即管理员”，使依赖 `bootstrap_admin` 的测试得到 403
+
+### 24. 泛型 `&C` 不参与 deref coercion ⚠️
+
+把签名从 `db: &DatabaseConnection` 泛化成 `db: &C where C: ConnectionTrait` 之后，调用点的 `&Arc<DatabaseConnection>` / `&&DatabaseConnection` **不再自动降一层**，编译器报 `E0277`（`&Arc<..>: ConnectionTrait` 不成立）。必须在该调用点显式 `db.as_ref()`（`Arc` → `&DatabaseConnection`）或 `*db`（`&&` → `&`）。
+
+- T14 撞了 3 处（`rg-ssh/src/lib.rs:363`/`:646`、`rg-http/src/lib.rs:3695`），T15 又在 `rg-core/src/ci/log_write_queue.rs:114`/`:139` 撞了 2 处——**泛化一个 ops 函数，就要全仓改一遍它的调用点**，`cargo check --workspace --all-targets` 是唯一能一次找全的办法（`--lib` 会漏测试与 bin）
+- 不要在被调方留 `impl ConnectionTrait for Arc<T>` 之类的特例签名；错误应留在调用点
+- 反向也要注意：把参数从 `Arc<..>` 改回 `&DatabaseConnection` 时，已经写下的 `db.as_ref()` 要还原，否则类型变成 `&DatabaseConnection` 的引用
+
+### 25. 收紧字段格式时，必须复查所有 `parse` 它的失败分支 ⚠️
+
+`scope_expand` 的 subject 从 `"10"` 改成 `"10:repo:write"` 后，`ensure_decider_is_not_the_agent_owner` 里原本的 `request.subject.parse::<i64>()` **恒失败**，而失败分支是 `return Ok(())`（放行）——「所有者不能自批自己 agent 的票」这条守卫**静默失效**。T21 修成 `parse_subject(&request.subject)?`（`scope_expand.rs:365`，解析不了就拒绝），见 `docs/plans/T21-plan.md:86` 与 `T21-task.md:28`。
+
+- 改一个字段的编码格式 = 改所有读它的地方；`grep -rn 'subject'` 之后逐个看失败分支是 `Err` 还是 `Ok`
+- 这类坑以「测试全绿」的形态留下：没有测试专门断言「旧格式解析失败时必须拒绝」
+- 经验：解析类守卫的失败分支默认 fail closed，需要 fail open 的地方写明理由
+
+### 26. `POST`/`DELETE /contents` 会 spawn 后置钩子，测试里「只移动分支」要绕开 ⚠️
+
+`repo_content.rs` 的写文件（`:1520`）/删文件（`:1654`）handler 经 `announce_branch_move`（`:1364`）在返回前调 `spawn_post_push_hooks`（`:1386`）（`tokio::spawn`，没有 `.await`），其中会更新 PR head、触发 CI、发 webhook、写事件日志。测试若用 HTTP 提交去「移动分支」，随后任何依赖 recorded head / 分支头快照的断言都和这个后台任务有**毫秒级窗口竞争**——负载越高越容易输。T25 修的 `auto_merge_pinned_head_tests` flaky 就是这个。
+
+- 测试里只想要「分支真的动了、但不触发钩子」时，直接调 service：`rg_core::repo::service::create_or_update_file_with`（HTTP handler 在 `announce_branch_move` 之前调的就是它），见 T25 的 `World::commit_without_push_hooks`
+- 不要用 `sleep` 或重试掩盖：那只是把窗口调大，不是消除
+- 需要验证钩子本身时，断言应落在「最终状态」或用可观察的完成信号，不要依赖「提交返回时钩子已经跑完」
 
 ## 依赖版本速查
 
