@@ -1,6 +1,6 @@
-//! The five read tools (`list_repos`, `read_file`, `read_dir`, `get_issue`,
-//! `get_pr`): the real `ironforge-mcp` binary over stdio, against a recording
-//! stub of the IronForge REST API.
+//! The read tools (`list_repos`, `read_file`, `read_dir`, `get_issue`, `get_pr`,
+//! `find_definition`): the real `ironforge-mcp` binary over stdio, against a
+//! recording stub of the IronForge REST API.
 //!
 //! The stub shows exactly which route each tool calls. Two of them used to ask
 //! for routes that do not exist (the server answered with its web page and a
@@ -155,6 +155,34 @@ fn api() -> Handler {
             })),
             "/api/v1/repos/alice/demo/issues/7" => json_ok(json!({"number": 7, "title": "bug"})),
             "/api/v1/repos/alice/demo/pulls/3" => json_ok(json!({"number": 3, "title": "fix"})),
+            // What `GET /ai/repos/:owner/:name/symbols` answers. The tool must
+            // hand this through unchanged, not reshape it.
+            "/api/v1/ai/repos/alice/demo/symbols" => json_ok(json!({
+                "commit_sha": "abc123",
+                "partial": true,
+                "limitations": ["svelte files are parsed only inside <script>"],
+                "items": [{
+                    "name": "index_commit",
+                    "kind": "function",
+                    "path": "src/indexer.rs",
+                    "start_line": 1,
+                    "end_line": 1,
+                    "signature": "pub async fn index_commit()",
+                    "confidence": "exact"
+                }]
+            })),
+            "/api/v1/ai/repos/alice/unindexed/symbols" => (
+                404,
+                json!({"error": {
+                    "code": "SYMBOLS_NOT_INDEXED",
+                    "message": "commit abc123 has no symbol index in this repository",
+                    "reason": "symbols_not_indexed",
+                    "retryable": true,
+                    "hint": "POST /api/v1/ai/repos/alice/unindexed/index to index this commit, then retry"
+                }})
+                .to_string(),
+                "application/json",
+            ),
             "/api/v1/repos/alice/private/tree" => (
                 403,
                 json!({"error": {"code": "FORBIDDEN", "message": "personal access token scope denied"}})
@@ -485,6 +513,15 @@ fn bad_arguments_are_refused_before_any_request_is_made() {
             json!({"owner": "alice", "repo": "demo", "number": -1}),
         ),
         ("list_repos", json!({"owner": "a/b"})),
+        ("find_definition", json!({"owner": "alice", "repo": "demo"})),
+        (
+            "find_definition",
+            json!({"owner": "alice", "repo": "demo", "path": "src/../../etc"}),
+        ),
+        (
+            "find_definition",
+            json!({"owner": "alice", "repo": "demo", "name": "x", "limit": 0}),
+        ),
     ] {
         let (err, text) = mcp.tool(tool, args.clone());
         assert!(err && text.starts_with("Error:"), "{tool} {args}: {text}");
@@ -494,6 +531,59 @@ fn bad_arguments_are_refused_before_any_request_is_made() {
         "no request may be sent: {:?}",
         stub.paths()
     );
+}
+
+#[test]
+fn find_definition_asks_the_symbols_route_and_passes_the_answer_through() {
+    let stub = Stub::spawn(api());
+    let mut mcp = Mcp::start(&stub.url);
+
+    let (err, text) = mcp.tool(
+        "find_definition",
+        json!({"owner": "alice", "repo": "demo", "name": "index_"}),
+    );
+    assert!(!err, "{text}");
+    // The tool is a thin client: the same document the endpoint answered.
+    let body: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(body["commit_sha"], "abc123");
+    assert_eq!(body["partial"], true);
+    assert_eq!(body["items"][0]["name"], "index_commit");
+    assert_eq!(body["items"][0]["confidence"], "exact");
+    assert_eq!(body["items"][0]["path"], "src/indexer.rs");
+    assert!(!body["limitations"].as_array().unwrap().is_empty());
+    assert_eq!(
+        stub.paths(),
+        ["GET /api/v1/ai/repos/alice/demo/symbols?name=index_"]
+    );
+
+    // `path` and `ref` travel as query parameters, encoded once.
+    mcp.tool(
+        "find_definition",
+        json!({
+            "owner": "alice", "repo": "demo", "path": "/src/indexer.rs/", "ref": "feat/x", "limit": 5
+        }),
+    );
+    assert_eq!(
+        stub.paths().last().unwrap(),
+        "GET /api/v1/ai/repos/alice/demo/symbols?path=src%2Findexer.rs&ref=feat%2Fx&limit=5"
+    );
+}
+
+#[test]
+fn an_unindexed_commit_is_a_tool_error_naming_the_reason() {
+    let stub = Stub::spawn(api());
+    let mut mcp = Mcp::start(&stub.url);
+
+    let (err, text) = mcp.tool(
+        "find_definition",
+        json!({"owner": "alice", "repo": "unindexed", "name": "index_commit"}),
+    );
+    assert!(
+        err,
+        "a 404 must be a tool error, not a normal result: {text}"
+    );
+    assert!(text.contains("SYMBOLS_NOT_INDEXED"), "{text}");
+    assert!(text.contains("404"), "{text}");
 }
 
 #[test]

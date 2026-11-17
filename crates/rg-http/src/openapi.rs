@@ -432,6 +432,7 @@ pub struct PaginatedRepoResponse {
         crate::api::ai::ai_repo_map,
         crate::api::ai::ai_search_code,
         crate::api::ai::ai_index_repository,
+        crate::api::ai::ai_repo_symbols,
         // Mirrors
         crate::api::mirrors::create_mirror,
         crate::api::mirrors::get_mirror,

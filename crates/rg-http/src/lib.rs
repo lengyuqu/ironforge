@@ -1851,6 +1851,10 @@ fn build_routes(
             post(api::ai::ai_index_repository),
         )
         .route(
+            "/ai/repos/{owner}/{name}/symbols",
+            get(api::ai::ai_repo_symbols),
+        )
+        .route(
             "/ai/repos/{owner}/{name}/pulls/{number}/context",
             get(api::ai_pr_context::pr_context),
         )
