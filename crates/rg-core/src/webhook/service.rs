@@ -908,14 +908,13 @@ pub async fn trigger_pr_closed(db: &DatabaseConnection, repo_id: i64, pr: &Value
     trigger_event(db, repo_id, "pull_request.closed", &payload).await
 }
 
-/// Trigger a pull_request.merged webhook event.
-pub async fn trigger_pr_merged(db: &DatabaseConnection, repo_id: i64, pr: &Value) -> Result<()> {
-    let payload = serde_json::json!({
-        "event": "pull_request.merged",
-        "pull_request": pr,
-    });
-    trigger_event(db, repo_id, "pull_request.merged", &payload).await
-}
+// `trigger_pr_merged` used to live here and recorded the event *after* the merge
+// transaction committed, which is exactly the crash window #15 is about. The
+// merge path now writes the event inside that transaction
+// (`pull_request::service::update_pr_merged`); the helper had no other caller and
+// was removed so the old shape cannot be reintroduced by accident. A caller that
+// really needs "record and deliver after the fact" should use `trigger_event`
+// explicitly and say why in a comment.
 
 /// Trigger a milestone.closed webhook event.
 pub async fn trigger_milestone_closed(

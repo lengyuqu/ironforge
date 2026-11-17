@@ -427,7 +427,7 @@ async fn a_committed_issue_logs_and_delivers_issue_opened_exactly_once() {
     assert!(rows[1].id > rows[0].id, "the cursor is monotonic");
 }
 
-/// Regression guard for the `trigger_event` split: the twelve `trigger_*` sugar
+/// Regression guard for the `trigger_event` split: the `trigger_*` sugar
 /// functions still write one row and deliver the *same* envelope (same id), i.e.
 /// splitting the log write from the delivery changed nothing for them.
 #[tokio::test]
