@@ -82,6 +82,7 @@ git push -u cnb HEAD
 | T16 | [#15·第四步] `pull_request.merged` 事务内事件写入 | completed | t16-pr-merged-txn | T15 | `tasks/T16.md` |
 | T17 | [#15·第五步] `release.created` 事务内事件写入（原本无事务） | completed | t17-release-txn | T16 | `tasks/T17.md` |
 | T18 | [#15·第六步] `pr.opened` 加事务 + `pr.closed` 修正事件顺序 | completed | t18-pr-open-close-txn | T17 | `tasks/T18.md` |
+| T19 | [#15·第七步] outbox 最小版本：投递状态 + 兜底补投 | in_progress | t19-outbox-min | T18 | `tasks/T19.md` |
 
 ## Pre-Claim Checks
 
