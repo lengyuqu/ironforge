@@ -42,10 +42,10 @@ pub async fn list_by_pr_and_reviewer(
         .context("db: list reviews by PR and reviewer")
 }
 
-/// Count approvals for a PR.
-pub async fn count_approvals(db: &DatabaseConnection, pr_id: i64) -> Result<i64> {
-    count_current_human_approvals(db, pr_id, None).await
-}
+// `count_approvals(db, pr_id)` lived here until #19 R19-4. Removed: it had no
+// caller, and its `None` branch counts only reviews with no `commit_id`, which
+// is not the merge gate's yardstick. Call
+// `count_current_human_approvals` with the head SHA instead.
 
 /// Count at most one latest approval per reviewer for the current head commit,
 /// counting people only.
