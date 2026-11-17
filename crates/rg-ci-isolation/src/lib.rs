@@ -17,12 +17,23 @@
 //! - **Resource exhaustion** — memory, CPU and PID limits bound a runaway or
 //!   hostile job.
 //!
-//! What is *not* solved here: the workspace is mounted read-write, so a
-//! container running as root can leave root-owned files on the host. Run the
-//! daemon with user-namespace remapping, or set `user` below, if that matters
-//! for your threat model.
+//! - **Host ownership of workspace files** — the workspace is mounted
+//!   read-write, so a container running as root leaves root-owned files on the
+//!   host. [`DockerLimits::default`] therefore runs the container as the
+//!   calling process's own `uid:gid`, which owns the workspace by construction.
+//!   Set [`RUNNER_USER_ENV`] to `root` to opt back into the image default.
+
+use std::sync::Once;
 
 use anyhow::{bail, Result};
+
+/// Overrides the user the job container runs as.
+///
+/// - unset / empty — run as the calling process's `uid:gid` (the default)
+/// - `root` or `0` — leave the image default (usually root) and pass no
+///   `--user`; needed by images whose `run:` step requires root
+/// - anything else — passed to `docker run --user` verbatim (e.g. `1000:1000`)
+pub const RUNNER_USER_ENV: &str = "IRONFORGE_CI_RUNNER_USER";
 
 /// Default memory cap per job container.
 pub const DEFAULT_MEMORY: &str = "4g";
@@ -53,25 +64,91 @@ pub struct DockerLimits {
     /// Pass `--security-opt no-new-privileges`.
     pub no_new_privileges: bool,
     /// Run the container as this `uid:gid` (or name) instead of the image
-    /// default. `None` leaves the image default (usually root).
+    /// default. Defaults to the calling process's own `uid:gid` so files
+    /// written into the read-write workspace are not left root-owned on the
+    /// host; see [`RUNNER_USER_ENV`]. `None` leaves the image default (usually
+    /// root).
     pub user: Option<String>,
     /// Detach the container from all networks (`--network none`). Off by
     /// default because builds commonly fetch dependencies.
     pub network_none: bool,
 }
 
+/// Fires once, at most, on the first `DockerLimits` built without `--user`.
+static IMAGE_DEFAULT_WARNED: Once = Once::new();
+
+/// Counts the warning emitted by [`DockerLimits::default`] so tests can assert
+/// that it is emitted at most once.
+#[cfg(test)]
+static IMAGE_DEFAULT_WARNINGS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 impl Default for DockerLimits {
     fn default() -> Self {
+        let user = resolve_runner_user();
+        if user.is_none() {
+            IMAGE_DEFAULT_WARNED.call_once(|| {
+                #[cfg(test)]
+                IMAGE_DEFAULT_WARNINGS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                tracing::warn!(
+                    "CI containers are running as the image's default user (usually root); \
+                     the read-write workspace mount will leave root-owned files on the host. \
+                     Unset {RUNNER_USER_ENV} to run as the current uid:gid"
+                );
+            });
+        }
         Self {
             memory: Some(DEFAULT_MEMORY.to_string()),
             cpus: Some(DEFAULT_CPUS.to_string()),
             pids_limit: Some(DEFAULT_PIDS_LIMIT),
             cap_drop_all: true,
             no_new_privileges: true,
-            user: None,
+            user,
             network_none: false,
         }
     }
+}
+
+/// Resolves `--user` from [`RUNNER_USER_ENV`], falling back to the calling
+/// process. This is the only place the environment variable is read.
+fn resolve_runner_user() -> Option<String> {
+    match std::env::var(RUNNER_USER_ENV) {
+        Ok(value) => {
+            let value = value.trim();
+            if value.is_empty() {
+                current_uid_gid()
+            } else if matches!(value, "root" | "0") {
+                // Explicit opt-out: keep the image default (often root).
+                None
+            } else {
+                Some(value.to_string())
+            }
+        }
+        // Unset — or set to non-UTF-8 garbage, which is not a usable uid:gid —
+        // means "use the caller's identity".
+        Err(_) => current_uid_gid(),
+    }
+}
+
+/// The calling process's numeric `uid:gid`.
+///
+/// Numeric ids are used deliberately: Docker accepts any uid/gid regardless of
+/// whether the image has a matching `/etc/passwd` entry, and the workspace the
+/// container writes into is created by this process, so ownership matches
+/// without `chown`.
+#[cfg(unix)]
+fn current_uid_gid() -> Option<String> {
+    // SAFETY: getuid/getgid take no arguments, cannot fail and have no
+    // preconditions; they only read the caller's own credentials.
+    let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+    Some(format!("{uid}:{gid}"))
+}
+
+/// Windows has no uid/gid, and Docker Desktop containers do not map the Windows
+/// caller's identity, so there is nothing correct to pass here.
+#[cfg(not(unix))]
+fn current_uid_gid() -> Option<String> {
+    None
 }
 
 impl DockerLimits {
@@ -148,6 +225,7 @@ pub fn validate_container_image(image: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     #[test]
     fn rejects_flag_shaped_and_malformed_images() {
@@ -197,5 +275,97 @@ mod tests {
         assert!(joined.contains("--memory 4g"), "{joined}");
         assert!(joined.contains("--cap-add CHOWN"), "{joined}");
         assert!(!joined.contains("--privileged"), "{joined}");
+    }
+
+    /// Env vars are process-global, so every test that reads or writes
+    /// [`RUNNER_USER_ENV`] runs under this lock; otherwise a concurrent test
+    /// could observe another's override.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Runs `f` with [`RUNNER_USER_ENV`] set to `value` (`None` removes it) and
+    /// restores the previous value afterwards, so no other test is polluted.
+    fn with_runner_user<T>(value: Option<&str>, f: impl FnOnce() -> T) -> T {
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let previous = std::env::var(RUNNER_USER_ENV).ok();
+        match value {
+            Some(v) => std::env::set_var(RUNNER_USER_ENV, v),
+            None => std::env::remove_var(RUNNER_USER_ENV),
+        }
+        let result = f();
+        match previous {
+            Some(v) => std::env::set_var(RUNNER_USER_ENV, v),
+            None => std::env::remove_var(RUNNER_USER_ENV),
+        }
+        result
+    }
+
+    #[cfg(unix)]
+    fn id_output(flag: &str) -> String {
+        let out = std::process::Command::new("id")
+            .arg(flag)
+            .output()
+            .expect("`id` must be available to cross-check uid/gid");
+        assert!(out.status.success(), "id {flag} failed");
+        String::from_utf8(out.stdout)
+            .expect("id output must be UTF-8")
+            .trim()
+            .to_string()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn default_user_is_the_calling_process_uid_gid() {
+        let expected = format!("{}:{}", id_output("-u"), id_output("-g"));
+        let limits = with_runner_user(None, DockerLimits::default);
+        assert_eq!(limits.user.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn hardening_args_carry_the_user_flag() {
+        let limits = with_runner_user(Some("4242:4243"), DockerLimits::default);
+        assert_eq!(limits.user.as_deref(), Some("4242:4243"));
+        let args = limits.hardening_args();
+        // `--user <value>` sits right after `no-new-privileges`, matching the
+        // order of the other flags.
+        let nnp = args
+            .iter()
+            .position(|a| a == "no-new-privileges")
+            .expect("no-new-privileges flag present");
+        assert_eq!(args[nnp + 1], "--user");
+        assert_eq!(args[nnp + 2], "4242:4243");
+    }
+
+    #[test]
+    fn root_override_falls_back_to_the_image_default() {
+        for value in ["root", "0"] {
+            let limits = with_runner_user(Some(value), DockerLimits::default);
+            assert_eq!(limits.user, None, "{value} must disable --user");
+            assert!(
+                !limits.hardening_args().iter().any(|a| a == "--user"),
+                "{value} must not emit --user"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_override_keeps_the_calling_process_identity() {
+        let expected = with_runner_user(None, DockerLimits::default).user;
+        let limits = with_runner_user(Some("   "), DockerLimits::default);
+        assert_eq!(limits.user, expected);
+    }
+
+    #[test]
+    fn image_default_warning_is_emitted_at_most_once() {
+        // The `Once` is global, so the first test to build a root-fallback
+        // `DockerLimits` may already have fired it; it can never exceed one.
+        with_runner_user(Some("root"), || {
+            for _ in 0..3 {
+                assert_eq!(DockerLimits::default().user, None);
+            }
+        });
+        assert_eq!(
+            IMAGE_DEFAULT_WARNINGS.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
     }
 }

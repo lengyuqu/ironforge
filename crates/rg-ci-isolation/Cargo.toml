@@ -8,3 +8,12 @@ repository.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+tracing = { workspace = true }
+
+# `getuid`/`getgid` for the default `--user`. Declared here rather than in
+# `[workspace.dependencies]` because this crate is the only consumer, and gated
+# on unix so Windows builds do not pull it in. `libc` has no dependencies of its
+# own and was already in `Cargo.lock` as a transitive dependency, so this adds no
+# new compile unit or supply-chain surface.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
