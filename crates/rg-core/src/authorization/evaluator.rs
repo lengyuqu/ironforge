@@ -206,11 +206,31 @@ pub async fn evaluate(
             },
         )),
 
-        Action::ScopeExpand => Err(CoreError::coded(
-            501,
-            "AUTHORIZATION_ACTION_NOT_IMPLEMENTED",
-            "scope_expand has no execution surface yet",
-        )),
+        // Widening an agent token is expanding write power over a whole
+        // repository, so only repository administrators may approve it.
+        // `writers: false` / `collaborators: false` keep a writer or a
+        // collaboration member from approving an expansion on its own.
+        //
+        // The subject is a numeric token id. It is not enough for it to parse:
+        // `load_expandable_token` also proves the token is an active agent token
+        // confined to *this* repository, so an administrator of one repository
+        // cannot widen a token that reaches another.
+        Action::ScopeExpand => {
+            let token_id = parse_id(&subject, "token id")?;
+            super::scope_expand::load_expandable_token(db, repo, token_id).await?;
+            Ok(build(
+                repo,
+                action,
+                &subject,
+                RuleParts {
+                    explicit: Vec::new(),
+                    admins: true,
+                    writers: false,
+                    collaborators: false,
+                    required_approvals: 1,
+                },
+            ))
+        }
     }
 }
 

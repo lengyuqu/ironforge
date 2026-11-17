@@ -13,6 +13,8 @@
 //! - `action` — the platform's action names, TTLs, retry class.
 //! - `payload` — what a request is bound to, and the rule-version digest.
 //! - `evaluator` — who may approve, how many votes.
+//! - `scope_expand` — the execution surface of the one action that widens an
+//!   agent token in place (step 6).
 //! - this module — the transitions: request, approve, deny, consume, revoke,
 //!   expire.
 //!
@@ -23,6 +25,7 @@
 pub mod action;
 pub mod evaluator;
 pub mod payload;
+pub mod scope_expand;
 
 use chrono::{DateTime, Utc};
 use rg_db::entities::authorization_request::{
@@ -39,6 +42,7 @@ use crate::error::{CoreError, CoreResult};
 
 pub use action::Action;
 pub use evaluator::{evaluate, AuthorizationSet};
+pub use scope_expand::{consume_scope_expand, TokenScopeExpandResult};
 
 /// The ticket was already redeemed, expired, revoked or denied.
 pub const ALREADY_CONSUMED: &str = "AUTHORIZATION_ALREADY_CONSUMED";
@@ -239,6 +243,12 @@ async fn decide(
         return Err(CoreError::forbidden(
             "this account may not decide this request",
         ));
+    }
+    // An agent files a `scope_expand`, so `ensure_separate_people` above cannot
+    // compare the applicant: the person who must not approve is the agent's
+    // owner.
+    if action == Action::ScopeExpand {
+        scope_expand::ensure_decider_is_not_the_agent_owner(db, &request, decider_id).await?;
     }
     require_payload_unchanged(&request, action)?;
 
@@ -593,13 +603,357 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scope_expand_is_not_evaluated_yet() {
-        let db = setup().await;
+    async fn scope_expand_is_evaluated_by_repository_administrators() {
+        let db = scope_expand_setup().await;
         let repo = repo(&db).await;
-        let error = evaluate(&db, &repo, Action::ScopeExpand, "session")
+        let set = evaluate(&db, &repo, Action::ScopeExpand, "10")
+            .await
+            .unwrap();
+        assert_eq!(set.required_approvals, 1);
+        assert!(set.admins);
+        assert!(!set.writers, "a writer must not approve an expansion");
+        assert!(!set.collaborators);
+        assert!(set.explicit.is_empty());
+        // The admin collaborator may approve; a stranger and a plain member may
+        // not.
+        assert!(set.may_approve(&db, &repo, 3).await.unwrap());
+        assert!(!set.may_approve(&db, &repo, 4).await.unwrap());
+        assert!(!set.may_approve(&db, &repo, 2).await.unwrap());
+        assert_eq!(
+            Action::ScopeExpand.ttl(),
+            chrono::Duration::days(7),
+            "the ticket lives a week, not half an hour"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_scope_expand_subject_must_be_a_token_id() {
+        let db = scope_expand_setup().await;
+        let repo = repo(&db).await;
+        for subject in ["session", "token-10", "", "0", "-3"] {
+            let error = evaluate(&db, &repo, Action::ScopeExpand, subject)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error, CoreError::InvalidInput(_)),
+                "{subject:?} must be invalid input, got {error:?}"
+            );
+        }
+        // Filing through the same evaluator fails the same way.
+        let error = super::request(
+            &db,
+            NewRequest {
+                repo: &repo,
+                action: Action::ScopeExpand,
+                subject: "not-a-token",
+                head_sha: None,
+                requested_by_kind: RequesterKind::AgentSession,
+                requested_by_id: 5,
+                client_request_id: "scope-bad",
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(error, CoreError::InvalidInput(_)));
+    }
+
+    #[tokio::test]
+    async fn scope_expand_is_confined_to_the_approving_repository() {
+        let db = scope_expand_setup().await;
+        let repo = repo(&db).await;
+        // Two repositories: one approval must not widen both.
+        assert!(
+            evaluate(&db, &repo, Action::ScopeExpand, "13")
+                .await
+                .is_err(),
+            "a multi-repository token is not a per-repository decision"
+        );
+        // No allow-list at all: nothing confines the widening.
+        assert!(
+            evaluate(&db, &repo, Action::ScopeExpand, "15")
+                .await
+                .is_err(),
+            "an unrestricted token cannot be widened by one repository's admin"
+        );
+        // A human's token is out of scope for this action.
+        assert!(
+            evaluate(&db, &repo, Action::ScopeExpand, "14")
+                .await
+                .is_err(),
+            "scope_expand only applies to agent tokens"
+        );
+        // An unknown token is refused before a request can be filed.
+        assert!(evaluate(&db, &repo, Action::ScopeExpand, "999")
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn user_and_admin_cannot_be_bought_with_an_expansion() {
+        let db = scope_expand_setup().await;
+        let request = file_scope_expand(&db, 10, "k-user").await;
+        approve(&db, request.id, 3).await.unwrap();
+
+        for target in ["repo:write,user", "admin", "repo:read,admin"] {
+            let error = consume_scope_expand(&db, request.id, 3, 10, target)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error, CoreError::InvalidInput(_)),
+                "{target} must be refused, got {error:?}"
+            );
+        }
+        assert_eq!(token_scopes(&db, 10).await, "repo:read");
+    }
+
+    #[tokio::test]
+    async fn narrowing_or_moving_a_token_sideways_is_refused() {
+        let db = scope_expand_setup().await;
+        let request = file_scope_expand(&db, 12, "k-narrow").await;
+        approve(&db, request.id, 3).await.unwrap();
+
+        for target in ["repo:read", "repo:collab", "repo:write"] {
+            let error = consume_scope_expand(&db, request.id, 3, 12, target)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error, CoreError::InvalidInput(_)),
+                "{target} must not be accepted as an expansion of repo:write, got {error:?}"
+            );
+        }
+        assert_eq!(token_scopes(&db, 12).await, "repo:write");
+        // The refusal did not burn the ticket: it is still pending.
+        assert_eq!(request_state(&db, request.id).await, "pending");
+    }
+
+    #[tokio::test]
+    async fn a_scope_expand_widens_the_same_token_in_place() {
+        let db = scope_expand_setup().await;
+        let request = file_scope_expand(&db, 10, "k-widen").await;
+        approve(&db, request.id, 3).await.unwrap();
+
+        let result = consume_scope_expand(&db, request.id, 3, 10, "repo:write")
+            .await
+            .unwrap();
+        assert_eq!(result.token_id, 10);
+        assert_eq!(result.previous_scopes, "repo:read");
+        assert_eq!(result.scopes, "repo:write");
+
+        // An agent-filed request is filed with the action's own TTL and rule.
+        assert_eq!(request.required_approvals, 1);
+        assert_eq!(
+            request.expires_at - request.created_at,
+            chrono::Duration::days(7)
+        );
+
+        // The stored token itself moved: no new token was minted.
+        let token = token(&db, 10).await;
+        assert_eq!(token.scopes, "repo:write");
+        assert!(
+            crate::auth::pat_scope::has_scope(&token.scopes, "repo:write"),
+            "the same token now satisfies the wider scope"
+        );
+
+        // The ticket is spent and stamped with who/when/what.
+        let row = request_row(&db, request.id).await;
+        assert_eq!(row.state, "consumed");
+        assert_eq!(row.consumed_by, Some(3));
+        assert!(row.consumed_at.is_some());
+        assert_eq!(row.consumed_effect_hash.as_deref().map(str::len), Some(64));
+
+        let error = consume_scope_expand(&db, request.id, 3, 10, "repo")
             .await
             .unwrap_err();
-        assert_eq!(status(&error), 501);
+        assert_eq!(code(&error), ALREADY_CONSUMED);
+        assert_eq!(status(&error), 409);
+    }
+
+    #[tokio::test]
+    async fn an_unapproved_ticket_cannot_widen_a_token() {
+        let db = scope_expand_setup().await;
+        let request = file_scope_expand(&db, 10, "k-pending").await;
+
+        let error = consume_scope_expand(&db, request.id, 3, 10, "repo:write")
+            .await
+            .unwrap_err();
+        assert_eq!(code(&error), NOT_APPROVED);
+        assert_eq!(status(&error), 409);
+        // The failed consume rolled the token write back.
+        assert_eq!(token_scopes(&db, 10).await, "repo:read");
+        assert_eq!(request_state(&db, request.id).await, "pending");
+    }
+
+    #[tokio::test]
+    async fn an_agent_cannot_approve_or_execute_an_expansion() {
+        let db = scope_expand_setup().await;
+        let request = file_scope_expand(&db, 10, "k-agent").await;
+
+        let error = approve(&db, request.id, 5).await.unwrap_err();
+        assert_eq!(code(&error), "AGENT_MAY_NOT_APPROVE");
+        assert_eq!(status(&error), 403);
+
+        // Even with the vote in place, an agent cannot execute it.
+        approve(&db, request.id, 3).await.unwrap();
+        let error = consume_scope_expand(&db, request.id, 5, 10, "repo:write")
+            .await
+            .unwrap_err();
+        assert_eq!(code(&error), "AGENT_MAY_NOT_APPROVE");
+        assert_eq!(status(&error), 403);
+        assert_eq!(token_scopes(&db, 10).await, "repo:read");
+    }
+
+    #[tokio::test]
+    async fn the_person_behind_the_agent_cannot_approve_its_expansion() {
+        let db = scope_expand_setup().await;
+        let request = file_scope_expand(&db, 10, "k-owner").await;
+        // User 1 owns the repository and the agent; the generic self-approval
+        // guard cannot compare an agent applicant, so this action has its own.
+        let error = approve(&db, request.id, 1).await.unwrap_err();
+        assert_eq!(code(&error), SELF_APPROVAL);
+        assert_eq!(status(&error), 403);
+        assert_eq!(request_state(&db, request.id).await, "pending");
+    }
+
+    #[tokio::test]
+    async fn the_token_must_match_the_approved_subject() {
+        let db = scope_expand_setup().await;
+        let request = file_scope_expand(&db, 10, "k-subject").await;
+        approve(&db, request.id, 3).await.unwrap();
+
+        let error = consume_scope_expand(&db, request.id, 3, 11, "repo:write")
+            .await
+            .unwrap_err();
+        assert!(matches!(error, CoreError::InvalidInput(_)));
+        assert_eq!(token_scopes(&db, 10).await, "repo:read");
+        assert_eq!(token_scopes(&db, 11).await, "repo:read");
+        assert_eq!(request_state(&db, request.id).await, "pending");
+
+        // The approved token still works afterwards.
+        consume_scope_expand(&db, request.id, 3, 10, "repo:write")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_consume_failure_rolls_back_the_scope_change() {
+        let db = scope_expand_setup().await;
+        let request = file_scope_expand(&db, 10, "k-rollback").await;
+        approve(&db, request.id, 3).await.unwrap();
+        // Someone else burns the ticket after approval but before execution.
+        consume(&db, request.id, 3, "someone-else").await.unwrap();
+
+        let error = consume_scope_expand(&db, request.id, 3, 10, "repo:write")
+            .await
+            .unwrap_err();
+        assert_eq!(code(&error), ALREADY_CONSUMED);
+        assert_eq!(status(&error), 409);
+
+        // The widening happened before the consume inside the transaction and
+        // must have been rolled back with it.
+        assert_eq!(token_scopes(&db, 10).await, "repo:read");
+        let row = request_row(&db, request.id).await;
+        assert_eq!(row.consumed_effect_hash.as_deref(), Some("someone-else"));
+    }
+
+    #[tokio::test]
+    async fn a_failed_scope_expand_can_be_retried() {
+        let db = scope_expand_setup().await;
+        let request = file_scope_expand(&db, 10, "k-retry").await;
+
+        // First attempt fails before consumption; the token write is rolled back
+        // and the ticket stays pending.
+        let error = consume_scope_expand(&db, request.id, 3, 10, "repo:write")
+            .await
+            .unwrap_err();
+        assert_eq!(code(&error), NOT_APPROVED);
+        assert_eq!(token_scopes(&db, 10).await, "repo:read");
+        assert_eq!(request_state(&db, request.id).await, "pending");
+
+        // Once approved, the same ticket executes.
+        approve(&db, request.id, 3).await.unwrap();
+        consume_scope_expand(&db, request.id, 3, 10, "repo:write")
+            .await
+            .unwrap();
+        assert_eq!(token_scopes(&db, 10).await, "repo:write");
+    }
+
+    async fn scope_expand_setup() -> DatabaseConnection {
+        let db = setup().await;
+        // Agent 5 belongs to the repository owner (1); user 3 administers the
+        // repository so approvals can be exercised without the owner guard.
+        exec(
+            &db,
+            "UPDATE users SET kind = 'agent', owner_user_id = 1 WHERE id = 5",
+        )
+        .await;
+        exec(&db, "INSERT INTO repo_collaborators(id, repo_id, user_id, permission, created_at) VALUES(1, 1, 3, 'admin', '2024-01-01 00:00:00')").await;
+        // 10: the happy path. 11: subject-mismatch decoy.
+        // 12: already repo:write (narrowing). 13: two repositories.
+        // 14: a person's token. 15: no allow-list.
+        for (id, user_id, scopes, allowlist) in [
+            (10, 5, "repo:read", Some(r#"["owner/repo"]"#)),
+            (11, 5, "repo:read", Some(r#"["owner/repo"]"#)),
+            (12, 5, "repo:write", Some(r#"["owner/repo"]"#)),
+            (13, 5, "repo:read", Some(r#"["owner/repo","owner/other"]"#)),
+            (14, 1, "repo:read", Some(r#"["owner/repo"]"#)),
+            (15, 5, "repo:read", None),
+        ] {
+            exec(
+                &db,
+                &format!(
+                    "INSERT INTO access_tokens(id, user_id, name, token_hash, scopes, repo_allowlist, created_at) VALUES({id}, {user_id}, 't{id}', 'hash{id}', '{scopes}', {}, '2024-01-01 00:00:00')",
+                    allowlist
+                        .map(|value| format!("'{value}'"))
+                        .unwrap_or_else(|| "NULL".to_string())
+                ),
+            )
+            .await;
+        }
+        db
+    }
+
+    async fn file_scope_expand(db: &DatabaseConnection, token_id: i64, key: &str) -> Request {
+        let repo = repo(db).await;
+        let subject = token_id.to_string();
+        request(
+            db,
+            NewRequest {
+                repo: &repo,
+                action: Action::ScopeExpand,
+                subject: &subject,
+                head_sha: None,
+                requested_by_kind: RequesterKind::AgentSession,
+                requested_by_id: 5,
+                client_request_id: key,
+            },
+        )
+        .await
+        .unwrap()
+        .into_request()
+    }
+
+    async fn token(db: &DatabaseConnection, id: i64) -> rg_db::entities::access_token::Model {
+        use sea_orm::EntityTrait;
+        rg_db::entities::access_token::Entity::find_by_id(id)
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    async fn token_scopes(db: &DatabaseConnection, id: i64) -> String {
+        token(db, id).await.scopes
+    }
+
+    async fn request_row(db: &DatabaseConnection, id: i64) -> Request {
+        authorization_ops::find_by_id(db, id)
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    async fn request_state(db: &DatabaseConnection, id: i64) -> String {
+        request_row(db, id).await.state
     }
 
     #[tokio::test]
