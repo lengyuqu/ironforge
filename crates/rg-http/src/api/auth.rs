@@ -168,22 +168,25 @@ pub(crate) async fn ensure_reviewer_may_approve(
     claims: Option<&Claims>,
 ) -> Result<(), crate::error::AppError> {
     use crate::error::AppError;
-    // An unreadable account must not read as "not an agent": that is exactly
-    // the failure being closed here. Propagate the database error instead.
-    let user = rg_db::ops::user_ops::find_by_id(db, user_id)
-        .await?
-        .ok_or_else(|| AppError::forbidden("no such account"))?;
-    if rg_core::agent::is_agent(&user) {
-        return Err(AppError::coded(
-            axum::http::StatusCode::FORBIDDEN,
-            "FORBIDDEN",
-            "an agent may not approve a pull request",
-        )
-        .with_reason(
-            AGENT_MAY_NOT_APPROVE,
-            false,
-            "ask a person to review and approve",
-        ));
+    // An account that cannot be read must not read as "not an agent": that is
+    // exactly the failure being closed here. `is_human_account` answers `false`
+    // for an agent, an unknown and a soft-deleted account alike, and propagates
+    // a database error instead of guessing.
+    match rg_core::agent::is_human_account(db, user_id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(AppError::coded(
+                axum::http::StatusCode::FORBIDDEN,
+                "FORBIDDEN",
+                "an agent may not approve a pull request",
+            )
+            .with_reason(
+                AGENT_MAY_NOT_APPROVE,
+                false,
+                "ask a person to review and approve",
+            ));
+        }
+        Err(error) => return Err(error.into()),
     }
     if let Some(claims) = claims {
         if session_access_token(db, claims)

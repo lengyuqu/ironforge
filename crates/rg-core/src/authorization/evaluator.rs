@@ -322,17 +322,17 @@ fn parse_id(subject: &str, what: &str) -> CoreResult<i64> {
 
 /// Whether `user_id` is a person. An agent can file a request and never vote on
 /// one; the check lives here so every caller shares it.
+///
+/// The "who is the actor" half comes from [`crate::agent::is_human_account`],
+/// the same predicate the HTTP approval gates use; the refusal below stays this
+/// module's own so its code and wording do not move.
 pub async fn ensure_human_decider(db: &DatabaseConnection, user_id: i64) -> CoreResult<()> {
-    let user = rg_db::ops::user_ops::find_by_id(db, user_id)
-        .await
-        .map_err(CoreError::internal)?
-        .ok_or_else(|| CoreError::forbidden("only a person may approve"))?;
-    if crate::agent::is_agent(&user) {
-        return Err(CoreError::coded(
-            403,
-            "AGENT_MAY_NOT_APPROVE",
-            "an agent may request an authorization but never approve one",
-        ));
+    if crate::agent::is_human_account(db, user_id).await? {
+        return Ok(());
     }
-    Ok(())
+    Err(CoreError::coded(
+        403,
+        "AGENT_MAY_NOT_APPROVE",
+        "an agent may request an authorization but never approve one",
+    ))
 }

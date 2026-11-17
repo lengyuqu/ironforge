@@ -49,6 +49,19 @@ pub fn is_agent(user: &User) -> bool {
     user.kind == KIND_AGENT
 }
 
+/// Whether `user_id` is an account a decision may come from.
+///
+/// Returns `Ok(false)` for an unknown, soft-deleted or agent account: an
+/// unreadable account must not read as "not an agent". This is the single place
+/// the "agents may not approve" rule learns *who* the actor is; callers keep
+/// their own error shapes. An inactive account is still a person here — the
+/// callers that must refuse a disabled account say so themselves.
+pub async fn is_human_account(db: &DatabaseConnection, user_id: i64) -> CoreResult<bool> {
+    Ok(user_ops::find_by_id(db, user_id)
+        .await?
+        .is_some_and(|user| !is_agent(&user) && user.deleted_at.is_none()))
+}
+
 /// Whether `username` is in the namespace reserved for agents.
 pub fn is_reserved_username(username: &str) -> bool {
     username.to_ascii_lowercase().contains(AGENT_USERNAME_INFIX)
@@ -586,5 +599,66 @@ mod actor_ref_tests {
         let refs = resolve_actors(&db, ids).await.unwrap();
         assert_eq!(refs.len(), 33);
         assert_eq!(queries.load(Ordering::SeqCst), 2);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T24: the single "may a decision come from this account" predicate
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod human_account_tests {
+    use super::*;
+    use rg_db::entities::user::ActiveModel;
+    use sea_orm::{ActiveModelTrait, Set};
+
+    async fn memory_db() -> DatabaseConnection {
+        let db = rg_db::connect("sqlite::memory:").await.unwrap();
+        rg_db::run_migrations(&db).await.unwrap();
+        db
+    }
+
+    async fn person(db: &DatabaseConnection, name: &str) -> User {
+        user_ops::create_user(db, name, &format!("{name}@example.com"), "", "")
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_person_may_decide_and_an_agent_may_not() {
+        let db = memory_db().await;
+        let alice = person(&db, "alice").await;
+        let bot = create_agent(&db, alice.id, "bot", None).await.unwrap();
+
+        assert!(is_human_account(&db, alice.id).await.unwrap());
+        assert!(!is_human_account(&db, bot.id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn an_account_that_cannot_be_read_is_not_a_person() {
+        let db = memory_db().await;
+        // Unknown id: no row at all.
+        assert!(!is_human_account(&db, 987_654).await.unwrap());
+
+        // Soft-deleted row: present, but must not pass as a person.
+        let bob = person(&db, "bob").await;
+        let bob_id = bob.id;
+        let mut active: ActiveModel = bob.into();
+        active.deleted_at = Set(Some(chrono::Utc::now()));
+        active.update(&db).await.unwrap();
+        assert!(!is_human_account(&db, bob_id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_disabled_person_is_still_a_person() {
+        // Inactivity is the callers' own rule (e.g. `create_agent`): this
+        // predicate answers only "is the account a person", not "may it act".
+        let db = memory_db().await;
+        let carol = person(&db, "carol").await;
+        let carol_id = carol.id;
+        let mut active: ActiveModel = carol.into();
+        active.is_active = Set(false);
+        active.update(&db).await.unwrap();
+        assert!(is_human_account(&db, carol_id).await.unwrap());
     }
 }
