@@ -102,6 +102,7 @@ pub mod m20261114_000001_create_usage_counters;
 pub mod m20261114_000002_create_authorization_requests;
 pub mod m20261115_000001_create_agent_draft_namespaces;
 pub mod m20261115_000002_create_notification_preferences;
+pub mod m20261117_000001_add_repo_events_dispatched_at;
 
 use sea_orm_migration::prelude::*;
 
@@ -217,6 +218,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261114_000002_create_authorization_requests::Migration),
             Box::new(m20261115_000001_create_agent_draft_namespaces::Migration),
             Box::new(m20261115_000002_create_notification_preferences::Migration),
+            Box::new(m20261117_000001_add_repo_events_dispatched_at::Migration),
         ]
     }
 }
