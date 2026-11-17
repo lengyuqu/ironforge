@@ -75,6 +75,20 @@ pub async fn submit_review(
         )));
     }
 
+    // Decisions are counted by the merge gate, and a vote on one's own PR is
+    // not a second opinion. The HTTP layer refuses this first (`400`, same
+    // message); the guard lives here too because `submit_review` is the only
+    // write path for reviews, and every future caller — MCP tool, internal
+    // service, bulk import — would otherwise bypass the check (#19 R19-2).
+    // `comment` and `dismiss` are not decisions and stay allowed.
+    if matches!(action, ReviewAction::Approve | ReviewAction::RequestChanges)
+        && pr.author_id == reviewer_id
+    {
+        return Err(CoreError::invalid_input(
+            "a PR author cannot approve or request changes on their own PR",
+        ));
+    }
+
     // For dismiss, body is typically about why the review is dismissed
     let model = pr_review::ActiveModel {
         id: sea_orm::NotSet,
