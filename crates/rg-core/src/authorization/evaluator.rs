@@ -211,12 +211,17 @@ pub async fn evaluate(
         // `writers: false` / `collaborators: false` keep a writer or a
         // collaboration member from approving an expansion on its own.
         //
-        // The subject is a numeric token id. It is not enough for it to parse:
-        // `load_expandable_token` also proves the token is an active agent token
-        // confined to *this* repository, so an administrator of one repository
-        // cannot widen a token that reaches another.
+        // The subject is `"<token id>:<target scopes>"` (e.g. `10:repo:write`),
+        // so the target the administrator approves is inside the hash that
+        // binds the row (`payload::payload_hash`). Parsing here also proves the
+        // token id and the scopes before anything is stored.
+        //
+        // The token id alone is not enough: `load_expandable_token` also proves
+        // the token is an active agent token confined to *this* repository, so
+        // an administrator of one repository cannot widen a token that reaches
+        // another.
         Action::ScopeExpand => {
-            let token_id = parse_id(&subject, "token id")?;
+            let (token_id, _) = super::scope_expand::parse_subject(&subject)?;
             super::scope_expand::load_expandable_token(db, repo, token_id).await?;
             Ok(build(
                 repo,

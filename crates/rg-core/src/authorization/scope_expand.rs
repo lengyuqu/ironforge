@@ -21,16 +21,33 @@
 //! property of this definition, recorded in `docs/plans/T20-plan.md`, not an
 //! oversight.
 //!
+//! ## What the approval is bound to
+//!
+//! A request names `subject = "<token id>:<target scopes>"`, for example
+//! `10:repo:write`, and is filed against a repository. The target is part of the
+//! subject on purpose: `payload::payload_hash` covers the subject, so the hash
+//! the approver saw is the hash of *this token and this target*. Without it the
+//! approval would only bind a token id, and an executor could pass any target
+//! the semantic ladder accepts — `repo` instead of the approved `repo:write`
+//! widens more than anyone approved. There is no `parameters` column to bind it
+//! to (and adding one means a migration), but the subject is hashed, which makes
+//! this encoding equivalent (see `docs/plans/T21-plan.md`).
+//!
+//! The format is canonical: a positive decimal token id without leading zeros,
+//! then `:`, then scopes in [`pat_scope::normalize_scopes`] order. Both the
+//! evaluator (when filing and when a vote is cast) and [`consume_scope_expand`]
+//! validate it through [`parse_subject`].
+//!
 //! ## Which token may be expanded
 //!
-//! A request names `subject = <token id>` and is filed against a repository. The
-//! approval is given by *that repository's* administrators, so the token must be
-//! provably confined to that same repository, otherwise one repository's admin
-//! could widen a token that also reaches other repositories. [`load_expandable_token`]
-//! therefore requires the token to be an active **agent** token whose
-//! `repo_allowlist` is exactly `["<owner>/<name>"]` of the request's repository.
-//! Tokens without an allow-list are refused: "widen it everywhere" cannot be
-//! approved by a repository admin.
+//! A request is filed against a repository. The approval is given by *that
+//! repository's* administrators, so the token must be provably confined to that
+//! same repository, otherwise one repository's admin could widen a token that
+//! also reaches other repositories. [`load_expandable_token`] therefore requires
+//! the token to be an active **agent** token whose `repo_allowlist` is exactly
+//! `["<owner>/<name>"]` of the request's repository. Tokens without an
+//! allow-list are refused: "widen it everywhere" cannot be approved by a
+//! repository admin.
 
 use chrono::Utc;
 use rg_db::entities::access_token::{self, Model as AccessToken};
@@ -60,12 +77,52 @@ pub struct TokenScopeExpandResult {
     pub scopes: String,
 }
 
+/// Parse the `scope_expand` subject: `"{token_id}:{target_scopes}"`.
+///
+/// The token id must be a positive decimal integer written without leading
+/// zeros (`0`, `-3`, `007`, `1.5`, `+10` and the empty string are all refused),
+/// and the scopes must already be in canonical `normalize_scopes` form and pass
+/// `agent::validate_agent_token_scopes`. Requiring the canonical form is what
+/// makes the exact-match check in [`consume_scope_expand`] meaningful: two
+/// different spellings of the same target never share an approved subject.
+pub(crate) fn parse_subject(subject: &str) -> CoreResult<(i64, String)> {
+    let Some((token_part, scopes_part)) = subject.split_once(':') else {
+        return Err(CoreError::invalid_input(
+            "a scope_expand subject must be \"<token id>:<target scopes>\", e.g. \"10:repo:write\"",
+        ));
+    };
+    let token_id = token_part
+        .parse::<u64>()
+        .ok()
+        .filter(|id| *id > 0 && id.to_string() == token_part)
+        .and_then(|id| i64::try_from(id).ok())
+        .ok_or_else(|| {
+            CoreError::invalid_input(
+                "the token id in a scope_expand subject must be a positive decimal integer without leading zeros",
+            )
+        })?;
+
+    let scopes = pat_scope::normalize_scopes(scopes_part)?;
+    if scopes != scopes_part {
+        return Err(CoreError::invalid_input(
+            "the target scopes in a scope_expand subject must be canonical (comma separated, in normalize_scopes order)",
+        ));
+    }
+    crate::agent::validate_agent_token_scopes(&scopes)?;
+    Ok((token_id, scopes))
+}
+
 /// Consume a `scope_expand` ticket and widen the token in the same transaction.
 ///
 /// `actor_id` is the person executing the approval. It must be a person: an
-/// agent can file the request and never redeem it. `token_id` must equal the
-/// approved `subject`; passing a different token is refused rather than silently
-/// preferring either side.
+/// agent can file the request and never redeem it.
+///
+/// `token_id` and `target_scopes` must reproduce the approved subject exactly:
+/// `"{token_id}:{target_scopes}"`. Both checks run: the exact match proves the
+/// execution target is the one that was approved, and [`widening_of`] proves
+/// the target still widens the token's current scopes without buying `user` or
+/// `admin`. The semantic ladder alone is *not* enough — it accepts `repo` for an
+/// approved `repo:write`, which is more than the approver agreed to.
 ///
 /// On any failure the whole transaction is rolled back, so neither the token nor
 /// the ticket changes.
@@ -111,10 +168,20 @@ async fn apply(
             "this authorization request is not a scope_expand request",
         ));
     }
-    if request.subject != token_id.to_string() {
+    let (approved_token_id, approved_scopes) = parse_subject(&request.subject)?;
+    if approved_token_id != token_id {
         return Err(CoreError::invalid_input(
             "the token id does not match the approved subject",
         ));
+    }
+    // The gate this patch adds: the approved subject is the only target that may
+    // be executed. `"10:repo"` does not match an approved `"10:repo:write"`,
+    // even though `repo` would satisfy the semantic ladder below.
+    let target = pat_scope::normalize_scopes(target_scopes)?;
+    if request.subject != format!("{token_id}:{target}") {
+        return Err(CoreError::invalid_input(format!(
+            "target scopes do not match the approved target \"{approved_scopes}\""
+        )));
     }
 
     let repo = repository::Entity::find_by_id(request.repo_id)
@@ -300,11 +367,10 @@ pub async fn ensure_decider_is_not_the_agent_owner(
     request: &rg_db::entities::authorization_request::Model,
     decider_id: i64,
 ) -> CoreResult<()> {
-    // `evaluate` has already proven the subject is a numeric token id by the
-    // time this runs, but parse without unwrapping anyway.
-    let Ok(token_id) = request.subject.parse::<i64>() else {
-        return Ok(());
-    };
+    // `evaluate` has already validated the subject as
+    // `"<token id>:<scopes>"` by the time this runs. Parsing is still fallible
+    // and fails closed: a subject this cannot read must not skip the owner check.
+    let (token_id, _) = parse_subject(&request.subject)?;
     let Some(token) = access_token::Entity::find_by_id(token_id)
         .one(db)
         .await
@@ -326,4 +392,50 @@ pub async fn ensure_decider_is_not_the_agent_owner(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_subject_is_a_token_id_then_canonical_scopes() {
+        for (subject, token_id, scopes) in [
+            ("10:repo:write", 10, "repo:write"),
+            ("1:repo", 1, "repo"),
+            ("42:repo:write,repo:read", 42, "repo:write,repo:read"),
+        ] {
+            assert_eq!(
+                parse_subject(subject).unwrap(),
+                (token_id, scopes.to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn a_malformed_subject_is_invalid_input() {
+        for subject in [
+            "",
+            "10",
+            "session",
+            "10:",
+            ":repo:write",
+            "0:repo:write",
+            "-3:repo:write",
+            "007:repo:write",
+            "1.5:repo:write",
+            "+10:repo:write",
+            "10:repo:write:extra",
+            "10:not-a-scope",
+            "10:user",
+            "10:admin",
+            "10:repo:read,repo:write",
+        ] {
+            let error = parse_subject(subject).unwrap_err();
+            assert!(
+                matches!(error, CoreError::InvalidInput(_)),
+                "{subject:?} must be invalid input, got {error:?}"
+            );
+        }
+    }
 }

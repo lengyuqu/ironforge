@@ -23,6 +23,11 @@ pub enum Action {
     /// Publish a release.
     ReleasePublish,
     /// Widen an agent token's repository scopes in place.
+    ///
+    /// The subject is `"{token_id}:{target_scopes}"`, e.g. `10:repo:write`
+    /// (token id: positive decimal, no leading zeros; scopes in
+    /// `pat_scope::normalize_scopes` order). Encoding the target in the subject
+    /// puts it inside the payload hash, so approval binds the exact target.
     ScopeExpand,
 }
 
