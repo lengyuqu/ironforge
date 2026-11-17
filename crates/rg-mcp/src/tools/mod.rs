@@ -55,6 +55,22 @@ pub fn list_tools(_state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
             }
         },
         {
+            "name": "find_definition",
+            "description": "Find where a symbol is declared in a repository, from the stored symbol index (not a live parse). Give 'name', 'path', or both: with 'name', rows whose name equals yours come first and rows that only start with it follow, marked confidence 'exact' or 'name_match' respectively; with 'path', every declaration of that file (confidence 'exact'). Only the commit that was indexed can be answered: if the commit you ask about was never indexed the call fails with SYMBOLS_NOT_INDEXED and a hint to index it, rather than silently answering from another commit. A missing row does not prove the symbol does not exist: 'partial' is true and 'limitations' names what a static parse cannot see (svelte markup, Rust macros and dyn Trait, TypeScript obj[key]/any, Python getattr, Go interface calls). Rust 'impl' rows are never returned because their name is a line of source, not an identifier.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "owner": { "type": "string", "description": "Repository owner" },
+                    "repo":  { "type": "string", "description": "Repository name" },
+                    "name":  { "type": "string", "description": "Symbol name; exact matches first, then prefix matches" },
+                    "path":  { "type": "string", "description": "File path, e.g. 'src/main.rs'; lists that file's declarations" },
+                    "ref":   { "type": "string", "description": "Git ref (branch/tag/commit). Defaults to the default branch." },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 200, "description": "Most rows to return (default 50, max 200; more than 200 is refused, not clamped)" }
+                },
+                "required": ["owner", "repo"]
+            }
+        },
+        {
             "name": "get_issue",
             "description": "Get a single issue by number.",
             "inputSchema": {
@@ -341,6 +357,7 @@ pub fn call_tool(state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
         "list_repos" => tool_list_repos(state, &args),
         "read_file" => tool_read_file(state, &args),
         "read_dir" => tool_read_dir(state, &args),
+        "find_definition" => tool_find_definition(state, &args),
         "get_issue" => tool_get_issue(state, &args),
         "get_pr" => tool_get_pr(state, &args),
         "get_pr_context" => tool_get_pr_context(state, &args),
@@ -593,6 +610,89 @@ fn window_text(content: &str, start_line: usize, max_lines: usize, max_bytes: us
 }
 
 #[cfg(test)]
+mod find_definition_tests {
+    use super::{find_definition_path, list_tools};
+    use serde_json::json;
+
+    fn state() -> crate::AppState {
+        crate::AppState::from_env().expect("AppState::from_env")
+    }
+
+    fn request() -> crate::protocol::JsonRpcRequest {
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: json!(1),
+            method: "tools/list".into(),
+            params: None,
+        }
+    }
+
+    #[test]
+    fn the_tool_is_visible_to_models() {
+        let response = list_tools(&state(), &request());
+        let tools = response.result.unwrap()["tools"].clone();
+        let tool = tools
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["name"] == "find_definition")
+            .expect("find_definition must be listed");
+        assert!(
+            tool["description"]
+                .as_str()
+                .unwrap()
+                .contains("SYMBOLS_NOT_INDEXED"),
+            "the description must warn that an unindexed commit fails: {tool}"
+        );
+        assert_eq!(tool["inputSchema"]["required"], json!(["owner", "repo"]));
+        assert_eq!(tool["inputSchema"]["properties"]["limit"]["maximum"], 200);
+    }
+
+    #[test]
+    fn name_or_path_is_required_and_encoded() {
+        let error = find_definition_path(&json!({"owner": "alice", "repo": "demo"})).unwrap_err();
+        assert!(error.contains("one of name or path"), "{error}");
+
+        let path = find_definition_path(&json!({
+            "owner": "alice", "repo": "demo", "name": "index_", "ref": "feat/x", "limit": 5
+        }))
+        .unwrap();
+        assert_eq!(
+            path,
+            "/ai/repos/alice/demo/symbols?name=index_&ref=feat%2Fx&limit=5"
+        );
+
+        let path = find_definition_path(&json!({
+            "owner": "alice", "repo": "demo", "path": "/src/a b.rs/"
+        }))
+        .unwrap();
+        assert_eq!(path, "/ai/repos/alice/demo/symbols?path=src%2Fa%20b.rs");
+    }
+
+    #[test]
+    fn hostile_paths_and_missing_limit_are_refused_or_defaulted() {
+        let error = find_definition_path(&json!({
+            "owner": "alice", "repo": "demo", "path": "../../etc/passwd"
+        }))
+        .unwrap_err();
+        assert!(error.contains("'..'"), "{error}");
+
+        let error = find_definition_path(&json!({
+            "owner": "alice", "repo": "demo", "name": "x", "limit": 0
+        }))
+        .unwrap_err();
+        assert!(error.contains("positive integer"), "{error}");
+
+        // No limit is sent at all, so the API's default applies.
+        let path = find_definition_path(&json!({
+            "owner": "alice", "repo": "demo", "name": "x"
+        }))
+        .unwrap();
+        assert_eq!(path, "/ai/repos/alice/demo/symbols?name=x");
+    }
+}
+
+#[cfg(test)]
 mod window_tests {
     use super::window_text;
 
@@ -665,6 +765,57 @@ fn tool_read_dir(state: &AppState, args: &Value) -> ToolResult {
         query(&[("path", path), ("ref", git_ref)])
     );
     get_json_text(state, &api_path)
+}
+
+/// `find_definition` — read the stored symbol index.
+///
+/// The matching, the `impl` filter, the `confidence` decision and the
+/// "not indexed means 404, never another commit" rule all live in
+/// `rg_core::search::symbol_query::find_symbols`, behind
+/// `GET /ai/repos/{owner}/{name}/symbols`. This tool only builds the request:
+/// a second query implementation here could disagree with the endpoint.
+fn tool_find_definition(state: &AppState, args: &Value) -> ToolResult {
+    let api_path = find_definition_path(args)?;
+    let text = get_json_text(state, &api_path)?;
+    let value: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    serde_json::to_string_pretty(&value).map_err(|e| e.to_string())
+}
+
+/// The request path for [`tool_find_definition`], validated before it reaches a
+/// URL: `owner`/`repo` are identifiers, `path` is repository-relative.
+fn find_definition_path(args: &Value) -> Result<String, String> {
+    let owner = name_arg(args, "owner")?;
+    let repo = name_arg(args, "repo")?;
+    let name = optional_text(args, "name").map(str::trim).unwrap_or("");
+    let path = args
+        .get("path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim_matches('/');
+    if name.is_empty() && path.is_empty() {
+        return Err("one of name or path is required".into());
+    }
+    if !path.is_empty()
+        && path
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
+        return Err("path must not contain empty, '.' or '..' path segments".into());
+    }
+    let git_ref = optional_text(args, "ref").unwrap_or("");
+    let limit = match optional_positive(args, "limit")? {
+        Some(value) => value.to_string(),
+        None => String::new(),
+    };
+    Ok(format!(
+        "/ai/repos/{owner}/{repo}/symbols{}",
+        query(&[
+            ("name", name),
+            ("path", path),
+            ("ref", git_ref),
+            ("limit", limit.as_str()),
+        ])
+    ))
 }
 
 /// Send a write request and return the response body (JSON) on success. A

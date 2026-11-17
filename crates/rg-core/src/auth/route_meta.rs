@@ -473,6 +473,7 @@ pub const ROUTES: &[RouteMeta] = &[
     repo("/ai/repos/{owner}/{name}/map"),
     repo("/ai/repos/{owner}/{name}/search/code"),
     repo("/ai/repos/{owner}/{name}/index"),
+    repo("/ai/repos/{owner}/{name}/symbols"),
     repo("/ai/repos/{owner}/{name}/pulls/{number}/context"),
     user("/ws/notifications"),
     repo("/ws/job/{job_id}"),

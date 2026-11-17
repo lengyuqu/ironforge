@@ -968,3 +968,235 @@ pub async fn ai_index_repository(
         }),
     ))
 }
+
+// ── Symbol definitions ──────────────────────────────
+//
+// `GET /ai/repos/{owner}/{name}/symbols` reads the definitions T28 indexed
+// (#63 step 3). The query itself lives in
+// [`rg_core::search::symbol_query::find_symbols`] so the MCP tool and this
+// endpoint cannot drift apart.
+
+/// Query params for the symbol endpoint.
+#[derive(Deserialize)]
+pub struct SymbolQuery {
+    /// Symbol name: exact matches first, then prefix matches.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Repository-relative path; lists that file's declarations.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Branch/tag/SHA; defaults to the repository's default branch.
+    #[serde(default)]
+    pub r#ref: Option<String>,
+    /// Explicit commit. Takes precedence over `ref` because it is the more
+    /// specific request; both are resolved to a full 40-hex SHA before use.
+    #[serde(default)]
+    pub commit_sha: Option<String>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+/// One definition row.
+#[derive(Serialize, ToSchema)]
+pub struct AiSymbolItem {
+    pub name: String,
+    /// `function` | `method` | `struct` | `enum` | `trait` | `class` |
+    /// `interface` | `module` | `const` | `macro` | `type` | `other`.
+    /// `impl` rows are never returned: their name is a first line, not an
+    /// identifier.
+    pub kind: String,
+    pub path: String,
+    pub start_line: i32,
+    pub end_line: i32,
+    /// First source line, whitespace-collapsed; `null` when the extractor had
+    /// none.
+    pub signature: Option<String>,
+    /// `exact` — the name equals the query verbatim (or the query was by
+    /// `path`, and this row is that file's declaration). `name_match` — only
+    /// the prefix matched, so this row is a candidate, not a confirmed answer.
+    pub confidence: String,
+}
+
+/// A page of definitions for one commit.
+#[derive(Serialize, ToSchema)]
+pub struct AiSymbolsResponse {
+    /// The full 40-hex commit the request resolved to.
+    pub commit_sha: String,
+    /// The index for this commit is known to be incomplete; absence of a row is
+    /// not proof the symbol does not exist.
+    pub partial: bool,
+    /// What static parsing cannot see. Never empty.
+    pub limitations: Vec<String>,
+    pub items: Vec<AiSymbolItem>,
+}
+
+/// Resolve `git_ref` to a full commit SHA.
+///
+/// Deliberately not "resolve, and if it fails use the default branch": the
+/// caller asked about a specific revision.
+fn resolve_symbol_commit(
+    repo_path: &std::path::Path,
+    git_ref: &str,
+) -> rg_core::error::CoreResult<String> {
+    use rg_core::error::CoreError;
+
+    let repo = crate::api::repo_content::open_repo(repo_path)?;
+    let id = repo
+        .rev_parse_single(git_ref)
+        .map_err(|error| {
+            tracing::debug!(error = %error, git_ref, "symbol query ref did not resolve");
+            CoreError::coded(404, "REF_NOT_FOUND", format!("ref '{git_ref}' not found"))
+        })?
+        .detach();
+    // A tag object or a tree resolves too; only a commit has definitions.
+    repo.find_commit(id).map_err(|_| {
+        CoreError::coded(
+            404,
+            "REF_NOT_FOUND",
+            format!("ref '{git_ref}' does not name a commit"),
+        )
+    })?;
+    Ok(id.to_string())
+}
+
+/// GET /api/v1/ai/repos/{owner}/{name}/symbols
+#[utoipa::path(
+    get,
+    path = "/api/v1/ai/repos/{owner}/{name}/symbols",
+    params(
+        ("owner" = String, Path, description = "Repository owner"),
+        ("name" = String, Path, description = "Repository name"),
+        ("name" = Option<String>, Query, description = "Symbol name: exact matches first, then prefix matches. Give this, `path`, or both."),
+        ("path" = Option<String>, Query, description = "Repository-relative file path: list that file's declarations. Give this, `name`, or both."),
+        ("ref" = Option<String>, Query, description = "Branch/tag/SHA (default: default branch)"),
+        ("commit_sha" = Option<String>, Query, description = "Explicit commit; takes precedence over `ref`"),
+        ("limit" = Option<usize>, Query, description = "Max rows (default 50, max 200); more than 200 is 400 INVALID_LIMIT, never a silent clamp"),
+    ),
+    responses(
+        (status = 200, description = "Definitions of that commit. Every row carries `confidence`: `exact` when the name equals the query (or the query was by path), `name_match` when only the prefix matched. `partial` is true and `limitations` names what static parsing cannot see (svelte only inside <script>, Rust macros and dyn Trait, TS obj[key]/any, Python getattr, Go interface calls, unrecorded parse failures), so a missing row is not proof the symbol is absent. `impl` rows are excluded. An unindexed commit is 404 SYMBOLS_NOT_INDEXED and is never answered from another commit.", body = AiSymbolsResponse),
+        (status = 400, description = "Neither `name` nor `path` given, or INVALID_LIMIT"),
+        (status = 404, description = "Repository, ref (REF_NOT_FOUND), or the commit's symbol index (SYMBOLS_NOT_INDEXED) not found"),
+    ),
+    tag = "ai",
+)]
+pub async fn ai_repo_symbols(
+    State(state): State<AppState>,
+    Path((owner, name)): Path<(String, String)>,
+    headers: HeaderMap,
+    Query(params): Query<SymbolQuery>,
+) -> Result<(StatusCode, Json<AiSymbolsResponse>), AppError> {
+    let repo = repo_access::require_read(&state, &headers, &owner, &name).await?;
+
+    let symbol_name = params
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let symbol_path = params
+        .path
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    if symbol_name.is_none() && symbol_path.is_none() {
+        return Err(AppError::bad_request("one of 'name' or 'path' is required"));
+    }
+
+    // Above the maximum is refused rather than clamped: a clamped answer looks
+    // complete and is not.
+    let limit = params.limit.unwrap_or(DEFAULT_SYMBOL_LIMIT);
+    if limit == 0 || limit > MAX_SYMBOL_LIMIT {
+        return Err(AppError::coded(
+            StatusCode::BAD_REQUEST,
+            "INVALID_LIMIT",
+            format!("limit must be between 1 and {MAX_SYMBOL_LIMIT}"),
+        ));
+    }
+
+    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, name));
+    if !repo_path.exists() {
+        return Err(AppError::not_found("repository not found on disk"));
+    }
+
+    let requested = params
+        .commit_sha
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .or_else(|| {
+            params
+                .r#ref
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+        })
+        .unwrap_or(&repo.default_branch)
+        .to_string();
+
+    let commit_sha = crate::api::repo_content::run_blocking(move || {
+        resolve_symbol_commit(&repo_path, &requested)
+    })
+    .await?;
+
+    let page = rg_core::search::symbol_query::find_symbols(
+        &state.db,
+        repo.id,
+        &commit_sha,
+        symbol_name,
+        symbol_path,
+        limit,
+    )
+    .await
+    .map_err(|error| symbol_error(error, &owner, &name, &commit_sha))?;
+
+    let items = page
+        .items
+        .into_iter()
+        .map(|item| AiSymbolItem {
+            name: item.name,
+            kind: item.kind,
+            path: item.path,
+            start_line: item.start_line,
+            end_line: item.end_line,
+            signature: item.signature,
+            confidence: item.confidence.as_str().to_string(),
+        })
+        .collect();
+
+    Ok((
+        StatusCode::OK,
+        Json(AiSymbolsResponse {
+            commit_sha: page.commit_sha,
+            partial: page.partial,
+            limitations: page.limitations,
+            items,
+        }),
+    ))
+}
+
+const DEFAULT_SYMBOL_LIMIT: usize = rg_core::search::symbol_query::DEFAULT_LIMIT;
+const MAX_SYMBOL_LIMIT: usize = rg_core::search::symbol_query::MAX_LIMIT;
+
+/// Map a core query error to the REST contract, adding the "index it first"
+/// hint to `SYMBOLS_NOT_INDEXED`.
+fn symbol_error(
+    error: rg_core::error::CoreError,
+    owner: &str,
+    name: &str,
+    commit_sha: &str,
+) -> AppError {
+    match error {
+        rg_core::error::CoreError::Coded {
+            status: 404,
+            code: rg_core::search::symbol_query::NOT_INDEXED_CODE,
+            message,
+        } => AppError::coded(StatusCode::NOT_FOUND, "SYMBOLS_NOT_INDEXED", message).with_reason(
+            "symbols_not_indexed",
+            true,
+            format!(
+                "POST /api/v1/ai/repos/{owner}/{name}/index with {{\"commit_sha\": \"{commit_sha}\"}} \
+                 to index this commit, then retry"
+            ),
+        ),
+        other => AppError::from(other),
+    }
+}

@@ -7,3 +7,4 @@ pub mod map;
 pub mod outline;
 pub mod service;
 pub mod symbol_indexer;
+pub mod symbol_query;
