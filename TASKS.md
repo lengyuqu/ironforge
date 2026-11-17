@@ -78,6 +78,7 @@ git push -u cnb HEAD
 | T12 | [#19·步骤5] 通知偏好 + 邮件单一出口 | completed | t12-notify-prefs | none | `tasks/T12.md` |
 | T13 | [#15·第一步] 事件写入可在事务内（签名放宽 + issue.opened 闭环） | completed | t13-event-in-txn | none | `tasks/T13.md` |
 | T14 | [#15·第二步] ops 签名批量放宽：org_ops + user_ops | completed | t14-conn-trait-ops | T13 | `tasks/T14.md` |
+| T15 | [#15·第三步] ops 签名放宽：pipeline_ops | in_progress | t15-pipeline-ops | T14 | `tasks/T15.md` |
 
 ## Pre-Claim Checks
 
