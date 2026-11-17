@@ -8,7 +8,7 @@
 
 mod common;
 
-use common::{register_full, spawn_test_app_with_root};
+use common::{register_full, spawn_test_app_on_env_db_with_root};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -49,7 +49,13 @@ impl std::fmt::Display for Widget {\n    \
 const INDEXER_RS: &str = "pub async fn index_commit() {}\n\npub fn index_repository() {}\n";
 
 /// Create `owner/name`, push one commit, and return its SHA.
-async fn seed_repository(base: &str, repo_root: &Path, token: &str, name: &str) -> String {
+async fn seed_repository(
+    base: &str,
+    repo_root: &Path,
+    token: &str,
+    owner: &str,
+    name: &str,
+) -> String {
     let created = reqwest::Client::new()
         .post(format!("{base}/api/v1/repos"))
         .bearer_auth(token)
@@ -59,7 +65,7 @@ async fn seed_repository(base: &str, repo_root: &Path, token: &str, name: &str) 
         .expect("create repo");
     assert_eq!(created.status(), 201, "repo creation should succeed");
 
-    let bare = repo_root.join(format!("symbols-owner/{name}.git"));
+    let bare = repo_root.join(format!("{owner}/{name}.git"));
     let worktree = tempfile::tempdir().expect("worktree");
     let path = worktree.path();
     let path_arg = path.to_string_lossy().to_string();
@@ -78,13 +84,19 @@ async fn seed_repository(base: &str, repo_root: &Path, token: &str, name: &str) 
 
 /// Index `commit_sha` (or the default branch when `None`) and return the
 /// report body.
-async fn index(base: &str, token: &str, name: &str, commit_sha: Option<&str>) -> Value {
+async fn index(
+    base: &str,
+    token: &str,
+    owner: &str,
+    name: &str,
+    commit_sha: Option<&str>,
+) -> Value {
     let body = match commit_sha {
         Some(sha) => json!({ "commit_sha": sha }),
         None => json!({}),
     };
     let response = reqwest::Client::new()
-        .post(format!("{base}/api/v1/ai/repos/symbols-owner/{name}/index"))
+        .post(format!("{base}/api/v1/ai/repos/{owner}/{name}/index"))
         .bearer_auth(token)
         .json(&body)
         .send()
@@ -94,10 +106,16 @@ async fn index(base: &str, token: &str, name: &str, commit_sha: Option<&str>) ->
     response.json().await.expect("index json")
 }
 
-async fn symbols(base: &str, token: &str, name: &str, query: &[(&str, &str)]) -> (u16, Value) {
+async fn symbols(
+    base: &str,
+    token: &str,
+    owner: &str,
+    name: &str,
+    query: &[(&str, &str)],
+) -> (u16, Value) {
     let response = reqwest::Client::new()
         .get(format!(
-            "{base}/api/v1/ai/repos/symbols-owner/{name}/symbols"
+            "{base}/api/v1/ai/repos/{owner}/{name}/symbols"
         ))
         .bearer_auth(token)
         .query(query)
@@ -124,14 +142,14 @@ fn assert_coded_error(body: &Value, code: &str) {
 
 #[tokio::test]
 async fn symbols_answers_name_path_limit_and_honesty_contract() {
-    let (base, _db, repo_root) = spawn_test_app_with_root().await;
-    let (token, _) = register_full(&base, "symbols-owner", "symbols-owner@example.com").await;
-    let sha = seed_repository(&base, &repo_root, &token, "queryable").await;
-    let report = index(&base, &token, "queryable", None).await;
+    let (base, _db, repo_root) = spawn_test_app_on_env_db_with_root().await;
+    let (token, _) = register_full(&base, "symbols-owner-a", "symbols-owner-a@example.com").await;
+    let sha = seed_repository(&base, &repo_root, &token, "symbols-owner-a", "queryable").await;
+    let report = index(&base, &token, "symbols-owner-a", "queryable", None).await;
     assert_eq!(report["commit_sha"], sha.as_str());
 
     // 1. Exact name: one row, marked exact, with the right file.
-    let (status, body) = symbols(&base, &token, "queryable", &[("name", "index_commit")]).await;
+    let (status, body) = symbols(&base, &token, "symbols-owner-a", "queryable", &[("name", "index_commit")]).await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["commit_sha"], sha.as_str());
     assert_eq!(names(&body), ["index_commit"]);
@@ -145,7 +163,7 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
         .contains("index_commit"));
 
     // 2. Prefix search: several rows, every one a `name_match`.
-    let (status, body) = symbols(&base, &token, "queryable", &[("name", "index_")]).await;
+    let (status, body) = symbols(&base, &token, "symbols-owner-a", "queryable", &[("name", "index_")]).await;
     assert_eq!(status, 200, "{body}");
     assert!(names(&body).len() >= 2, "{body}");
     for item in body["items"].as_array().unwrap() {
@@ -154,7 +172,7 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
     }
 
     // 3. By path: that file's declarations only, and no `impl` row.
-    let (status, body) = symbols(&base, &token, "queryable", &[("path", "src/lib.rs")]).await;
+    let (status, body) = symbols(&base, &token, "symbols-owner-a", "queryable", &[("path", "src/lib.rs")]).await;
     assert_eq!(status, 200, "{body}");
     let listed = names(&body);
     assert!(listed.contains(&"Widget".to_string()), "{body}");
@@ -172,6 +190,7 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
     let (status, body) = symbols(
         &base,
         &token,
+        "symbols-owner-a",
         "queryable",
         &[("name", "index_"), ("limit", "5")],
     )
@@ -182,6 +201,7 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
     let (status, body) = symbols(
         &base,
         &token,
+        "symbols-owner-a",
         "queryable",
         &[("path", "src/lib.rs"), ("limit", "1")],
     )
@@ -192,6 +212,7 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
     let (status, body) = symbols(
         &base,
         &token,
+        "symbols-owner-a",
         "queryable",
         &[("name", "index_"), ("limit", "500")],
     )
@@ -200,14 +221,14 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
     assert_coded_error(&body, "INVALID_LIMIT");
 
     // 6. Neither name nor path.
-    let (status, body) = symbols(&base, &token, "queryable", &[]).await;
+    let (status, body) = symbols(&base, &token, "symbols-owner-a", "queryable", &[]).await;
     assert_eq!(status, 400, "{body}");
 
     // 7. Completeness: every file here parses cleanly, so the indexer recorded
     //    no failure and `partial` is false. The static language limits are
     //    still stated — they are the extractor's boundary, not this commit's
     //    defect — and no per-commit failure is invented.
-    let (status, body) = symbols(&base, &token, "queryable", &[("name", "index_commit")]).await;
+    let (status, body) = symbols(&base, &token, "symbols-owner-a", "queryable", &[("name", "index_commit")]).await;
     assert_eq!(status, 200);
     assert_eq!(body["partial"], false, "{body}");
     let limitations = body["limitations"].as_array().expect("limitations array");
@@ -228,6 +249,7 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
     let (status, body) = symbols(
         &base,
         &token,
+        "symbols-owner-a",
         "queryable",
         &[("name", "std::fmt::Display for Widget")],
     )
@@ -235,7 +257,7 @@ async fn symbols_answers_name_path_limit_and_honesty_contract() {
     assert_eq!(status, 200, "{body}");
     assert!(body["items"].as_array().unwrap().is_empty(), "{body}");
 
-    let (status, body) = symbols(&base, &token, "queryable", &[("name", "std::fmt::")]).await;
+    let (status, body) = symbols(&base, &token, "symbols-owner-a", "queryable", &[("name", "std::fmt::")]).await;
     assert_eq!(status, 200, "{body}");
     assert!(body["items"].as_array().unwrap().is_empty(), "{body}");
 }
@@ -245,6 +267,7 @@ async fn seed_two_commits(
     base: &str,
     repo_root: &Path,
     token: &str,
+    owner: &str,
     name: &str,
 ) -> (String, String) {
     let created = reqwest::Client::new()
@@ -256,7 +279,7 @@ async fn seed_two_commits(
         .expect("create repo");
     assert_eq!(created.status(), 201, "repo creation should succeed");
 
-    let bare = repo_root.join(format!("symbols-owner/{name}.git"));
+    let bare = repo_root.join(format!("{owner}/{name}.git"));
     let worktree = tempfile::tempdir().expect("worktree");
     let path = worktree.path();
     let path_arg = path.to_string_lossy().to_string();
@@ -284,15 +307,15 @@ async fn seed_two_commits(
 
 #[tokio::test]
 async fn an_unindexed_commit_is_404_and_never_answered_from_head() {
-    let (base, _db, repo_root) = spawn_test_app_with_root().await;
-    let (token, _) = register_full(&base, "symbols-owner", "symbols-owner@example.com").await;
-    let (first, second) = seed_two_commits(&base, &repo_root, &token, "two-commits").await;
+    let (base, _db, repo_root) = spawn_test_app_on_env_db_with_root().await;
+    let (token, _) = register_full(&base, "symbols-owner-b", "symbols-owner-b@example.com").await;
+    let (first, second) = seed_two_commits(&base, &repo_root, &token, "symbols-owner-b", "two-commits").await;
 
     // Index the *first* commit only.
-    index(&base, &token, "two-commits", Some(&first)).await;
+    index(&base, &token, "symbols-owner-b", "two-commits", Some(&first)).await;
 
     // The default branch now resolves to the second, unindexed commit.
-    let (status, body) = symbols(&base, &token, "two-commits", &[("name", "index_commit")]).await;
+    let (status, body) = symbols(&base, &token, "symbols-owner-b", "two-commits", &[("name", "index_commit")]).await;
     assert_eq!(status, 404, "{body}");
     assert_coded_error(&body, "SYMBOLS_NOT_INDEXED");
     let message = body["error"]["message"].as_str().unwrap_or("");
@@ -323,8 +346,8 @@ async fn an_unindexed_commit_is_404_and_never_answered_from_head() {
 /// useless; being silent here would hide real gaps.
 #[tokio::test]
 async fn a_commit_with_a_parse_failure_is_partial_and_names_the_count() {
-    let (base, _db, repo_root) = spawn_test_app_with_root().await;
-    let (token, _) = register_full(&base, "symbols-owner", "symbols-owner@example.com").await;
+    let (base, _db, repo_root) = spawn_test_app_on_env_db_with_root().await;
+    let (token, _) = register_full(&base, "symbols-owner-c", "symbols-owner-c@example.com").await;
     let created = reqwest::Client::new()
         .post(format!("{base}/api/v1/repos"))
         .bearer_auth(&token)
@@ -334,7 +357,7 @@ async fn a_commit_with_a_parse_failure_is_partial_and_names_the_count() {
         .expect("create repo");
     assert_eq!(created.status(), 201);
 
-    let bare = repo_root.join("symbols-owner/broken.git");
+    let bare = repo_root.join("symbols-owner-c/broken.git");
     let worktree = tempfile::tempdir().expect("worktree");
     let path = worktree.path();
     let path_arg = path.to_string_lossy().to_string();
@@ -355,10 +378,10 @@ async fn a_commit_with_a_parse_failure_is_partial_and_names_the_count() {
     git(&["push", "origin", "main"], Some(path));
     let sha = git_stdout(&["rev-parse", "HEAD"], Some(path));
 
-    let report = index(&base, &token, "broken", None).await;
+    let report = index(&base, &token, "symbols-owner-c", "broken", None).await;
     assert_eq!(report["commit_sha"], sha.as_str());
 
-    let (status, body) = symbols(&base, &token, "broken", &[("name", "Widget")]).await;
+    let (status, body) = symbols(&base, &token, "symbols-owner-c", "broken", &[("name", "Widget")]).await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["partial"], true, "{body}");
     let joined = body["limitations"]
