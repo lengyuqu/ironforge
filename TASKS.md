@@ -93,6 +93,7 @@ git push -u cnb HEAD
 | T27 | [#63·第一步] 符号图设计文档与规模实测 | completed | t27-symbol-graph-design | T26 | `tasks/T27.md` |
 | T28 | [#63·第二步] 符号定义表最小闭环 | completed | t28-symbol-index | T27 | `tasks/T28.md` |
 | T29 | [#63·第三步] 符号查询端点与 MCP 工具 | completed | t29-symbol-query | T28 | `tasks/T29.md` |
+| T30 | doc | 更新 CLAUDE.md 到当前实现现状 | in_progress | t30-claude-md-refresh | T29 | `tasks/T30.md` |
 
 ## Pre-Claim Checks
 
