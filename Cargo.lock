@@ -4828,6 +4828,8 @@ name = "rg-ci-isolation"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "libc",
+ "tracing",
 ]
 
 [[package]]

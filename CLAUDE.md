@@ -197,8 +197,9 @@ Phase 1~21 全部完成。核心能力：
 实例设置（`rg-http/src/instance.rs`，maintenance/banner 不跨实例传播）。解除条件：共享缓存（Redis）或
 pub/sub 失效总线；在此之前建议单实例部署，详见 `deploy/README.md`。
 
-**CI 容器隔离的剩余面**：工作区 rw 挂载 + 容器内 root 仍可在宿主留下 root 属主文件；需靠 daemon 的
-userns-remap 或 `rg-ci-isolation::DockerLimits::user` 收紧。镜像/资源/capability 已加固。
+**CI 容器隔离的剩余面**：容器默认以 `--user <IronForge 进程 uid:gid>` 运行（`rg-ci-isolation::DockerLimits::default`），
+工作区由该进程创建、属主天然匹配，宿主不再产生 root 属主文件；需要 root 的镜像（`run:` 里 `apt-get install`、
+写 `/usr/local`）用 `IRONFORGE_CI_RUNNER_USER=root` 回退到镜像默认用户。镜像/资源/capability 已加固。
 
 **安全加固台账（2026-10-23，对应 GitHub issue #1）**：
 
