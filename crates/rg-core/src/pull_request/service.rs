@@ -1616,11 +1616,11 @@ fn merge_from_ref(
 
 /// Update PR state after successful merge.
 ///
-/// The PR state update and the merge event record are written in one
-/// transaction so a partial failure can never leave a PR marked `merged`
-/// without its audit event (or vice versa). The webhook fires only after
-/// the transaction commits — it is an external side effect and its failure
-/// is non-fatal by design.
+/// The PR state update, its audit event and the `pull_request.merged` webhook
+/// log row are written in one transaction, so a partial failure can never leave
+/// a PR marked `merged` without its event (or vice versa). Delivery happens only
+/// after the transaction commits — it is an external side effect and its failure
+/// is non-fatal by design (#15, step 4).
 async fn update_pr_merged(
     db: &DatabaseConnection,
     mut pr: PullRequest,
@@ -1664,11 +1664,12 @@ async fn update_pr_merged(
         }),
     )
     .await?;
-    txn.commit()
-        .await
-        .context("db: commit PR merge transaction")?;
 
-    // Trigger pull_request.merged webhook (outside the transaction on purpose)
+    // The webhook event is written on the **same** transaction as the PR state
+    // change (#15, step 4), so the two commit or roll back together: no merged
+    // PR without its event. The payload is exactly what `trigger_pr_merged`
+    // published before, only built earlier; `merged_pr` comes from the update
+    // above, so nothing here depends on the commit.
     let merge_payload = serde_json::json!({
         "id": merged_pr.id,
         "repo_id": merged_pr.repo_id,
@@ -1677,10 +1678,34 @@ async fn update_pr_merged(
         "merge_commit_sha": merge_commit_sha,
         "strategy": format!("{:?}", strategy).to_lowercase(),
     });
-    if let Err(e) =
-        crate::webhook::service::trigger_pr_merged(db, merged_pr.repo_id, &merge_payload).await
+    let merge_event_payload = serde_json::json!({
+        "event": "pull_request.merged",
+        "pull_request": merge_payload,
+    });
+    crate::webhook::service::record_event_in_txn(
+        &txn,
+        merged_pr.repo_id,
+        "pull_request.merged",
+        &merge_event_payload,
+    )
+    .await?;
+
+    txn.commit()
+        .await
+        .context("db: commit PR merge transaction")?;
+
+    // Delivery stays outside the transaction: a receiver must never be woken by
+    // an event whose merge did not commit, and the log row is already written,
+    // so this only finds hooks and spawns.
+    if let Err(e) = crate::webhook::service::deliver_event(
+        db,
+        merged_pr.repo_id,
+        "pull_request.merged",
+        &merge_event_payload,
+    )
+    .await
     {
-        tracing::warn!("Failed to trigger PR merged webhook: {e}");
+        tracing::warn!("Failed to deliver PR merged webhook: {e}");
     }
 
     Ok(MergeResult {
