@@ -85,6 +85,7 @@ git push -u cnb HEAD
 | T19 | [#15·第七步] outbox 最小版本：投递状态 + 兜底补投 | completed | t19-outbox-min | T18 | `tasks/T19.md` |
 | T20 | [#19·步骤6] `scope_expand` 执行面：repo 系列内提权 | completed | t20-scope-expand | none | `tasks/T20.md` |
 | T21 | [#19·步骤6 补丁] `scope_expand` 目标 scope 绑定进票据 | completed | t21-scope-expand-subject | T20 | `tasks/T21.md` |
+| T22 | [#19·R19-1] 合并审批准入面收紧到写权限 | in_progress | t22-review-approve-write | T21 | `tasks/T22.md` |
 
 ## Pre-Claim Checks
 
