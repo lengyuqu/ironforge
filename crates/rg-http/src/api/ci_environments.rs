@@ -285,8 +285,8 @@ pub async fn approve(
     // A list written before the rule existed (or by hand) can still name an
     // agent, and the count is the gate: refuse here too, not only where the
     // list is written.
-    let approving_account = match rg_db::ops::user_ops::find_by_id(&state.db, actor_id).await {
-        Ok(user) => user.is_some_and(|user| !rg_core::agent::is_agent(&user)),
+    let approving_account = match rg_core::agent::is_human_account(&state.db, actor_id).await {
+        Ok(human) => human,
         Err(error) => return AppError::internal(error).into_response(),
     };
     if !approving_account {
