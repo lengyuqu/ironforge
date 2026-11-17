@@ -80,7 +80,7 @@ git push -u cnb HEAD
 | T14 | [#15·第二步] ops 签名批量放宽：org_ops + user_ops | completed | t14-conn-trait-ops | T13 | `tasks/T14.md` |
 | T15 | [#15·第三步] ops 签名放宽：pipeline_ops | completed | t15-pipeline-ops | T14 | `tasks/T15.md` |
 | T16 | [#15·第四步] `pull_request.merged` 事务内事件写入 | completed | t16-pr-merged-txn | T15 | `tasks/T16.md` |
-| T17 | [#15·第五步] `release.created` 事务内事件写入（原本无事务） | in_progress | t17-release-txn | T16 | `tasks/T17.md` |
+| T17 | [#15·第五步] `release.created` 事务内事件写入（原本无事务） | completed | t17-release-txn | T16 | `tasks/T17.md` |
 
 ## Pre-Claim Checks
 
