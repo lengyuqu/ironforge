@@ -83,6 +83,7 @@ git push -u cnb HEAD
 | T17 | [#15·第五步] `release.created` 事务内事件写入（原本无事务） | completed | t17-release-txn | T16 | `tasks/T17.md` |
 | T18 | [#15·第六步] `pr.opened` 加事务 + `pr.closed` 修正事件顺序 | completed | t18-pr-open-close-txn | T17 | `tasks/T18.md` |
 | T19 | [#15·第七步] outbox 最小版本：投递状态 + 兜底补投 | completed | t19-outbox-min | T18 | `tasks/T19.md` |
+| T20 | [#19·步骤6] `scope_expand` 执行面：repo 系列内提权 | in_progress | t20-scope-expand | none | `tasks/T20.md` |
 
 ## Pre-Claim Checks
 
