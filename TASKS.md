@@ -90,6 +90,7 @@ git push -u cnb HEAD
 | T24 | [#19·R19-5] agent 判定统一到单一来源 | completed | t24-agent-guard-unify | T23 | `tasks/T24.md` |
 | T25 | flaky: auto_merge_pinned_head 确定性化 | completed | t25-flaky-auto-merge | T24 | `tasks/T25.md` |
 | T26 | [#41·R11] CI 容器默认以调用进程 UID 运行 | completed | t26-ci-runner-user | T25 | `tasks/T26.md` |
+| T27 | [#63·第一步] 符号图设计文档与规模实测 | in_progress | t27-symbol-graph-design | T26 | `tasks/T27.md` |
 
 ## Pre-Claim Checks
 
