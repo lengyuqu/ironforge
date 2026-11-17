@@ -88,7 +88,7 @@ git push -u cnb HEAD
 | T22 | [#19·R19-1] 合并审批准入面收紧到写权限 | completed | t22-review-approve-write | T21 | `tasks/T22.md` |
 | T23 | [#19·R19-2/3/4] 自批守卫下沉 + 邮件文案 + 死代码清理 | completed | t23-review-guards-email | T22 | `tasks/T23.md` |
 | T24 | [#19·R19-5] agent 判定统一到单一来源 | completed | t24-agent-guard-unify | T23 | `tasks/T24.md` |
-| T25 | flaky: auto_merge_pinned_head 确定性化 | in_progress | t25-flaky-auto-merge | T24 | `tasks/T25.md` |
+| T25 | flaky: auto_merge_pinned_head 确定性化 | completed | t25-flaky-auto-merge | T24 | `tasks/T25.md` |
 
 ## Pre-Claim Checks
 
