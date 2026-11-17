@@ -8,8 +8,8 @@
 
 use rg_core::webhook::service::{
     create_webhook, deliver_retry_job, looks_like_envelope, redeliver, trigger_event,
-    trigger_event_quietly, trigger_pr_opened, trigger_tag_created, CreateWebhookRequest,
-    EVENT_SCHEMA_VERSION, HEADER_DELIVERY, HEADER_EVENT,
+    trigger_event_quietly, trigger_tag_created, CreateWebhookRequest, EVENT_SCHEMA_VERSION,
+    HEADER_DELIVERY, HEADER_EVENT,
 };
 use rg_db::entities::background_job::status;
 use rg_db::entities::repository;
@@ -335,7 +335,16 @@ async fn webhook_pull_request_event_carries_the_envelope_and_the_old_fields_in_d
         "title": "Envelope",
         "author_id": owner_id,
     });
-    trigger_pr_opened(&db, repo_id, &pr).await.unwrap();
+    // `trigger_pr_opened` was removed with #15, step 6: the creation path now
+    // writes this log row inside its transaction. The envelope shape is still
+    // worth pinning, so publish the same business payload the helper built.
+    let payload = serde_json::json!({
+        "event": "pull_request.opened",
+        "pull_request": pr,
+    });
+    trigger_event(&db, repo_id, "pull_request.opened", &payload)
+        .await
+        .unwrap();
 
     let body = receiver.next().await.json();
     assert_envelope(&body, "pull_request.opened", repo_id);

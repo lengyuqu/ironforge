@@ -86,7 +86,10 @@ pub async fn next_number(db: &DatabaseConnection, repo_id: i64) -> Result<i64> {
 }
 
 /// Create a new PR.
-pub async fn create(db: &DatabaseConnection, model: ActiveModel) -> Result<PullRequest> {
+///
+/// Generic over the connection so the caller can insert the row and its
+/// `pull_request.opened` event in one transaction (#15, step 6).
+pub async fn create<C: ConnectionTrait>(db: &C, model: ActiveModel) -> Result<PullRequest> {
     model.insert(db).await.context("db: create PR")
 }
 
