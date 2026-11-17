@@ -96,6 +96,8 @@ pub mod review_comment;
 pub mod runner;
 pub mod ssh_key;
 pub mod sso_provider;
+pub mod symbol_commit;
+pub mod symbol_definition;
 pub mod team;
 pub mod team_member;
 pub mod team_repository;

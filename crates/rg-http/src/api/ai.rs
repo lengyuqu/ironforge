@@ -880,10 +880,27 @@ pub async fn ai_search_code(
         .into_response())
 }
 
+/// Body of `POST /ai/repos/{owner}/{name}/index`.
+#[derive(Deserialize, ToSchema)]
+pub struct IndexRequest {
+    /// Commit (or ref) to index. Defaults to the repository's default branch.
+    #[serde(default)]
+    pub commit_sha: Option<String>,
+}
+
 /// Response for index trigger.
 #[derive(Serialize, ToSchema)]
 pub struct IndexResponse {
+    /// Files written to `code_fts` by the full-text pass.
     pub indexed_files: usize,
+    /// Commit both passes were built from.
+    pub commit_sha: String,
+    /// `symbol_commits.id` of that commit.
+    pub commit_id: i32,
+    /// Rows written to `symbol_definitions`.
+    pub definitions_written: usize,
+    /// `symbol_commits` rows removed by the retention prune.
+    pub pruned_commits: usize,
 }
 
 /// POST /api/v1/ai/repos/{owner}/{name}/index
@@ -894,9 +911,11 @@ pub struct IndexResponse {
         ("owner" = String, Path, description = "Repository owner"),
         ("name" = String, Path, description = "Repository name"),
     ),
+    request_body = IndexRequest,
     responses(
-        (status = 200, description = "Indexing triggered successfully", body = IndexResponse),
-        (status = 404, description = "Repository not found"),
+        (status = 200, description = "Full-text and symbol index refreshed; the report covers both", body = IndexResponse),
+        (status = 403, description = "Write access to the repository is required"),
+        (status = 404, description = "Repository, or the requested commit, not found"),
         (status = 500, description = "Indexing error"),
     ),
     tag = "ai",
@@ -905,33 +924,47 @@ pub async fn ai_index_repository(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
     headers: axum::http::HeaderMap,
-    Json(_body): Json<serde_json::Value>,
-) -> impl IntoResponse {
-    // Resolve repository + require read access
-    let repo = match repo_access::require_read(&state, &headers, &owner, &name).await {
-        Ok(r) => r,
-        Err(e) => return e.into_response(),
-    };
+    Json(body): Json<IndexRequest>,
+) -> Result<(StatusCode, Json<IndexResponse>), AppError> {
+    // Indexing is an expensive write: reading a public repository is not enough.
+    let (repo, _actor_id) = repo_access::require_write(&state, &headers, &owner, &name).await?;
 
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, name));
     if !repo_path.exists() {
-        return AppError::not_found("repository not found on disk").into_response();
+        return Err(AppError::not_found("repository not found on disk"));
     }
 
-    // Placeholder - will call indexer later
-    // Actually call the indexer
+    // `commit_sha` is any revision the symbol indexer can resolve; the resolved
+    // 40-hex SHA comes back in the report and is what both passes use.
+    let commit_ref = body
+        .commit_sha
+        .filter(|sha| !sha.trim().is_empty())
+        .unwrap_or_else(|| repo.default_branch.clone());
+
+    let report = rg_core::search::symbol_indexer::index_commit(
+        &state.db,
+        &repo_path,
+        repo.id,
+        &commit_ref,
+        &repo.default_branch,
+    )
+    .await
+    .map_err(AppError::from)?;
+
     let indexer = rg_core::search::code_indexer::CodeIndexer::new(state.db.clone());
-    match indexer
-        .index_repository(repo.id, &repo_path, &repo.default_branch)
+    let indexed_files = indexer
+        .index_repository(repo.id, &repo_path, &report.commit_sha)
         .await
-    {
-        Ok(count) => (
-            StatusCode::OK,
-            Json(IndexResponse {
-                indexed_files: count,
-            }),
-        )
-            .into_response(),
-        Err(e) => AppError::internal(format!("Indexing error: {}", e)).into_response(),
-    }
+        .map_err(|error| AppError::internal(format!("Indexing error: {error}")))?;
+
+    Ok((
+        StatusCode::OK,
+        Json(IndexResponse {
+            indexed_files,
+            commit_sha: report.commit_sha,
+            commit_id: report.commit_id,
+            definitions_written: report.definitions_written,
+            pruned_commits: report.pruned_commits,
+        }),
+    ))
 }
