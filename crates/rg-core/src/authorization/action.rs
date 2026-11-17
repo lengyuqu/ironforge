@@ -4,10 +4,9 @@
 //! verbatim (same idea as `agent::validate_agent_token_scopes`): a caller that
 //! wants an action it cannot name gets a 400, not a stored row with a typo in it.
 //!
-//! `ScopeExpand` is deliberately listed but not evaluated in step 1: it is the
-//! only action with no execution surface yet, and defining it before "what does
-//! the agent actually get" is answered would produce a button that does nothing
-//! (issue #19, §三 step 6).
+//! `ScopeExpand` was the last action to gain an execution surface: it widens an
+//! agent token's scopes in place (issue #19, §三 step 6; see
+//! `authorization/scope_expand.rs` for "what the agent actually gets").
 
 use chrono::Duration;
 
@@ -23,7 +22,7 @@ pub enum Action {
     ProtectedBranchPush,
     /// Publish a release.
     ReleasePublish,
-    /// Widen an agent session's scope. Not implemented in step 1.
+    /// Widen an agent token's repository scopes in place.
     ScopeExpand,
 }
 
