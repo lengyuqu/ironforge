@@ -84,7 +84,7 @@ git push -u cnb HEAD
 | T18 | [#15·第六步] `pr.opened` 加事务 + `pr.closed` 修正事件顺序 | completed | t18-pr-open-close-txn | T17 | `tasks/T18.md` |
 | T19 | [#15·第七步] outbox 最小版本：投递状态 + 兜底补投 | completed | t19-outbox-min | T18 | `tasks/T19.md` |
 | T20 | [#19·步骤6] `scope_expand` 执行面：repo 系列内提权 | completed | t20-scope-expand | none | `tasks/T20.md` |
-| T21 | [#19·步骤6 补丁] `scope_expand` 目标 scope 绑定进票据 | in_progress | t21-scope-expand-subject | T20 | `tasks/T21.md` |
+| T21 | [#19·步骤6 补丁] `scope_expand` 目标 scope 绑定进票据 | completed | t21-scope-expand-subject | T20 | `tasks/T21.md` |
 
 ## Pre-Claim Checks
 
