@@ -8,8 +8,8 @@
 
 use rg_core::webhook::service::{
     create_webhook, deliver_retry_job, looks_like_envelope, redeliver, trigger_event,
-    trigger_event_quietly, trigger_pr_opened, trigger_release_created, trigger_tag_created,
-    CreateWebhookRequest, EVENT_SCHEMA_VERSION, HEADER_DELIVERY, HEADER_EVENT,
+    trigger_event_quietly, trigger_pr_opened, trigger_tag_created, CreateWebhookRequest,
+    EVENT_SCHEMA_VERSION, HEADER_DELIVERY, HEADER_EVENT,
 };
 use rg_db::entities::background_job::status;
 use rg_db::entities::repository;
@@ -352,7 +352,15 @@ async fn webhook_release_event_carries_the_envelope_and_the_old_fields_in_data()
     subscribe(&db, repo_id, &receiver.url(), &["release.created"]).await;
 
     let release = serde_json::json!({ "tag_name": "v1.0.0", "author_id": owner_id });
-    trigger_release_created(&db, repo_id, &release)
+    // `trigger_release_created` was removed with #15, step 5: the release path
+    // now writes this log row inside its creation transaction. The envelope
+    // shape is still worth pinning, so publish the same business payload the
+    // helper used to build.
+    let payload = serde_json::json!({
+        "event": "release.created",
+        "release": release.clone(),
+    });
+    trigger_event(&db, repo_id, "release.created", &payload)
         .await
         .unwrap();
 

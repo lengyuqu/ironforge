@@ -56,7 +56,10 @@ pub async fn list_by_repo(
 }
 
 /// Create a new release.
-pub async fn create(db: &DatabaseConnection, model: ReleaseActiveModel) -> Result<ReleaseModel> {
+///
+/// Generic over the connection so the caller can pass a transaction and write
+/// the release together with its `release.created` event (#15, step 5).
+pub async fn create<C: ConnectionTrait>(db: &C, model: ReleaseActiveModel) -> Result<ReleaseModel> {
     model.insert(db).await.context("db: create release")
 }
 

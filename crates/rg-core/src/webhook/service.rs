@@ -775,18 +775,13 @@ pub async fn redeliver(db: &DatabaseConnection, delivery_id: i64) -> CoreResult<
 
 // ── Convenience event helpers ───────────────────────────────────────────
 
-/// Trigger a release.created webhook event.
-pub async fn trigger_release_created(
-    db: &DatabaseConnection,
-    repo_id: i64,
-    release: &Value,
-) -> Result<()> {
-    let payload = serde_json::json!({
-        "event": "release.created",
-        "release": release,
-    });
-    trigger_event(db, repo_id, "release.created", &payload).await
-}
+// `trigger_release_created` used to live here and recorded the event *after* the
+// release insert, which is exactly the crash window #15 is about. The creation
+// path now writes the event inside its transaction
+// (`release::service::create_release`); the helper had no other caller and was
+// removed so the old shape cannot be reintroduced by accident. A caller that
+// really needs "record and deliver after the fact" should use `trigger_event`
+// explicitly and say why in a comment.
 
 /// Trigger a release.deleted webhook event.
 pub async fn trigger_release_deleted(

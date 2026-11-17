@@ -1,7 +1,7 @@
 //! Release service — business logic for releases.
 
 use chrono::Utc;
-use sea_orm::{ActiveValue::Set, DatabaseConnection};
+use sea_orm::{ActiveValue::Set, DatabaseConnection, TransactionTrait};
 use std::path::{Path, PathBuf};
 
 use crate::error::{CoreContext, CoreError, CoreResult};
@@ -59,9 +59,17 @@ pub async fn create_release(
         ..Default::default()
     };
 
-    let release = rg_db::ops::release_ops::create(db, model).await?;
+    // Validation and the duplicate-tag check stay outside the transaction: a
+    // conflict is a refusal, not a partially written row, and SQLite has no row
+    // locks for the check to gain anything from being inside.
+    let txn = db.begin().await.context("db: begin release transaction")?;
 
-    // Trigger release.created webhook
+    let release = rg_db::ops::release_ops::create(&txn, model).await?;
+
+    // The `release.created` log row is written on the **same** transaction as
+    // the release (#15, step 5), so the two commit or roll back together: no
+    // release without its event. The payload is exactly what
+    // `trigger_release_created` published before, only built earlier.
     let payload = serde_json::json!({
         "id": release.id,
         "repo_id": release.repo_id,
@@ -72,8 +80,24 @@ pub async fn create_release(
         "is_prerelease": release.is_prerelease,
         "author_id": release.author_id,
     });
-    if let Err(e) = crate::webhook::service::trigger_release_created(db, repo_id, &payload).await {
-        tracing::warn!("Failed to trigger release.created webhook: {e}");
+    let event_payload = serde_json::json!({
+        "event": "release.created",
+        "release": payload,
+    });
+    crate::webhook::service::record_event_in_txn(&txn, repo_id, "release.created", &event_payload)
+        .await?;
+
+    txn.commit()
+        .await
+        .context("db: commit release transaction")?;
+
+    // Delivery stays outside the transaction: a receiver must never be woken by
+    // an event whose release did not commit, and the log row is already written,
+    // so this only finds hooks and spawns.
+    if let Err(e) =
+        crate::webhook::service::deliver_event(db, repo_id, "release.created", &event_payload).await
+    {
+        tracing::warn!("Failed to deliver release.created webhook: {e}");
     }
 
     Ok(release)
