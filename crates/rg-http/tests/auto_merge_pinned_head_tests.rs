@@ -8,7 +8,10 @@
 //!
 //! The window cannot be hit reliably through HTTP, so these tests make the stored
 //! head stale on purpose (the branch has moved, the record has not) and call the
-//! services directly.
+//! services directly. The branch move itself also skips the HTTP contents API:
+//! that API runs the post-push hooks in a spawned task, and the hook for this
+//! very case moves the record forward and merges the pull request on its own
+//! (see `World::commit_without_push_hooks`).
 //! Runs against PostgreSQL / MySQL too when `IRONFORGE_TEST_DATABASE_URL` is set.
 
 mod common;
@@ -69,22 +72,45 @@ impl World {
             .flatten()
     }
 
-    async fn commit(&self, owner: &str, branch: &str, path: &str) -> String {
-        let resp = self
-            .client
-            .post(format!(
-                "{}/api/v1/repos/{owner}/work/contents/{path}",
-                self.base
-            ))
-            .bearer_auth(&self.alice)
-            .json(&json!({"branch": branch, "message": format!("add {path}"), "content": "x\n"}))
-            .send()
-            .await
-            .unwrap();
-        let status = resp.status();
-        let v: Value = resp.json().await.unwrap_or(Value::Null);
-        assert_eq!(status, StatusCode::OK, "{v}");
-        v["commit_sha"].as_str().unwrap().to_string()
+    /// Land a commit on `branch` without going through the contents API.
+    ///
+    /// `POST /contents` answers as soon as the commit is written and runs the
+    /// post-push hooks in a **spawned** task (`spawn_post_push_hooks`). One of
+    /// them (`sync_pr_head_on_push`, then `try_auto_merges_for_head_commit`)
+    /// moves the recorded head of every open pull request on the branch to the
+    /// pushed commit and -- auto-merge is on and the rules are met -- merges it
+    /// there and then. A test that pushes this way and then writes the recorded
+    /// head itself is racing that task: it only gets to observe "the record lags
+    /// the branch" when it wins the race, which is what made this file flaky.
+    ///
+    /// Calling the service keeps the branch move real and leaves no background
+    /// work behind, so the recorded head afterwards is exactly what the test
+    /// wrote.
+    async fn commit_without_push_hooks(&self, owner: &str, branch: &str, path: &str) -> String {
+        let repo = self.repo().await;
+        rg_core::repo::service::create_or_update_file_with(
+            &self.db,
+            repo.id,
+            owner,
+            "work",
+            path,
+            "x\n",
+            &format!("add {path}"),
+            branch,
+            None,
+            owner,
+            &format!("{owner}@example.com"),
+            &self.root,
+            Some(self.alice_id),
+            rg_core::repo::service::FileCommitOptions {
+                expected_tip: None,
+                dry_run: false,
+            },
+        )
+        .await
+        .unwrap_or_else(|error| panic!("commit {path}: {error:?}"));
+        self.rev(owner, &format!("refs/heads/{branch}"))
+            .expect("branch tip after commit")
     }
 
     async fn open_pr(&self, owner: &str, head: &str) -> i64 {
@@ -138,7 +164,9 @@ impl World {
 async fn an_auto_merge_whose_head_moved_waits_for_the_next_evaluation() {
     let w = World::new("am_alice").await;
     let branch = "agent/am";
-    let reviewed = w.commit("am_alice", branch, "a.txt").await;
+    let reviewed = w
+        .commit_without_push_hooks("am_alice", branch, "a.txt")
+        .await;
     let number = w.open_pr("am_alice", branch).await;
     rg_core::pull_request::enable_auto_merge(
         &w.db,
@@ -151,8 +179,12 @@ async fn an_auto_merge_whose_head_moved_waits_for_the_next_evaluation() {
     .await
     .expect("enable auto-merge");
 
-    // The branch moves; the record still says `reviewed`.
-    let moved = w.commit("am_alice", branch, "b.txt").await;
+    // The branch moves; the record still says `reviewed`. Nothing else can
+    // rewrite it: this move did not go through the push hooks, which would move
+    // the record forward and merge the pull request by themselves.
+    let moved = w
+        .commit_without_push_hooks("am_alice", branch, "b.txt")
+        .await;
     w.record_head(number, &reviewed).await;
     let main_before = w.rev("am_alice", "refs/heads/main").unwrap();
 
@@ -186,7 +218,9 @@ async fn an_auto_merge_whose_head_moved_waits_for_the_next_evaluation() {
 async fn the_merge_queue_puts_a_moved_head_back_in_the_queue() {
     let w = World::new("mq_alice").await;
     let branch = "agent/mq";
-    let reviewed = w.commit("mq_alice", branch, "a.txt").await;
+    let reviewed = w
+        .commit_without_push_hooks("mq_alice", branch, "a.txt")
+        .await;
     let number = w.open_pr("mq_alice", branch).await;
     let repo = w.repo().await;
     let pr = w.pr(number).await;
@@ -194,8 +228,11 @@ async fn the_merge_queue_puts_a_moved_head_back_in_the_queue() {
         .await
         .expect("enqueue");
 
-    // The branch moves after the entry was evaluated.
-    let moved = w.commit("mq_alice", branch, "b.txt").await;
+    // The branch moves after the entry was evaluated, again without the push
+    // hooks: they would move the recorded head and merge the entry for it.
+    let moved = w
+        .commit_without_push_hooks("mq_alice", branch, "b.txt")
+        .await;
     w.record_head(number, &reviewed).await;
     let main_before = w.rev("mq_alice", "refs/heads/main").unwrap();
 
