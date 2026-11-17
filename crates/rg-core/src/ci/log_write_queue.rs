@@ -111,7 +111,7 @@ impl LogWriteQueue {
     /// the database does not kill the consumer.
     async fn handle(db: Arc<DatabaseConnection>, req: LogWriteRequest) {
         // Read the current job to get the existing log
-        let existing_log = match rg_db::ops::pipeline_ops::get_job(&db, req.job_id).await {
+        let existing_log = match rg_db::ops::pipeline_ops::get_job(db.as_ref(), req.job_id).await {
             Ok(Some(job)) => job.log.unwrap_or_default(),
             Ok(None) => {
                 tracing::warn!(job_id = req.job_id, "log write: job not found");
@@ -135,7 +135,9 @@ impl LogWriteQueue {
         };
 
         // Write back
-        if let Err(e) = rg_db::ops::pipeline_ops::update_job_log(&db, req.job_id, &combined).await {
+        if let Err(e) =
+            rg_db::ops::pipeline_ops::update_job_log(db.as_ref(), req.job_id, &combined).await
+        {
             tracing::warn!(
                 job_id = req.job_id,
                 error = %e,

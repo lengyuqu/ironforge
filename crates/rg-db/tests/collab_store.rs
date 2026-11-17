@@ -957,7 +957,7 @@ async fn pipeline_evidence_access_handles_legacy_integer_columns() {
     let f = Fixture::new().await;
     let sha = "b".repeat(40);
     let p = rg_db::ops::pipeline_ops::create_pipeline(
-        &f.db,
+        &*f.db,
         f.repo_id,
         &sha,
         "main",
@@ -966,7 +966,7 @@ async fn pipeline_evidence_access_handles_legacy_integer_columns() {
     )
     .await
     .expect("create pipeline");
-    let found = rg_db::ops::pipeline_ops::get_pipeline(&f.db, p.id)
+    let found = rg_db::ops::pipeline_ops::get_pipeline(&*f.db, p.id)
         .await
         .unwrap()
         .unwrap();
@@ -975,7 +975,7 @@ async fn pipeline_evidence_access_handles_legacy_integer_columns() {
         (f.repo_id, Some(f.user_id))
     );
     rg_db::ops::pipeline_ops::update_pipeline_status(
-        &f.db,
+        &*f.db,
         p.id,
         "success",
         None,
@@ -984,7 +984,7 @@ async fn pipeline_evidence_access_handles_legacy_integer_columns() {
     .await
     .unwrap();
     assert_eq!(
-        rg_db::ops::pipeline_ops::get_pipeline(&f.db, p.id)
+        rg_db::ops::pipeline_ops::get_pipeline(&*f.db, p.id)
             .await
             .unwrap()
             .unwrap()
@@ -992,14 +992,14 @@ async fn pipeline_evidence_access_handles_legacy_integer_columns() {
         "success"
     );
     assert_eq!(
-        rg_db::ops::pipeline_ops::list_by_repo_and_commit(&f.db, f.repo_id, &sha, 10)
+        rg_db::ops::pipeline_ops::list_by_repo_and_commit(&*f.db, f.repo_id, &sha, 10)
             .await
             .unwrap()[0]
             .id,
         p.id
     );
     assert_eq!(
-        rg_db::ops::pipeline_ops::find_latest_by_repo_and_commit(&f.db, f.repo_id, &sha)
+        rg_db::ops::pipeline_ops::find_latest_by_repo_and_commit(&*f.db, f.repo_id, &sha)
             .await
             .unwrap()
             .unwrap()
@@ -1007,7 +1007,7 @@ async fn pipeline_evidence_access_handles_legacy_integer_columns() {
         p.id
     );
     assert!(rg_db::ops::pipeline_ops::find_latest_by_repo_and_commit(
-        &f.db,
+        &*f.db,
         f.repo_id,
         &"c".repeat(40)
     )
@@ -1015,19 +1015,19 @@ async fn pipeline_evidence_access_handles_legacy_integer_columns() {
     .unwrap()
     .is_none());
     assert_eq!(
-        rg_db::ops::pipeline_ops::list_pipelines_by_repo(&f.db, f.repo_id)
+        rg_db::ops::pipeline_ops::list_pipelines_by_repo(&*f.db, f.repo_id)
             .await
             .unwrap()[0]
             .id,
         p.id
     );
     let (page, total) =
-        rg_db::ops::pipeline_ops::list_pipelines_by_repo_paginated(&f.db, f.repo_id, 0, 10)
+        rg_db::ops::pipeline_ops::list_pipelines_by_repo_paginated(&*f.db, f.repo_id, 0, 10)
             .await
             .unwrap();
     assert_eq!((page[0].id, total), (p.id, 1));
     assert!(rg_db::ops::pipeline_ops::update_pipeline_status(
-        &f.db,
+        &*f.db,
         i64::MAX,
         "success",
         None,
