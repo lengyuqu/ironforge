@@ -39,24 +39,24 @@ c628195 docs(tasks): add T28 for the symbol definition table (#63 step 2)
 ```
 $ cargo test -p rg-core --release --test symbol_indexer_tests \
     measure_this_repository_symbols -- --ignored --nocapture
-commit: c1db0bff68a42db84e3316df2aaa9abb16551a36
-definitions_written: 12301
-symbol_definitions rows: 12301
+commit: 08e2ab2495d10f7b4cefef92b41aaa9a43461f5d
+definitions_written: 12299
+symbol_definitions rows: 12299
 impl rows: 684
-db growth: 3088384 B (2.95 MiB)
-elapsed: 972.51ms
+db growth: 3080192 B (2.94 MiB)
+elapsed: 953.15ms
   symbol_definitions: 1568 KiB
   uq_symbol_definitions_anchor: 1080 KiB
-  idx_symbol_definitions_lookup: 380 KiB
+  idx_symbol_definitions_lookup: 372 KiB
   uq_symbol_commits_repo_sha: 4 KiB
   symbol_commits: 4 KiB
 ```
 
 - **`c628195`（未含本任务新增源文件）：12,208 行 = 设计文档实测值，偏差 0.0%，impl 678 行 =
-  设计文档 §5 的 678。** 当前 HEAD `c1db0bf` 含 `symbol_indexer.rs` 与测试自身，12,301 行
-  （+0.76%）、impl 684 行，仍在 ±5% 内。
-- 索引 1,273 文件耗时 **0.97 s**（串行，未加并行依赖）。
-- 体积 **2.95 MiB**（删冗余 path 索引后），低于 3.5 MiB 门槛。
+  设计文档 §5 的 678。** 当前 HEAD `08e2ab2` 含 `symbol_indexer.rs` 与测试自身，12,299 行
+  （+0.75%）、impl 684 行，仍在 ±5% 内。
+- 索引 1,273 文件耗时 **0.95 s**（串行，未加并行依赖）。
+- 体积 **2.94 MiB**（删冗余 path 索引后），低于 3.5 MiB 门槛。
 
 ## 4. 验收（7 条）
 
@@ -64,10 +64,10 @@ elapsed: 972.51ms
 
 见 §3 输出。
 
-### #2 DB 增长 ≤ 3.5 MiB —— 通过（2.95 MiB）
+### #2 DB 增长 ≤ 3.5 MiB —— 通过（2.94 MiB）
 
-页级增长 754 页 × 4 KiB = 3,088,384 B。初版含三个索引时是 3.59 MiB，按协调者裁决删掉
-`idx_symbol_definitions_path`（锚点前两列已覆盖同一查询）后降到 2.95 MiB。分解与决策见
+页级增长 752 页 × 4 KiB = 3,080,192 B。初版含三个索引时是 3.59 MiB，按协调者裁决删掉
+`idx_symbol_definitions_path`（锚点前两列已覆盖同一查询）后降到 2.94 MiB。分解与决策见
 `T28-plan.md` §7。
 
 ### #3 幂等 —— 通过
@@ -147,7 +147,7 @@ test index_returns_the_symbol_report ... ok    # 200 + commit_sha/commit_id/defi
 
 | 项 | 说明 |
 |---|---|
-| **只建 2 个索引（不是任务书的 3 个）** | 初版按 3 索引实测 3.59 MiB，超 3.5 MiB。协调者裁决删 `idx_symbol_definitions_path`、保 UNIQUE 锚点：`commit_id` 唯一确定 repo，锚点前两列 `(commit_id, path)` 已服务「按文件列定义」，该索引占 704 KiB/commit 却无独占查询。删后 2.95 MiB。 |
+| **只建 2 个索引（不是任务书的 3 个）** | 初版按 3 索引实测 3.59 MiB，超 3.5 MiB。协调者裁决删 `idx_symbol_definitions_path`、保 UNIQUE 锚点：`commit_id` 唯一确定 repo，锚点前两列 `(commit_id, path)` 已服务「按文件列定义」，该索引占 704 KiB/commit 却无独占查询。删后 2.94 MiB。 |
 | `index_commit` 多一个 `repo_path` 参数 | 任务书写的是 `index_commit(db, repo_id, commit_sha)`；读提交树必须有仓库路径（`CodeIndexer::index_repository` 同形）。默认分支也从调用方传入。 |
 | `IndexReport` 多一个 `commit_sha` | 返回值里带解析后的 40 位 SHA，避免端点再解析一次 ref；`commit_id`/`definitions_written`/`pruned_commits` 与任务书一致。 |
 | `down` 不显式删索引 | 任务书写「先删索引再删表」；MySQL 两条都不允许（见 §5）。改为先删子表再删父表，索引随表消失，三后端一致。已说明。 |

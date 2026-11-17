@@ -30,7 +30,7 @@
 在 `symbol_commits` 里唯一确定一个仓库，`repo_id` 在 definitions 表里只是反规范化冗余列；锚点的
 前两列 `(commit_id, path)` 已经按 path 排序，`WHERE repo_id=? AND commit_id=? AND path=?` 和
 「列出该文件的定义」都走它。实测这个索引占 704 KiB/commit（12,208 行），却服务不了锚点之外的
-任何查询 —— 删掉后本仓从 3.59 MiB 降到 2.95 MiB。
+任何查询 —— 删掉后本仓从 3.59 MiB 降到 2.94 MiB。
 
 查询计划实测（SQLite，12,000 行 + `ANALYZE`）：
 
@@ -138,8 +138,8 @@ txn commit
 
 | # | 验收项 | 手段 | 结果 |
 |---|---|---|---|
-| 1 | 本仓行数 12,208 ±5% | `#[ignore] measure_this_repository_symbols` | **12,208（100.0%，`c628195`）/ 12,301（+0.76%，`c1db0bf`，含本任务新增的源文件）** |
-| 2 | DB 增长 ≤ 3.5 MiB | 同上，`page_count × page_size` 差值 | **2.95 MiB**（删冗余 path 索引后） |
+| 1 | 本仓行数 12,208 ±5% | `#[ignore] measure_this_repository_symbols` | **12,208（100.0%，`c628195`）/ 12,299（+0.75%，`08e2ab2`，含本任务新增的源文件）** |
+| 2 | DB 增长 ≤ 3.5 MiB | 同上，`page_count × page_size` 差值 | **2.94 MiB**（删冗余 path 索引后） |
 | 3 | 幂等 | `indexing_the_same_commit_twice_…` + 跨后端 round trip | 通过 |
 | 4 | 修剪 D+2 → 剩 D | `pruning_keeps_only_the_retention_window` | 通过（8 → 6，pruned=2） |
 | 5 | 迁移 SQLite/PG/MySQL up+down | 迁移单测 + `IRONFORGE_TEST_DATABASE_URL`（本机 docker：postgres:16、mysql:8.4） | 三后端全绿 |
@@ -154,15 +154,15 @@ txn commit
 协调者裁决：**删 `idx_symbol_definitions_path`，保留 UNIQUE 锚点**。锚点不是索引优化，是数据库层的
 幂等保证（应用层的「先删后插」只有一处代码保证）；path 索引则是重复覆盖。
 
-删掉后的实测（`c1db0bf`，12,301 行）：
+删掉后的实测（`08e2ab2`，12,299 行）：
 
 | 对象 | 体积 |
 |---|---|
 | `symbol_definitions` 表 | 1,568 KiB |
 | `uq_symbol_definitions_anchor`（幂等锚点，兼按文件查询） | 1,080 KiB |
-| `idx_symbol_definitions_lookup` | 380 KiB |
+| `idx_symbol_definitions_lookup` | 372 KiB |
 | `symbol_commits` + 唯一索引 | 8 KiB |
-| **合计** | **3,036 KiB = 2.96 MiB**（页级增长 3,088,384 B = **2.95 MiB**） |
+| **合计** | **3,028 KiB = 2.96 MiB**（页级增长 3,080,192 B = **2.94 MiB**） |
 
-按 50k 文件档外推：2.95 MiB / 12,301 行 × 479,000 行 ≈ **115 MiB**（设计值 103 MiB），
+按 50k 文件档外推：2.94 MiB / 12,299 行 × 479,000 行 ≈ **114 MiB**（设计值 103 MiB），
 而不是三索引的 141 MiB。
