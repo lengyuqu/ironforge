@@ -94,7 +94,7 @@ git push -u cnb HEAD
 | T28 | [#63·第二步] 符号定义表最小闭环 | completed | t28-symbol-index | T27 | `tasks/T28.md` |
 | T29 | [#63·第三步] 符号查询端点与 MCP 工具 | completed | t29-symbol-query | T28 | `tasks/T29.md` |
 | T30 | doc | 更新 CLAUDE.md 到当前实现现状 | completed | t30-claude-md-refresh | T29 | `tasks/T30.md` |
-| T31 | [#63·第四步] 让 `partial` 反映真实索引质量 | in_progress | t31-partial-honesty | T30 | `tasks/T31.md` |
+| T31 | [#63·第四步] 让 `partial` 反映真实索引质量 | completed | t31-partial-honesty | T30 | `tasks/T31.md` |
 
 ## Pre-Claim Checks
 
