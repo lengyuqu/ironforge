@@ -291,6 +291,19 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
             }
         },
     ));
+    // Webhook outbox sweep (#15, step 7): re-deliver events that were committed
+    // but never handed to the delivery system. Every
+    // `IRONFORGE_WEBHOOK_OUTBOX_SWEEP_SECS` (default 60, `0` disables).
+    tokio::spawn(rg_core::task_supervisor::supervise(
+        "webhook.outbox_sweep",
+        {
+            let db = state.db.clone();
+            move || {
+                let db = db.clone();
+                async move { rg_core::webhook::outbox::run_sweep_loop(db).await }
+            }
+        },
+    ));
 
     // QUEUE-001: durable background job worker (webhook/email retries,
     // periodic mirror sync).

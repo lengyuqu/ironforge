@@ -304,8 +304,12 @@ pub async fn trigger_event(
 ) -> Result<()> {
     let actor = event_actor(db, payload).await;
     let envelope = EventEnvelope::new(repo_id, event, actor, payload.clone()).to_value();
-    record_envelope(db, repo_id, event, &envelope).await;
-    deliver_envelope(db, repo_id, event, envelope).await
+    // The id is what lets the delivery half mark the row it is about to hand
+    // off (#15, step 7). The legacy path swallows a log failure, so the id is
+    // optional: without it the delivery happens but is not recorded as handed
+    // off, and the sweep may send it again.
+    let event_id = record_envelope(db, repo_id, event, &envelope, false).await;
+    deliver_envelope(db, repo_id, event, envelope, event_id).await
 }
 
 /// Record an event in the repository's log **through any connection** — a
@@ -328,7 +332,9 @@ pub async fn record_event_in_txn<C: ConnectionTrait>(
 ) -> Result<()> {
     let actor = event_actor_on(conn, payload).await;
     let envelope = EventEnvelope::new(repo_id, event, actor, payload.clone()).to_value();
-    append_envelope(conn, repo_id, event, &envelope).await
+    append_envelope(conn, repo_id, event, &envelope, false)
+        .await
+        .map(|_| ())
 }
 
 /// Deliver an event whose log row was already written by
@@ -336,15 +342,83 @@ pub async fn record_event_in_txn<C: ConnectionTrait>(
 ///
 /// Deliberately **does not** append to the log: writing it again would record
 /// the event twice and move the subscribers' cursor two steps per event.
+///
+/// The log row is marked as handed off here too, so the fallback sweep does not
+/// send a second copy of every transaction-path event (#15, step 7). The id the
+/// transaction inserted is not returned to the caller, and this task must not
+/// edit `pull_request` / `issue` / `release`, so the row is identified by the
+/// payload it was written with — see [`find_delivery_row`].
 pub async fn deliver_event(
     db: &DatabaseConnection,
     repo_id: i64,
     event: &str,
     payload: &Value,
 ) -> Result<()> {
+    let event_id = find_delivery_row(db, repo_id, event, payload).await;
     let actor = event_actor(db, payload).await;
     let envelope = EventEnvelope::new(repo_id, event, actor, payload.clone()).to_value();
-    deliver_envelope(db, repo_id, event, envelope).await
+    deliver_envelope(db, repo_id, event, envelope, event_id).await
+}
+
+/// How far back [`find_delivery_row`] looks for the row a transaction wrote.
+///
+/// The row is microseconds old when this runs; the bound only keeps the lookup
+/// from touching events the sweep has already given up on. It matches the
+/// sweep's own look-back so "in the sweep's window" and "findable here" are the
+/// same set.
+const CLAIM_LOOKBACK: chrono::Duration = chrono::Duration::minutes(15);
+
+/// How many candidate rows [`find_delivery_row`] inspects before giving up.
+/// A transaction writes one row per event, so more than a handful of
+/// undispatched rows of one type in one repository means something is already
+/// wrong and the sweep is the safer owner.
+const CLAIM_CANDIDATES: u64 = 20;
+
+/// Identify the log row a transaction wrote for this event.
+///
+/// The transaction path builds its envelope inside `record_event_in_txn`, which
+/// returns only `()`, and its callers are business modules this task must not
+/// touch. The row is therefore found by content: same repository, same kind, not
+/// yet dispatched, and a stored envelope whose `data` is exactly `payload` — the
+/// same value both calls were given. Two *identical* events in flight at once are
+/// the only way to pick the wrong one, and picking either is an equivalent
+/// delivery: the other stays `NULL`, so the sweep re-sends it rather than losing
+/// it.
+async fn find_delivery_row(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    event: &str,
+    payload: &Value,
+) -> Option<i64> {
+    let since = Utc::now() - CLAIM_LOOKBACK;
+    let rows = match rg_db::ops::repo_event_ops::list_undispatched_of_type(
+        db,
+        repo_id,
+        event,
+        since,
+        CLAIM_CANDIDATES,
+    )
+    .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::warn!(
+                repo_id,
+                %event,
+                %error,
+                "could not find the event row to mark as dispatched"
+            );
+            return None;
+        }
+    };
+    rows.into_iter()
+        .find(|row| {
+            row.payload
+                .as_deref()
+                .and_then(|text| serde_json::from_str::<Value>(text).ok())
+                .is_some_and(|stored| stored.get("data") == Some(payload))
+        })
+        .map(|row| row.id)
 }
 
 /// Append an event to the repository's log **only** — no webhook, no retry job.
@@ -359,6 +433,10 @@ pub async fn deliver_event(
 /// The envelope is the same one the delivered event would carry, so a reader
 /// cannot tell a quiet event from a delivered one by shape — only by the absence
 /// of `webhook_deliveries` rows.
+///
+/// The row is written **already marked as handled** (#15, step 7): silence here
+/// is a decision, not a missed delivery, so the fallback sweep must never pick
+/// it up. That is also why this is not simply "append with `NULL`".
 pub async fn record_event(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -367,7 +445,7 @@ pub async fn record_event(
 ) -> Result<()> {
     let actor = event_actor(db, payload).await;
     let envelope = EventEnvelope::new(repo_id, event, actor, payload.clone()).to_value();
-    record_envelope(db, repo_id, event, &envelope).await;
+    record_envelope(db, repo_id, event, &envelope, true).await;
     Ok(())
 }
 
@@ -396,26 +474,40 @@ pub async fn trigger_event_quietly(
 
 /// Record one already-built envelope in the repository's event log, best
 /// effort: it never blocks or fails the caller, as it never did before.
+///
+/// Returns the new event id when the row was written. `dispatched` says whether
+/// the row is already settled — see [`append_envelope`].
 async fn record_envelope<C: ConnectionTrait>(
     conn: &C,
     repo_id: i64,
     event: &str,
     envelope: &Value,
-) {
-    if let Err(error) = append_envelope(conn, repo_id, event, envelope).await {
-        tracing::warn!(repo_id, %event, %error, "failed to record a repository event");
+    dispatched: bool,
+) -> Option<i64> {
+    match append_envelope(conn, repo_id, event, envelope, dispatched).await {
+        Ok(id) => Some(id),
+        Err(error) => {
+            tracing::warn!(repo_id, %event, %error, "failed to record a repository event");
+            None
+        }
     }
 }
 
 /// Append one already-built envelope to the log through `conn`, replacing an
 /// oversized body with a stub that says so. Errors are returned: a caller inside
 /// a transaction wants them, the legacy best-effort path swallows them.
+///
+/// `dispatched` writes the row as already handled instead of `NULL`: set it when
+/// nobody owes the event a delivery (the quiet path), leave it `false` when the
+/// caller is about to call [`deliver_envelope`] with the returned id. A row left
+/// `NULL` by a caller that never delivers is exactly what the sweep picks up.
 async fn append_envelope<C: ConnectionTrait>(
     conn: &C,
     repo_id: i64,
     event: &str,
     envelope: &Value,
-) -> Result<()> {
+    dispatched: bool,
+) -> Result<i64> {
     let text = serde_json::to_string(envelope).unwrap_or_default();
     let stored = if text.len() <= MAX_EVENT_PAYLOAD_BYTES {
         text
@@ -423,8 +515,10 @@ async fn append_envelope<C: ConnectionTrait>(
         serde_json::json!({ "truncated": true, "original_bytes": text.len() }).to_string()
     };
     let event: String = event.chars().take(64).collect();
-    rg_db::ops::repo_event_ops::append(conn, repo_id, &event, Some(&stored)).await?;
-    Ok(())
+    let dispatched_at = dispatched.then(Utc::now);
+    rg_db::ops::repo_event_ops::append_handled(conn, repo_id, &event, Some(&stored), dispatched_at)
+        .await
+        .map_err(Into::into)
 }
 
 /// Publish one already-built envelope: append it to the event log, then deliver
@@ -435,26 +529,44 @@ async fn dispatch(
     event: &str,
     envelope: Value,
 ) -> Result<()> {
-    record_envelope(db, repo_id, event, &envelope).await;
-    deliver_envelope(db, repo_id, event, envelope).await
+    let event_id = record_envelope(db, repo_id, event, &envelope, false).await;
+    deliver_envelope(db, repo_id, event, envelope, event_id).await
 }
 
 /// Deliver one already-built envelope to every active hook of the repository.
 ///
-/// Never touches the event log: the row was written by the caller (the log half
-/// of [`trigger_event`], or [`record_event_in_txn`] before the commit). Keeping
-/// the two apart is what lets the log write happen inside a transaction while
-/// the delivery stays outside it — and what keeps the log row and the delivered
-/// body sharing one envelope.
-async fn deliver_envelope(
+/// Never touches the event log content: the row was written by the caller (the
+/// log half of [`trigger_event`], or [`record_event_in_txn`] before the commit).
+/// Keeping the two apart is what lets the log write happen inside a transaction
+/// while the delivery stays outside it — and what keeps the log row and the
+/// delivered body sharing one envelope.
+///
+/// `event_id` is that row, marked as handed off **before** the first `spawn`
+/// (#15, step 7). Spawn is fire-and-forget, so there is no callback to mark on
+/// completion; marking first means a crash in the microseconds between the mark
+/// and the spawn is a missed delivery the sweep cannot see, while marking after
+/// would re-send every event whose delivery succeeded but whose mark did not.
+/// The narrower window wins, and "handed off" is what the mark means — success
+/// and failure stay in `webhook_deliveries`.
+pub(crate) async fn deliver_envelope(
     db: &DatabaseConnection,
     repo_id: i64,
     event: &str,
     envelope: Value,
+    event_id: Option<i64>,
 ) -> Result<()> {
     let body = serde_json::to_string(&envelope).unwrap_or_default();
 
     let hooks = webhook_ops::list_active_by_repo_and_event(db, repo_id, event).await?;
+
+    if let Some(event_id) = event_id {
+        // Best effort: a failure here leaves the row `NULL`, so the sweep may
+        // send a second copy. Delivering is the more important half, so this
+        // must not abort it.
+        if let Err(error) = rg_db::ops::repo_event_ops::mark_dispatched(db, event_id).await {
+            tracing::warn!(event_id, %error, "could not mark an event as dispatched");
+        }
+    }
 
     for hook in hooks {
         // Spawn delivery in background — don't block the caller
