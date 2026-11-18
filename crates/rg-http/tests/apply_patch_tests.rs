@@ -175,11 +175,15 @@ impl Fixture {
     }
 
     /// The secret-scan rows are written without a username (only the actor id),
-    /// so they are looked up by action alone.
+    /// so they are scoped by `resource_name` (the `owner/repo` label) instead.
+    /// Without that filter the lookup would answer with another test's row as
+    /// soon as the database is shared between tests.
     async fn scan_audit_row(&self, action: &str) -> Option<Value> {
         use rg_db::sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+        let label = format!("{}/work", self.owner);
         let row = rg_db::entities::audit_log::Entity::find()
             .filter(rg_db::entities::audit_log::Column::Action.eq(action))
+            .filter(rg_db::entities::audit_log::Column::ResourceName.eq(label))
             .one(&self.db)
             .await
             .unwrap()?;

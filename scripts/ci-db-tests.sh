@@ -102,20 +102,12 @@ if [ "$suite" = all ]; then
 fi
 
 # Every target that calls `spawn_test_app_on_env_db` (see tests/common/mod.rs).
-#
-# Deliberately NOT in this list, although they call `spawn_test_app_on_env_db`:
-#   apply_patch_tests          – `a_secret_is_refused_on_a_dry_run_without_an_audit_row`
-#                                fails against PostgreSQL (an audit row is written on a dry run).
-#   audit_on_behalf_of_tests   – `an_agents_audit_rows_name_the_person_it_acted_for`
-#                                fails with 401 against PostgreSQL.
-# Both fail on a fresh PostgreSQL database when run alone, so this is a real
-# backend difference, not cross-test pollution. Until it is fixed, listing them
-# would keep `postgres|mysql all` permanently red, which trains people to ignore it.
 for t in pat_ref_allowlist_tests file_commit_semantics_tests idempotency_tests \
          repo_events_tests pr_context_tests pr_export_tests branch_delete_tests \
          fork_pr_ref_tests merge_pinned_head_tests repo_settings_tests wiki_tests repair_pull_refs_tests auto_merge_pinned_head_tests \
          merge_readiness_tests update_branch_tests ai_symbol_query_tests \
-         cherry_pick_revert_tests notification_prefs_tests; do
+         cherry_pick_revert_tests notification_prefs_tests \
+         apply_patch_tests audit_on_behalf_of_tests; do
   run cargo test -p rg-http --test "$t"
 done
 echo "$suite $backend suites passed"
