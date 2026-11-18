@@ -209,7 +209,7 @@ ironforge/
 │   │   └── src/
 │   │       ├── entities/         #   108 个 SeaORM 实体
 │   │       ├── ops/              #   CRUD 操作函数
-│   │       └── migrations/       #   106 条数据库迁移（自动执行）
+│   │       └── migrations/       #   107 条数据库迁移（自动执行）
 │   │
 │   ├── rg-ci/                    # CI/CD 引擎
 │   │   └── src/
