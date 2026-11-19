@@ -12,6 +12,17 @@ use reqwest::Method;
 use rg_db::sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde_json::{json, Value};
 
+/// Serialises the tests in this file.
+///
+/// The permission cache is a process-wide singleton keyed by
+/// `(repo_id, actor_id, for_write)`, while every test here builds its own
+/// database where those ids restart at 1. Two tests running concurrently
+/// therefore share cache entries, and a `false` written by one test made
+/// `t02_revoked_write_access_...`'s "the cached answer is still warm" control
+/// flake. Holding this for the body of each test keeps the entries disjoint in
+/// time rather than pulling a serialisation crate in as a dependency.
+static CACHE_GUARD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn set_times(
     env: &Env,
     id: &str,
@@ -45,6 +56,7 @@ async fn list(env: &Env, token: &str) -> Vec<Value> {
 /// T01: two sessions under one account, even with the same display name.
 #[tokio::test]
 async fn t01_same_account_two_sessions_with_identical_names_stay_distinct() {
+    let _guard = CACHE_GUARD.lock().await;
     let env = Env::new().await;
     let (a, a_body) = env.register_session(&env.owner_token, "Claude").await;
     let (b, _) = env.register_session(&env.owner_token, "Claude").await;
@@ -75,6 +87,7 @@ async fn t01_same_account_two_sessions_with_identical_names_stay_distinct() {
 
 #[tokio::test]
 async fn t01_registration_validates_labels() {
+    let _guard = CACHE_GUARD.lock().await;
     let env = Env::new().await;
     for body in [
         json!({"display_name": "", "client_kind": "x"}),
@@ -101,6 +114,7 @@ async fn t01_registration_validates_labels() {
 /// T02: credentials and authorization.
 #[tokio::test]
 async fn t02_wrong_unknown_foreign_and_cross_repo_credentials_are_indistinguishable() {
+    let _guard = CACHE_GUARD.lock().await;
     let env = Env::new().await;
     let other_repo = "second-repo";
     crate::common::create_repo(&env.base, &env.owner_token, other_repo).await;
@@ -175,6 +189,7 @@ async fn t02_wrong_unknown_foreign_and_cross_repo_credentials_are_indistinguisha
 
 #[tokio::test]
 async fn t02_another_account_cannot_take_over_a_session_even_with_its_secret() {
+    let _guard = CACHE_GUARD.lock().await;
     let env = Env::new().await;
     let (bob_token, bob_id) = env.user("bob_writer").await;
     env.add_collaborator(bob_id, "write").await;
@@ -211,6 +226,7 @@ async fn t02_another_account_cannot_take_over_a_session_even_with_its_secret() {
 
 #[tokio::test]
 async fn t02_registration_and_discovery_follow_repository_permissions() {
+    let _guard = CACHE_GUARD.lock().await;
     let env = Env::with_repo(json!({"name": "private-repo", "is_private": true})).await;
     let (reader_token, reader_id) = env.user("reader_user").await;
     let (_stranger_token, _) = env.user("stranger_user").await;
@@ -277,6 +293,7 @@ async fn t02_registration_and_discovery_follow_repository_permissions() {
 /// the revocation bypassed the permission-cache invalidation helpers.
 #[tokio::test]
 async fn t02_revoked_write_access_blocks_the_next_request_despite_a_warm_permission_cache() {
+    let _guard = CACHE_GUARD.lock().await;
     let env = Env::with_repo(json!({"name": "revoke-repo", "is_private": true})).await;
     let (bob_token, bob_id) = env.user("bob_revoked").await;
     env.add_collaborator(bob_id, "write").await;
@@ -331,6 +348,7 @@ async fn t02_revoked_write_access_blocks_the_next_request_despite_a_warm_permiss
 
 #[tokio::test]
 async fn t02_ended_and_expired_sessions_cannot_be_revived() {
+    let _guard = CACHE_GUARD.lock().await;
     let env = Env::new().await;
     let a = env.session(&env.owner_token, "A").await;
     let hb = env.url(&format!("/sessions/{}/heartbeat", a.id));
@@ -390,6 +408,7 @@ async fn t02_ended_and_expired_sessions_cannot_be_revived() {
 /// T03: reconnect, lost secret, offline.
 #[tokio::test]
 async fn t03_original_credentials_reconnect_until_hard_expiry_and_offline_is_not_ended() {
+    let _guard = CACHE_GUARD.lock().await;
     let env = Env::new().await;
     let a = env.session(&env.owner_token, "A").await;
     let hb = env.url(&format!("/sessions/{}/heartbeat", a.id));
@@ -417,6 +436,7 @@ async fn t03_original_credentials_reconnect_until_hard_expiry_and_offline_is_not
 
 #[tokio::test]
 async fn t03_lost_secret_means_a_new_session_and_the_old_one_cannot_be_claimed() {
+    let _guard = CACHE_GUARD.lock().await;
     let env = Env::new().await;
     let old = env.session(&env.owner_token, "agent").await;
     // The process lost its secret: it can only register again.
@@ -454,6 +474,7 @@ async fn t03_lost_secret_means_a_new_session_and_the_old_one_cannot_be_claimed()
 
 #[tokio::test]
 async fn session_list_paginates_with_opaque_cursors() {
+    let _guard = CACHE_GUARD.lock().await;
     let env = Env::new().await;
     for i in 0..5 {
         env.session(&env.owner_token, &format!("s{i}")).await;
