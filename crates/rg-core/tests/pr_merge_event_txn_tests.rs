@@ -159,19 +159,19 @@ async fn insert_pr(db: &DatabaseConnection, repo_id: i64, author_id: i64, head_s
 // ── a real git repository ────────────────────────────────────────────────
 
 fn git(args: &[&str], cwd: Option<&Path>) -> String {
-    let mut command = std::process::Command::new("git");
-    command.args(args);
-    if let Some(cwd) = cwd {
-        command.current_dir(cwd);
-    }
-    let output = command.output().expect("run git");
+    // Goes through the sanctioned gateway: `test_no_raw_git_command_in_crates`
+    // forbids spawning `git` directly anywhere under `crates/`.
+    let gateway = rg_git::cli_gateway::global_gateway()
+        .as_ref()
+        .expect("global git gateway");
+    let output = gateway.run(args, cwd).expect("run git");
     assert!(
-        output.status.success(),
+        output.success(),
         "git {:?} failed: {}",
         args,
-        String::from_utf8_lossy(&output.stderr)
+        output.stderr_str()
     );
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
+    output.stdout_str().trim().to_string()
 }
 
 /// Create `<repo_root>/<owner>/<repo>.git` with `main` and a diverged `feature`,
