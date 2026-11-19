@@ -31,4 +31,43 @@ ignore = [
   "RUSTSEC-2026-0368",
   "RUSTSEC-2026-0369",
   "RUSTSEC-2026-0429",
+  # Two more on the same pinned 2.4.2 copy: ZipStreamReader name confusion
+  # (0548) and AES entries returned without checking the MAC on truncated or
+  # empty data (0545). Same mitigation as above — build-script-only, fixed
+  # archive, never untrusted input.
+  "RUSTSEC-2026-0545",
+  "RUSTSEC-2026-0548",
+
+  # libsqlite3-sys 0.30.1 (via sqlx 0.8.6 -> sea-orm 1.1). SQLite < 3.54.0 can
+  # return uninitialised page-cache bytes when a database is opened next to a
+  # `-wal` file with a different page size. Local attack vector: it requires
+  # write access to the directory holding the database, which already implies
+  # control of the server. The fix needs libsqlite3-sys >= 0.39, i.e. a move to
+  # sqlx 0.9 / a newer sea-orm — a migration of its own. Remove when the SQL
+  # layer is upgraded.
+  "RUSTSEC-2026-0459",
+
+  # chrono 0.4.45 is flagged unmaintained, not vulnerable. It is a direct,
+  # heavily used dependency; replacing it with `time` is a separate migration.
+  "RUSTSEC-2026-0543",
+
+  # heapless 0.8.0 — nine unsoundness advisories published 2026-11-18, all
+  # patched only in 0.9.4. The single copy in the tree comes from
+  # `gix 0.90 -> gix-hash -> faster-hex 0.10.1`, and faster-hex pins
+  # `heapless = "0.8"`, which has no patched release. Neither faster-hex nor
+  # gix has a release that moves off 0.8 yet, so `cargo update` cannot help and
+  # this is a wait-for-upstream entry. Exposure: heapless backs faster-hex's
+  # fixed-size hex buffers; the affected items (`Spsc`, `Deque`, `IndexMap`,
+  # `SortedLinkedList::zeroize`, `FindMutView::pop`, a panicking `Drop`) are not
+  # features IronForge exercises. Remove when a gix release pulls in
+  # faster-hex built on heapless >= 0.9.4.
+  "RUSTSEC-2026-0574",
+  "RUSTSEC-2026-0575",
+  "RUSTSEC-2026-0576",
+  "RUSTSEC-2026-0577",
+  "RUSTSEC-2026-0578",
+  "RUSTSEC-2026-0579",
+  "RUSTSEC-2026-0580",
+  "RUSTSEC-2026-0581",
+  "RUSTSEC-2026-0582",
 ]
