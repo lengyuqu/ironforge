@@ -280,7 +280,10 @@ fn build_ref_advertisement(ref_list: &[(String, String)], _service: &str) -> Vec
     // `delete-refs` is what tells the client `push --delete` is allowed; without
     // it git refuses client-side ("remote does not support deleting refs") and
     // never sends the command at all.
-    let caps = "report-status report-status-v2 delete-refs side-band-64k agent=ironforge/0.1";
+    let caps = format!(
+        "report-status report-status-v2 delete-refs side-band-64k {}",
+        crate::protocol::v2::AGENT_CAPABILITY
+    );
 
     if let Some((sha, refname)) = ref_list.first() {
         let line = format!("{} {}\0{}", sha, refname, caps);

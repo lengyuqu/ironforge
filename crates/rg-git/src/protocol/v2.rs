@@ -27,12 +27,18 @@ pub const PROTOCOL_VERSION: &str = "2";
 /// Keep HTTP and SSH advertisements sourced from this list. Unsupported fetch
 /// features must not be appended here until `handle_fetch` implements them.
 pub const ADVERTISED_CAPABILITIES: &[&str] = &[
-    "agent=ironforge/0.1",
+    AGENT_CAPABILITY,
     caps::LS_REFS,
     caps::FETCH_SHALLOW,
     "object-format=sha1",
     caps::SERVER_OPTION,
 ];
+
+/// Server identification sent in every advertisement (`agent=ironforge/<version>`).
+///
+/// Derived from the crate version so a release bump cannot leave a stale
+/// string behind — it used to be hardcoded at `0.1` through three releases.
+pub const AGENT_CAPABILITY: &str = concat!("agent=ironforge/", env!("CARGO_PKG_VERSION"));
 
 /// V2 Capability names
 pub mod caps {

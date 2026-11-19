@@ -311,6 +311,17 @@ fn build_ref_advertisement_vec(
     ref_list
 }
 
+/// Capabilities advertised in the V1 ref advertisement.
+///
+/// The `agent` string is taken from [`v2::AGENT_CAPABILITY`] so HTTP, SSH and
+/// V2 all report the same version.
+fn capabilities_v1() -> String {
+    format!(
+        "side-band-64k ofs-delta {}",
+        crate::protocol::v2::AGENT_CAPABILITY
+    )
+}
+
 /// Build ref advertisement pkt-lines.
 fn build_ref_advertisement(ref_list: &[(String, String)], service: &str) -> Vec<PktLine> {
     let mut lines = Vec::new();
@@ -323,12 +334,12 @@ fn build_ref_advertisement(ref_list: &[(String, String)], service: &str) -> Vec<
         // - agent: server identification
         // NOTE: We do NOT advertise multi_ack / multi_ack_detailed / no-done because
         // our negotiation loop only handles the simple NAK→packfile flow.
-        let caps = "side-band-64k ofs-delta agent=ironforge/0.1";
+        let caps = capabilities_v1();
         let line = format!("{} {}\0{}", sha, refname, caps);
         lines.push(PktLine::Data(line.into_bytes()));
     } else {
         // Empty repo — still need capabilities
-        let caps = "side-band-64k ofs-delta agent=ironforge/0.1";
+        let caps = capabilities_v1();
         let line = format!(
             "0000000000000000000000000000000000000000 capabilities^{}\0{}",
             service, caps

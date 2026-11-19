@@ -2672,12 +2672,20 @@ fn build_info_refs(repo_path: &std::path::Path, service: &str) -> Result<String>
         ref_list.insert(0, (sha.clone(), "HEAD".to_string()));
     }
 
+    // `agent` comes from the one definition in rg-git so the version string has
+    // a single source of truth across HTTP, SSH and V2.
     let caps = if service == "git-upload-pack" {
-        "multi_ack_detailed no-done side-band-64k thin-pack ofs-delta agent=ironforge/0.1"
+        format!(
+            "multi_ack_detailed no-done side-band-64k thin-pack ofs-delta {}",
+            rg_git::protocol::v2::AGENT_CAPABILITY
+        )
     } else {
         // `delete-refs` is what allows `git push --delete`; SSH advertises it
         // through the same list in rg-git.
-        "report-status report-status-v2 delete-refs side-band-64k agent=ironforge/0.1"
+        format!(
+            "report-status report-status-v2 delete-refs side-band-64k {}",
+            rg_git::protocol::v2::AGENT_CAPABILITY
+        )
     };
 
     if let Some((sha, refname)) = ref_list.first() {
