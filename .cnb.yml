@@ -1,7 +1,8 @@
-# CNB pipelines. CNB is the development upstream (CLAUDE.md, "仓库分工与推送顺序"),
-# so this file carries every gate of .github/workflows/regression.yml except the
-# PostgreSQL/MySQL smoke jobs (see below). GitHub Actions stays the
-# release-time check only; its free minutes are scarce.
+# CNB pipelines. GitHub is now the development upstream and its Actions are the
+# CI of record (CLAUDE.md, "仓库分工与推送顺序"); CNB is kept as a mirror, so this
+# file is only used if CNB runners are wanted again. It carries every gate of
+# .github/workflows/regression.yml except the PostgreSQL/MySQL smoke jobs (see
+# below).
 #
 # Gate map (GitHub job -> CNB pipeline):
 #   clippy (+rustfmt)        -> lint

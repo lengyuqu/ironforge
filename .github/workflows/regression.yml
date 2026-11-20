@@ -1,21 +1,24 @@
 name: Regression
 
 # Where this runs:
-#   * git233 (Gitea Actions) is the day-to-day CI: CNB's runner quota is used up
-#     and GitHub's free minutes are scarce. Its runners reach crates.io and
-#     docker.gitea.com but not GitHub or Docker Hub, which the jobs below account
-#     for (vendored Swagger UI; `vars.POSTGRES_IMAGE` / `vars.MYSQL_IMAGE`; an
-#     unreachable advisory database is a warning there).
-#   * GitHub is the release-time check only: the repository is pushed there when
-#     releasing, so `pull_request` never fires on GitHub in practice.
+#   * GitHub Actions is the CI of record (owner's decision, 2026-11-20): the
+#     repository is public, so the standard hosted runners cost nothing. Pull
+#     requests, pushes to main and the nightly schedule all land here.
+#   * Several workarounds below were written for git233 (Gitea Actions) when it
+#     was the CI: its runners reached crates.io and docker.gitea.com but not
+#     GitHub or Docker Hub, hence the vendored Swagger UI, `vars.POSTGRES_IMAGE`
+#     / `vars.MYSQL_IMAGE`, and the retry wrappers. They are harmless on GitHub
+#     (unset variables fall back to the stock images) and are left in place
+#     until they are removed on purpose. Comments that talk about git233 or
+#     CNB runners describe that old environment.
 #
 # How much runs:
-#   * Full runs are manual. Nothing starts a full run by itself: there is no
-#     `push` trigger (a merge to main used to repeat the pull request's whole run
-#     on almost the same tree) and no nightly schedule. When a change is big
-#     enough to warrant it, start the workflow by hand (`workflow_dispatch`;
-#     `tea actions workflows dispatch regression.yml --ref <branch> --repo
-#     aicodeing/ironforge`): that runs every job and `cargo test --workspace`.
+#   * Full runs: a push to main, the nightly schedule, and a manual
+#     `workflow_dispatch` (`gh workflow run regression.yml --ref <branch>`) run
+#     every job and `cargo test --workspace`. scripts/ci-changes.py treats any
+#     event other than `pull_request` as a full run. The schedule exists mostly
+#     for `cargo audit`: a new advisory should turn the badge red without anyone
+#     having to push. Scheduled runs only ever use the default branch.
 #   * Pull requests run a scoped set. The `changes` job (scripts/ci-changes.py)
 #     classifies the files changed against the merge base: docs only -> nothing;
 #     web/ only -> the frontend job; changes in crates -> clippy for the
@@ -28,11 +31,20 @@ name: Regression
 #     runs everything. Jobs the scope leaves out are skipped, not green-by-default
 #     steps.
 #   * A new push to a pull request cancels that pull request's run that is still
-#     going (`concurrency`); manual runs are never cancelled this way.
+#     going (`concurrency`); runs of any other kind (push to main, schedule,
+#     manual) each get their own group and are never cancelled this way, so every
+#     commit on main keeps its own verdict.
 on:
   pull_request:
     branches:
       - main
+  push:
+    branches:
+      - main
+  schedule:
+    # 19:00 UTC = 03:00 in UTC+8. GitHub may start scheduled runs late when it
+    # is busy; that is fine for an audit-and-regression sweep.
+    - cron: "0 19 * * *"
   workflow_dispatch:
 
 concurrency:

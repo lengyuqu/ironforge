@@ -15,11 +15,10 @@ only. Prints `key=value` lines (also appended to $GITHUB_OUTPUT when set):
   reason         one line saying why
 
 Rules (see classify()):
-  * A full run happens only on `workflow_dispatch` (the owner starts it by hand
-    when a change is big enough to warrant it). Pushes and nightly schedules
-    are no longer triggers; if one reaches this script anyway it is treated as
-    a full run, and so is anything that goes wrong while working out the
-    answer (a warning is printed): the script fails closed.
+  * Every event other than `pull_request` (a push to main, the nightly
+    schedule, `workflow_dispatch`) is a full run, and so is anything that goes
+    wrong while working out the answer (a warning is printed): the script
+    fails closed.
   * Pull requests: the files changed against the merge base are classified.
     Docs only -> nothing, and so is a `.cnb.yml`-only change (CNB's own
     workflow file; GitHub never reads it, and an agent branch edits it next to
