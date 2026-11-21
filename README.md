@@ -2,14 +2,69 @@
 
 # IronForge 🔨
 
-> **铁匠铺** — 一个用 Rust 从零实现的轻量级 Git 托管平台
+> **铁匠铺** — 面向 AI Agent 编程的 Git 托管平台。用 Rust 从零实现，单二进制部署。
 
 [![Rust](https://img.shields.io/badge/rust-1.95%2B-orange)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-IronForge 对标 [Gitea](https://gitea.com/) / [Forgejo](https://forgejo.org/)，目标是用纯 Rust 实现一个内存占用极低（<50MB）、单二进制部署的全功能 Git 托管平台，支持仓库管理、Issue、Pull Request、Wiki、CI/CD、包注册表、企业认证、审计和代码搜索。
+IronForge 是一个**为 Agent 编程而设计的 Git 托管平台**。它自带完整的 Git 托管基本盘——仓库、Issue、Pull Request、Wiki、CI/CD、包注册表、企业认证、审计、代码搜索，目标是内存占用极低（<50MB）、单二进制部署——但项目的重心早已不是「再做一个 [Gitea](https://gitea.com/) / [Forgejo](https://forgejo.org/)」，而是回答另一个问题：
 
-> Phase 1~21 全部完成。详细实现清单见 [CLAUDE.md](CLAUDE.md)。
+> **当写代码的主力变成多个并发、会重试、按 token 计费的 Agent 时，代码托管平台应该长什么样？**
+
+项目起步时确实以 Gitea/Forgejo 为对标对象（功能差距分析见 [ironforge-docs/comparison/](ironforge-docs/comparison/)），这些基本盘能力仍在；但此后的设计取舍，是看它们能不能让 Agent 更省 token、更可控、更可追溯地完成「改 → 推 → 看 CI → 修」的循环。
+
+> Phase 1~21 全部完成，此后的演进主线是 Agent 友好化。详细实现清单见 [CLAUDE.md](CLAUDE.md)。
+
+---
+
+## 为什么 Agent 需要不同的代码托管平台
+
+面向人的 Git 平台默认它的客户端是一个坐在浏览器前的人。Agent 不是：
+
+1. **token 有成本**——一次读取返回多少、要往返几次，直接决定成本与成功率。
+2. **并发，而且会重试**——多个 Agent 同时改同一个仓库；网络抖动或模型重试会把同一个请求发两遍。
+3. **靠机器可读的反馈闭环工作**——CI 为什么挂了、合并为什么冲突、权限为什么被拒，必须是结构化字段，而不是让模型去猜一段 HTML 或日志。
+4. **不应该被完全信任**——Agent 会被 Issue、PR、日志里的内容「提示词注入」，所以平台要限制它**最多能做什么**，而不是指望它自觉。
+
+IronForge 的 Agent 能力围绕这四点展开：
+
+| 方向 | 做了什么 |
+|------|----------|
+| **Agent 是一等主体** | Agent 是独立账号（`kind = agent`），归属某个人类所有者，**权限不超过所有者**；没有任何人类登录入口；不能批准 PR、不能建仓库/组织；批准计数只数人类；审计与提交署名能区分「人」和「代表某人的 Agent」。 |
+| **最小权限令牌** | PAT scope 阶梯 `repo:read` < `repo:collab` < `repo:write` < `repo`；令牌可限制到指定仓库（`repos`）和分支模式（`refs: ["agent/*"]`）。带分支限制的令牌不能合并、批准 PR，新增的 REST 写路由对它默认被拒。 |
+| **可预览、可并发、可重试的写入** | 文件提交、PR 创建与合并支持 `dry_run`、`expected_sha`（分支已前进则 409 `REF_ADVANCED` 并给出当前提交）、`Idempotency-Key`；批量提交让 N 个文件改动成为 **1 个 commit = 1 次 CI**，任一失败整批不落；cherry-pick / revert；错误体带 `reason` / `retryable` / `hint`。 |
+| **改 → 推 → 看 CI → 修 的短闭环** | CI 长轮询等待、增量/尾部日志、失败 job 自带 `failure_summary`；仓库事件日志 + 长轮询（不需要公网 webhook 地址）；按 token 预算裁剪的 PR 聚合上下文 `get_pr_context`；合并就绪预览（冲突文件、分支保护逐门控判定）与 `update-branch`；PR 完整导出用于重放评测。 |
+| **读代码省 token** | AI 友好端点（仓库摘要、分页文件树、代码搜索）、符号定义索引与 `find_definition`、带 2000 行 / 128 KiB 窗口的文件读取。 |
+| **多 Agent 协作** | 同一仓库里多个 Agent 会话围绕**任务**协作：消息、阻塞声明、交接、结构化提问与答复、不可变的决定记录、任务依赖、路径重叠预警、断线恢复用的上下文包、完成条件、跨仓协调组、协作健康指标；人类通过 Web UI 与站内通知介入。 |
+| **MCP 原生接入** | `ironforge-mcp` 暴露 **77 个工具**（18 个仓库/PR/CI 工具 + 59 个 `collab_*` 协作工具，以 `tools/list` 为准），支持 stdio 与 streamable HTTP；远程入口不持有凭据，令牌的 scope 与白名单照常生效。**没有合并工具**——Agent 的流程是「提交到 `agent/*` → 开 PR → 等 CI → 由人合并」。 |
+| **信任边界写在契约里** | 客户端自报的字段（会话名、任务状态、交接摘要、评论正文……）一律标 `origin: user_content`，是**数据而不是指令**；声明不等于证据，「声明 done」不会被当成完成；能力发现端点 `/api/v1/collaboration/capabilities` 只广告构建里真实存在的能力，写请求拒绝未知字段。 |
+
+### 一个典型的 Agent 循环
+
+```text
+1. get_pr_context / find_definition / read_file     读取上下文（有预算、有截断标注）
+2. commit_files  → agent/fix-login                   一次提交多个文件 = 一次 CI（带 expected_sha 与幂等键）
+3. create_pr                                        开 PR（可先 dry_run）
+4. wait_pipeline                                    长轮询等 CI；失败则拿到 failure_summary，回到 2
+5. collab_ask_question / collab_create_handoff       需要人决定或要交接时，写结构化记录而不是猜
+6. 人类审阅并合并                                    Agent 无法合并，也不能批准
+```
+
+### 接入方式
+
+```bash
+# stdio（本机 Agent，如 Claude Code / Cursor / Cline）
+IRONFORGE_URL=http://localhost:8080 IRONFORGE_PAT=<token> ironforge-mcp
+
+# streamable HTTP（远程 Agent，每个连接带自己的令牌）
+IRONFORGE_URL=http://127.0.0.1:8080 ironforge-mcp --http 127.0.0.1:8765
+```
+
+给 Agent 创建专用账号与令牌：`POST /api/v1/agents`、`POST /api/v1/agents/{username}/tokens`（只有人类账号能调用）；发令牌时用最小 scope，并尽量带上 `repos` 与 `refs`。完整的 MCP 配置、工具清单、协作协议与令牌用法见 [.ai/README.md](.ai/README.md)，Agent 自身在本仓库内的行为边界见 [.ai/guardrails.md](.ai/guardrails.md)。
+
+### 成熟度说明
+
+Agent 相关能力大多是 2026-11 的快速迭代成果：绝大部分已在本机（SQLite）用真实服务 + 真实 `ironforge-mcp` 的端到端脚本验证，协作与部分写路径另在 PostgreSQL 17 / MySQL 8.4 上跑过，但**尚未经过长期的真实多 Agent 生产使用**，GitHub CI 的覆盖也还没有补全。每项能力的验证范围与未覆盖项见 [CLAUDE.md](CLAUDE.md) 与 [ironforge-docs/architecture/](ironforge-docs/architecture/) 下的 `*-verification-*.md`；设计动机见 [Harness 原生化设计](ironforge-docs/architecture/harness-native-design-2026-11.md) 与 [Agent 主体身份与路线图](ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md)。
 
 ---
 
@@ -306,12 +361,13 @@ ironforge/
 │   ├── rg-http/            # HTTP 服务端 + REST API（Axum 0.8）
 │   ├── rg-db/              # 数据库层（SeaORM 1.1 + SQLite/PG/MySQL）
 │   ├── rg-ci/              # CI/CD 引擎（YAML 解析 + Pipeline 执行器）
-│   ├── rg-runner/          # Runner Agent（bin = "ironforge-runner"）
-│   └── rg-mcp/             # MCP 服务器（bin = "ironforge-mcp"，stdio-only）
+│   ├── rg-ci-isolation/    # CI 容器加固策略（镜像校验、资源/capability 限制）
+│   ├── rg-runner/          # Runner Agent（bin = "ironforge-runner"，CI 任务执行器，与 AI Agent 无关）
+│   └── rg-mcp/             # MCP 服务器（bin = "ironforge-mcp"，stdio + streamable HTTP）
 ├── web/                    # SvelteKit 前端（独立 SPA）
 ├── docs/                   # 设计文档（PRD/系统设计/Git协议/AI集成）
-├── ironforge-docs/         # 分析报告（架构/对比/CI/测试审计）
-└── .ai/                    # AI Agent 接入规范（guardrails + MCP 配置）
+├── ironforge-docs/         # 分析报告（架构/Agent 设计与验证记录/对比/CI/测试审计）
+└── .ai/                    # AI Agent 接入规范（接入指南 + guardrails + MCP 配置）
 ```
 
 > 各 crate 职责和边界规则详见 [CONTRIBUTING.md](CONTRIBUTING.md)；当前架构事实详见 [ironforge-docs/architecture/](ironforge-docs/architecture/)。
@@ -345,6 +401,8 @@ ironforge/
 
 | 文件 | 用途 |
 |------|------|
+| [.ai/README.md](.ai/README.md) | **Agent 接入指南**：MCP 配置、全部工具清单、AI 端点、多 Agent 协作协议、令牌 scope |
+| [.ai/guardrails.md](.ai/guardrails.md) | Agent 生命周期护栏（哪些操作禁止 / 需确认） |
 | [CLAUDE.md](CLAUDE.md) | AI 深度协作上下文（踩坑记录、依赖版本、错误排查、实现清单） |
 | [AGENT.md](AGENT.md) | AI 助手轻量统一入口（概览 + 文件速查） |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发规范（crate 边界、编码规范、提交规范、测试规范） |
