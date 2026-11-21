@@ -3,6 +3,8 @@ pub mod adapter;
 pub mod adapters;
 pub mod oci;
 pub mod service;
+pub mod skill_bundle;
+pub mod skill_service;
 pub mod storage;
 
 pub use adapter::{get_adapter, ExtractedMetadata, PackageAdapter};

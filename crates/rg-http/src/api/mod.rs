@@ -71,6 +71,7 @@ pub mod repos;
 pub mod reviews;
 pub mod runners;
 pub mod search;
+pub mod skills;
 pub mod ssh_keys;
 pub mod sso;
 pub mod tag_protection;

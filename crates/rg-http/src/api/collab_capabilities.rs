@@ -101,7 +101,7 @@ fn instance_response() -> CapabilitiesResponse {
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         build_commit: match env!("IRONFORGE_BUILD_COMMIT") { "" => None, value => Some(value.to_owned()) },
         build_dirty: env!("IRONFORGE_BUILD_DIRTY").parse().ok(),
-        api_capabilities: vec!["wiki.revision_scope.v1".into(), "wiki.concurrent_update.v1".into(), "ci.default_branch.v1".into(), "repo.settings.patch.v1".into(), "actors.ref.v1".into()],
+        api_capabilities: vec!["wiki.revision_scope.v1".into(), "wiki.concurrent_update.v1".into(), "ci.default_branch.v1".into(), "repo.settings.patch.v1".into(), "actors.ref.v1".into(), "registry.skills.v1".into()],
         capabilities: registry::all()
             .iter()
             .map(|c| CapabilityEntry {

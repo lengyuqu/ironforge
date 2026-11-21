@@ -8,6 +8,7 @@ pub mod npm;
 pub mod nuget;
 pub mod pypi;
 pub mod rubygems;
+pub mod skill;
 
 pub use cargo::CargoAdapter;
 pub use composer::ComposerAdapter;
@@ -19,6 +20,7 @@ pub use npm::NpmAdapter;
 pub use nuget::NuGetAdapter;
 pub use pypi::PyPIAdapter;
 pub use rubygems::RubyGemsAdapter;
+pub use skill::SkillAdapter;
 
 /// Name of a ZIP entry, for matching only.
 ///

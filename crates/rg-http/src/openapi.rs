@@ -372,6 +372,15 @@ pub struct PaginatedRepoResponse {
         crate::api::repo_pick::revert_commit,
         crate::api::repo_patch::apply_patch,
         // Package registry
+        // Skill registry
+        crate::api::skills::publish,
+        crate::api::skills::list_skills,
+        crate::api::skills::get_skill,
+        crate::api::skills::resolve,
+        crate::api::skills::get_version,
+        crate::api::skills::get_content,
+        crate::api::skills::get_file,
+        crate::api::skills::get_archive,
         crate::api::packages::publish,
         crate::api::packages::list_registries,
         crate::api::packages::list_packages,
@@ -601,6 +610,7 @@ pub struct PaginatedRepoResponse {
         (name = "MFA", description = "Multi-Factor Authentication"),
         (name = "Audit", description = "Audit logs"),
         (name = "Packages", description = "Package registry"),
+        (name = "Skills", description = "Agent skill registry: publish from a Git ref, resolve, read"),
     )
 )]
 pub struct ApiDoc;

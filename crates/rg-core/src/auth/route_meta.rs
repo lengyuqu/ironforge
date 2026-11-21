@@ -424,6 +424,16 @@ pub const ROUTES: &[RouteMeta] = &[
     other_repos("/repos/{owner}/{name}/fork"),
     other_repos("/repos/{owner}/{name}/forks"),
     other_repos("/repos/{owner}/{name}/transfer"),
+    // Skill registry. Publishing builds from a ref but moves no branch or tag, so
+    // it is neither `.open()` nor `.checked()`: a branch-limited token is refused.
+    repo("/repos/{owner}/{name}/skills/publish"),
+    repo("/repos/{owner}/{name}/skills"),
+    repo("/repos/{owner}/{name}/skills/{skill}"),
+    repo("/repos/{owner}/{name}/skills/{skill}/resolve"),
+    repo("/repos/{owner}/{name}/skills/{skill}/versions/{version}"),
+    repo("/repos/{owner}/{name}/skills/{skill}/versions/{version}/content"),
+    repo("/repos/{owner}/{name}/skills/{skill}/versions/{version}/files/{*path}"),
+    repo("/repos/{owner}/{name}/skills/{skill}/versions/{version}/archive"),
     repo("/repos/{owner}/{name}/packages"),
     repo("/repos/{owner}/{name}/packages/{pkg_type}/publish"),
     repo("/repos/{owner}/{name}/packages/{pkg_type}/list"),

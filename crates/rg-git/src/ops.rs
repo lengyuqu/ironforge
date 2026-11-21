@@ -80,6 +80,170 @@ pub fn blob_at(
     Ok(Some((entry.id().to_string(), object.data.to_vec())))
 }
 
+/// What a non-directory tree entry is, as far as a packager cares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeFileKind {
+    /// Regular file, mode 100644.
+    File,
+    /// Executable regular file, mode 100755.
+    Executable,
+    /// Symbolic link, mode 120000.
+    Symlink,
+    /// Submodule commit pointer, mode 160000.
+    Submodule,
+}
+
+/// One non-directory entry found by [`list_tree_files`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeFileEntry {
+    /// Path relative to the listed directory, `/`-separated, no leading `/`.
+    pub path: String,
+    pub kind: TreeFileKind,
+    pub blob_sha: String,
+    /// Blob size in bytes (0 for a submodule pointer).
+    pub size: u64,
+}
+
+/// Result of [`list_tree_files`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TreeListing {
+    /// Entries sorted by path (byte order, not git's tree order).
+    pub entries: Vec<TreeFileEntry>,
+    /// `true` when the walk stopped at the entry limit; `entries` is then a
+    /// prefix of an unspecified order and must not be used as a whole.
+    pub truncated: bool,
+}
+
+/// Directory depth the walk will follow below the listed directory.
+const LIST_TREE_MAX_DEPTH: usize = 32;
+
+/// Recursively list the non-directory entries under `dir` in the tree of
+/// `commitish` (`dir` empty or `"."` means the root tree). Nothing is checked
+/// out and no attribute or line-ending filter is applied: the listing is the
+/// object database's content, byte for byte.
+///
+/// `Ok(None)` when `dir` does not exist or is not a directory. The walk stops
+/// after `max_entries` entries and reports `truncated: true`, so a hostile
+/// tree cannot make it unbounded. Paths that are not valid UTF-8 are an error.
+pub fn list_tree_files(
+    repo_path: &Path,
+    commitish: &str,
+    dir: &str,
+    max_entries: usize,
+) -> anyhow::Result<Option<TreeListing>> {
+    use gix::bstr::ByteSlice;
+    use gix::object::tree::EntryKind;
+
+    let repo = open_repo(repo_path)?;
+    let root = repo
+        .rev_parse_single(commitish)
+        .with_context(|| format!("failed to resolve revision '{commitish}'"))?
+        .object()
+        .with_context(|| format!("failed to read object for '{commitish}'"))?
+        .peel_to_tree()
+        .with_context(|| format!("failed to peel '{commitish}' to a tree"))?;
+
+    let dir = dir.trim_matches('/');
+    let start = if dir.is_empty() || dir == "." {
+        root
+    } else {
+        let Some(entry) = root
+            .lookup_entry_by_path(dir)
+            .with_context(|| format!("failed to look up '{dir}' in tree of '{commitish}'"))?
+        else {
+            return Ok(None);
+        };
+        if !entry.mode().is_tree() {
+            return Ok(None);
+        }
+        entry
+            .id()
+            .object()
+            .with_context(|| format!("failed to read tree for '{dir}'"))?
+            .into_tree()
+    };
+
+    let mut entries: Vec<TreeFileEntry> = Vec::new();
+    let mut truncated = false;
+    // (tree, path prefix, depth) — an explicit stack, so depth is bounded by us
+    // and not by the thread's stack.
+    let mut stack = vec![(start, String::new(), 0usize)];
+    'walk: while let Some((tree, prefix, depth)) = stack.pop() {
+        for entry in tree.iter() {
+            let entry = entry.context("failed to decode a tree entry")?;
+            let filename = entry
+                .filename()
+                .to_str()
+                .map_err(|_| anyhow::anyhow!("tree entry name under '{prefix}' is not UTF-8"))?;
+            let path = if prefix.is_empty() {
+                filename.to_string()
+            } else {
+                format!("{prefix}/{filename}")
+            };
+            let kind = match entry.mode().kind() {
+                EntryKind::Tree => {
+                    if depth + 1 > LIST_TREE_MAX_DEPTH {
+                        anyhow::bail!(
+                            "directory nesting under '{dir}' is deeper than {LIST_TREE_MAX_DEPTH}"
+                        );
+                    }
+                    let child = entry
+                        .id()
+                        .object()
+                        .with_context(|| format!("failed to read tree '{path}'"))?
+                        .into_tree();
+                    stack.push((child, path, depth + 1));
+                    continue;
+                }
+                EntryKind::Blob => TreeFileKind::File,
+                EntryKind::BlobExecutable => TreeFileKind::Executable,
+                EntryKind::Link => TreeFileKind::Symlink,
+                EntryKind::Commit => TreeFileKind::Submodule,
+            };
+            if entries.len() >= max_entries {
+                truncated = true;
+                break 'walk;
+            }
+            let size = if kind == TreeFileKind::Submodule {
+                0
+            } else {
+                repo.find_header(entry.oid())
+                    .with_context(|| format!("failed to read size of '{path}'"))?
+                    .size()
+            };
+            entries.push(TreeFileEntry {
+                path,
+                kind,
+                blob_sha: entry.oid().to_string(),
+                size,
+            });
+        }
+    }
+    entries.sort_by(|a, b| a.path.as_bytes().cmp(b.path.as_bytes()));
+    Ok(Some(TreeListing { entries, truncated }))
+}
+
+/// Read blobs by object id from one repository handle, in the order given.
+/// An id that is not a blob is an error. Callers bound the total size using the
+/// sizes from [`list_tree_files`] *before* calling this.
+pub fn read_blobs(repo_path: &Path, blob_shas: &[String]) -> anyhow::Result<Vec<Vec<u8>>> {
+    let repo = open_repo(repo_path)?;
+    blob_shas
+        .iter()
+        .map(|sha| {
+            let id = gix::ObjectId::from_hex(sha.as_bytes())
+                .with_context(|| format!("'{sha}' is not an object id"))?;
+            let object = repo
+                .find_object(id)
+                .with_context(|| format!("failed to read object {sha}"))?;
+            if object.kind != gix::object::Kind::Blob {
+                bail!("object {sha} is not a blob but {}", object.kind);
+            }
+            Ok(object.data.to_vec())
+        })
+        .collect()
+}
+
 /// Equivalent of `git update-ref <ref> <sha>` — create or move a reference to
 /// `new_sha`, writing `log_message` into the reflog.
 pub fn update_ref(
@@ -2175,5 +2339,149 @@ mod rebase_tests {
             "commit",
             "the unshallow pack must contain the root commit"
         );
+    }
+}
+
+#[cfg(test)]
+mod tree_listing_tests {
+    //! [`list_tree_files`] and [`read_blobs`]: the object database's content,
+    //! listed without a checkout and without any filter.
+
+    use super::*;
+    use crate::cli_gateway::GitCommandGateway;
+
+    fn run_git(git: &GitCommandGateway, args: &[&str], cwd: &Path) {
+        git.run(args, Some(cwd))
+            .expect("git runs")
+            .ensure_success()
+            .expect("git succeeds");
+    }
+
+    /// A repository with this tree committed: a file, an executable, a symlink,
+    /// nested directories and a name that sorts differently in git's tree order
+    /// than in plain byte order.
+    fn seeded(dir: &Path) -> GitCommandGateway {
+        let git = GitCommandGateway::new().expect("git CLI available");
+        run_git(&git, &["init", "-b", "main"], dir);
+        run_git(&git, &["config", "user.email", "tester@example.com"], dir);
+        run_git(&git, &["config", "user.name", "Tester"], dir);
+        run_git(&git, &["config", "core.autocrlf", "true"], dir);
+        let write = |path: &str, content: &[u8]| {
+            let full = dir.join(path);
+            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+            std::fs::write(full, content).unwrap();
+        };
+        write("skill/SKILL.md", b"---\r\nname: a\r\n---\r\n");
+        write("skill/run.sh", b"#!/bin/sh\n");
+        write("skill/a.b", b"dot");
+        write("skill/a/inner.txt", b"inner");
+        write("skill/deep/er/file.txt", b"deep");
+        write("other/x.txt", b"x");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let run = dir.join("skill/run.sh");
+            std::fs::set_permissions(&run, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::os::unix::fs::symlink("SKILL.md", dir.join("skill/link")).unwrap();
+        }
+        run_git(&git, &["add", "-A"], dir);
+        run_git(&git, &["commit", "-m", "seed"], dir);
+        git
+    }
+
+    #[test]
+    fn lists_recursively_sorted_by_path_with_kinds_and_sizes() {
+        let temp = tempfile::tempdir().unwrap();
+        seeded(temp.path());
+
+        let listing = list_tree_files(temp.path(), "main", "skill", 100)
+            .unwrap()
+            .expect("the directory exists");
+        assert!(!listing.truncated);
+        let paths: Vec<&str> = listing.entries.iter().map(|e| e.path.as_str()).collect();
+        // Plain byte order: "a.b" < "a/inner.txt" ('.' is 0x2e, '/' is 0x2f),
+        // which is not git's own tree order.
+        let mut expected = vec![
+            "SKILL.md",
+            "a.b",
+            "a/inner.txt",
+            "deep/er/file.txt",
+            "run.sh",
+        ];
+        #[cfg(unix)]
+        {
+            expected.push("link");
+            expected.sort_unstable_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+        }
+        assert_eq!(paths, expected);
+
+        let by_path = |p: &str| listing.entries.iter().find(|e| e.path == p).unwrap();
+        // The blob is stored as committed, not as checked out: the CRLF file
+        // was committed with line-ending conversion on, so its size is whatever
+        // the object database holds. What matters is that size matches the blob.
+        let md = by_path("SKILL.md");
+        let blobs = read_blobs(temp.path(), std::slice::from_ref(&md.blob_sha)).unwrap();
+        assert_eq!(blobs[0].len() as u64, md.size);
+        assert_eq!(by_path("a.b").kind, TreeFileKind::File);
+        #[cfg(unix)]
+        {
+            assert_eq!(by_path("run.sh").kind, TreeFileKind::Executable);
+            assert_eq!(by_path("link").kind, TreeFileKind::Symlink);
+        }
+    }
+
+    #[test]
+    fn the_root_can_be_listed_and_a_missing_or_file_path_is_none() {
+        let temp = tempfile::tempdir().unwrap();
+        seeded(temp.path());
+
+        let root = list_tree_files(temp.path(), "main", "", 100)
+            .unwrap()
+            .unwrap();
+        assert!(root.entries.iter().any(|e| e.path == "other/x.txt"));
+        assert!(root.entries.iter().any(|e| e.path == "skill/SKILL.md"));
+        let dot = list_tree_files(temp.path(), "main", ".", 100)
+            .unwrap()
+            .unwrap();
+        assert_eq!(dot, root);
+
+        assert!(list_tree_files(temp.path(), "main", "nope", 100)
+            .unwrap()
+            .is_none());
+        assert!(list_tree_files(temp.path(), "main", "skill/SKILL.md", 100)
+            .unwrap()
+            .is_none());
+        assert!(list_tree_files(temp.path(), "no-such-ref", "skill", 100).is_err());
+    }
+
+    #[test]
+    fn the_walk_stops_at_the_entry_limit() {
+        let temp = tempfile::tempdir().unwrap();
+        seeded(temp.path());
+        let listing = list_tree_files(temp.path(), "main", "", 3)
+            .unwrap()
+            .unwrap();
+        assert!(listing.truncated);
+        assert_eq!(listing.entries.len(), 3);
+    }
+
+    #[test]
+    fn read_blobs_refuses_a_non_blob_and_a_bad_id() {
+        let temp = tempfile::tempdir().unwrap();
+        let git = seeded(temp.path());
+        let tree = git
+            .run(&["rev-parse", "main^{tree}"], Some(temp.path()))
+            .unwrap()
+            .stdout_str()
+            .trim()
+            .to_string();
+        assert!(read_blobs(temp.path(), &[tree]).is_err());
+        assert!(read_blobs(temp.path(), &["not-an-id".to_string()]).is_err());
+        assert!(read_blobs(
+            temp.path(),
+            &["0000000000000000000000000000000000000001".to_string()]
+        )
+        .is_err());
+        assert!(read_blobs(temp.path(), &[]).unwrap().is_empty());
     }
 }
