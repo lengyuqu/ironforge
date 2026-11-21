@@ -51,6 +51,7 @@ pub mod imports;
 pub mod issues;
 pub mod labels;
 pub mod lfs;
+pub mod mcp_servers;
 pub mod mfa;
 pub mod mirrors;
 pub mod notification_prefs;

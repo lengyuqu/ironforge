@@ -1,11 +1,14 @@
 //! Package registry — OCI, npm, PyPI, Maven, Cargo, NuGet, Helm, RubyGems, Go, Composer, Generic.
 pub mod adapter;
 pub mod adapters;
+pub mod mcp_manifest;
+pub mod mcp_service;
 pub mod oci;
 pub mod service;
 pub mod skill_bundle;
 pub mod skill_service;
 pub mod storage;
+mod version_select;
 
 pub use adapter::{get_adapter, ExtractedMetadata, PackageAdapter};
 pub use adapters::cargo::{build_sparse_index, build_sparse_index_entry};

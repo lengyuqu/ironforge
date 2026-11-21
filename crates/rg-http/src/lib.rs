@@ -1703,6 +1703,24 @@ fn build_routes(
             "/repos/{owner}/{name}/skills/{skill}/versions/{version}/archive",
             get(api::skills::get_archive),
         )
+        // MCP server manifest registry. A server is `namespace/server`, two
+        // path segments.
+        .route(
+            "/repos/{owner}/{name}/mcp-servers",
+            post(api::mcp_servers::publish).get(api::mcp_servers::list_servers),
+        )
+        .route(
+            "/repos/{owner}/{name}/mcp-servers/{namespace}/{server}",
+            get(api::mcp_servers::get_server),
+        )
+        .route(
+            "/repos/{owner}/{name}/mcp-servers/{namespace}/{server}/resolve",
+            get(api::mcp_servers::resolve),
+        )
+        .route(
+            "/repos/{owner}/{name}/mcp-servers/{namespace}/{server}/versions/{version}",
+            get(api::mcp_servers::get_version),
+        )
         // Package Registry — protocol-specific routes first (before generic catch-all)
         .route(
             "/repos/{owner}/{name}/packages",

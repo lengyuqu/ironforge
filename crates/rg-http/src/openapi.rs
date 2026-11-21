@@ -381,6 +381,12 @@ pub struct PaginatedRepoResponse {
         crate::api::skills::get_content,
         crate::api::skills::get_file,
         crate::api::skills::get_archive,
+        // MCP server manifest registry
+        crate::api::mcp_servers::publish,
+        crate::api::mcp_servers::list_servers,
+        crate::api::mcp_servers::get_server,
+        crate::api::mcp_servers::resolve,
+        crate::api::mcp_servers::get_version,
         crate::api::packages::publish,
         crate::api::packages::list_registries,
         crate::api::packages::list_packages,
@@ -611,6 +617,7 @@ pub struct PaginatedRepoResponse {
         (name = "Audit", description = "Audit logs"),
         (name = "Packages", description = "Package registry"),
         (name = "Skills", description = "Agent skill registry: publish from a Git ref, resolve, read"),
+        (name = "MCP servers", description = "MCP server manifest registry (server.json): publish, resolve, read; ownership is never verified"),
     )
 )]
 pub struct ApiDoc;

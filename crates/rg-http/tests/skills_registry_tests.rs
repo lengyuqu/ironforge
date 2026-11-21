@@ -734,6 +734,8 @@ async fn publishing_is_audited_once() {
 
     let rows = rg_db::entities::audit_log::Entity::find()
         .filter(rg_db::entities::audit_log::Column::Action.eq("skill.publish"))
+        // Other tests publish into the same audit table when they share a database.
+        .filter(rg_db::entities::audit_log::Column::Username.eq("skill_audit"))
         .all(&db)
         .await
         .unwrap();

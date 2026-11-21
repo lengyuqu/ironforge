@@ -1,6 +1,6 @@
 # Agent 技能 / MCP 服务注册中心 — 设计与分期计划
 
-> **状态**：P1（Skill，每仓库）已在分支 `feat/skills-registry-p1` 实现，证据与未覆盖项见 [skills-registry-p1-verification-2026-11.md](../../ironforge-docs/architecture/skills-registry-p1-verification-2026-11.md)；P1b（MCP 清单）及之后**未开始**。下文 §1–§12 是原计划；实际与计划的差异见文末 §13。
+> **状态**：P1（Skill，每仓库）已在分支 `feat/skills-registry-p1` 实现，证据与未覆盖项见 [skills-registry-p1-verification-2026-11.md](../../ironforge-docs/architecture/skills-registry-p1-verification-2026-11.md)；P1b（MCP 清单）在栈在其上的分支 `feat/mcp-server-manifest-p1b` 实现，见 [mcp-server-manifest-p1b-verification-2026-11.md](../../ironforge-docs/architecture/mcp-server-manifest-p1b-verification-2026-11.md) 与文末 §14；P2 及之后**未开始**。下文 §1–§12 是原计划；实际与计划的差异见文末 §13。
 > 编号未分配（T 编号由负责人分配，批准后再改文件名）。
 > 证据标注：`确认` = 读过仓库代码；`外部` = 来自网络检索，实现前须对着官方文档再核；`待核实` = 未读代码或未验证。
 
@@ -186,7 +186,7 @@ skill 是会被其他 agent 当指令加载的文本，注册表因此是**持�
 | §5 发布体含 `client_request_id` | 去掉 | 幂等由"同版本同内容摘要 → 200"保证，不需要另一把键 |
 | — | skill 名 `publish` 被保留 | `…/skills/publish` 是静态路由段，会遮住同名 skill 的 GET |
 | §5 跨仓库发现、MCP 工具 | **未做**（P2） | 按分期 |
-| §5 MCP 清单 | **未做**（P1b） | 按分期 |
+| §5 MCP 清单 | P1 未做；**P1b 已做**，见 §14 | 按分期 |
 | §6 第 3 条 agent 发布走授权原语 #19 | **未做**（P2）。P1 中任何持 `repo:write` 的 agent 令牌都能在**该仓库**发布；但没有全局发现，发布的 skill 只在该仓库的 `…/skills` 下可见；分支受限令牌被拒 | 依赖 #19 的 agent 入口，见 §2 待核实项 |
 
 新增事实（实现时发现）：
@@ -194,3 +194,25 @@ skill 是会被其他 agent 当指令加载的文本，注册表因此是**持�
 - `rg-git` 新增 `list_tree_files`（递归、按字节序、带条目上限）与 `read_blobs`，不做检出、不过滤，换行符按对象库原样。
 - 字节级确定性只对**未压缩 tar** 成立（`content_digest`）；压缩后的 `.tar.gz` 摘要（`archive_digest`）在服务端存下后固定，换 gzip 实现重新打包可能得到不同字节，所以不可变性按 `content_digest` 判定。
 - `semver` 作为 `rg-core` 的直接依赖加入（`Cargo.lock` 中已有 1.0.28，只多一条边）。
+
+## 14. P1b 实现与原计划的差异（2026-11-21）
+
+对着发布的 JSON Schema（`static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`，2026-11-21 由子 agent 读取并报告，主 agent 未自行再读原文）核对了 §3.2：
+
+| 原计划 | 实际 | 原因 |
+|---|---|---|
+| §3.2 `description` 未给上限 | **1–100 字符**；`name` 3–200 且匹配 `^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$`；`title` 1–100；`version` ≤255 | 取自发布的 schema |
+| §3.2 `$schema` 日期版本"须核对" | 已核对，发布版本为 `2025-12-11`；**只记录、不抓取、不要求**；仓库 `draft/` 与发布版有差异（`cargo`、`Package.version` 的 `maxLength`、URL 模板），**以发布版为准**，URL 模板被拒 | 子 agent 报告未确认是否有更新的日期版本 |
+| §3.2 `registryType` 未知值保留并标 `unknown_registry_type` | 实际字段名 `known_registry_type: false`（已知集合 npm/pypi/oci/nuget/mcpb/cargo；schema 本身没有枚举） | 响应里用肯定式字段更好读 |
+| §5 `PUT/POST/GET …/mcp-servers[/{name}…]` | **`POST …/mcp-servers`**（体 `{"server": <server.json>}`）、`GET …/mcp-servers`、`…/{namespace}/{server}`、`…/{namespace}/{server}/resolve`、`…/{namespace}/{server}/versions/{v}` | 名字含 `/`，用两个路径段；发布不带名字，名字与版本都取自清单 |
+| §4.3 不可变按摘要 | 按**规范化清单**的摘要（键排序、无多余空白），所以键序与空白不影响；存储的就是规范化后的字节，`digest` 即下载字节的摘要，没有 `archive_digest` | 单文件，无需两个摘要 |
+| §3.2 `version` 须是合法 semver | 更严：**必须是单个规范 semver、无构建元数据**（schema 只说 SHOULD）；`^1.2.3`、`2024.10`、`1.2` 都被拒 | 要做约束解析就必须能排序 |
+| §3.2 `packages`/`remotes` 至少一项 | 同计划（schema 并不要求） | 清单要有可运行/可调用的东西 |
+| §3.2 `remotes[].url` 必须 https，localhost 例外 | 同计划；另外**拒绝 `user:password@`**；`insecure_local` 字段标出 http 本机 | 清单会被 agent 读，URL 里的凭据不该入库 |
+| §3.2 `hosted_here` | **未做**；所有响应固定 `ownership: "unverified"` | 没有核验 |
+| — | 元数据只存摘要、大小、`$schema`（≤512 字节）；清单本身是存储里的 `server.json`（≤128 KiB，≤50 个 packages、≤20 个 remotes） | MySQL `TEXT` 只有 64 KiB（P1 已实测） |
+| — | `version_select.rs`：skill 与清单共用 `latest`/预发布/yank 的选择逻辑 | 避免两份实现漂移；skill 的行为与测试不变 |
+| — | yank 沿用通用 `PATCH …/packages/mcp-server/{name}/{v}/yank`，名字里的 `/` 写成 `%2F`；通用 `publish` 拒绝该类型 | 少一条重复路由；测试覆盖编码名 |
+
+**没做**：官方注册表的命名空间与包所有权核验（子 agent 没读 `quickstart.mdx` 与 `package-types.mdx`，所以 npm `mcpName` 等规则**未核实**）、在线探测、与官方注册表 API 形状兼容的端点（P3）、跨仓库发现与 MCP 工具（P2）。
+

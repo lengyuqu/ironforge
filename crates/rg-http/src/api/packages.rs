@@ -240,6 +240,14 @@ pub async fn publish(
             "skills are published with POST /repos/{owner}/{name}/skills/publish",
         );
     }
+    // MCP server manifests are validated and compared by digest by their own
+    // route; their names also contain a `/`, which this route cannot address.
+    if pkg_type == rg_core::package_registry::package_types::MCP_SERVER {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "MCP server manifests are published with POST /repos/{owner}/{name}/mcp-servers",
+        );
+    }
 
     let filename = headers
         .get(header::CONTENT_DISPOSITION)

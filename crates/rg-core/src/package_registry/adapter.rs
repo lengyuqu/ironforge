@@ -84,6 +84,7 @@ pub fn get_adapter(package_type: &str) -> Option<BoxedAdapter> {
         "helm" => Some(Box::new(super::adapters::HelmAdapter)),
         "composer" => Some(Box::new(super::adapters::ComposerAdapter)),
         "skill" => Some(Box::new(super::adapters::SkillAdapter)),
+        "mcp-server" => Some(Box::new(super::adapters::McpServerAdapter)),
         // Other types fall back to generic
         _ => {
             if package_type != "generic" {
