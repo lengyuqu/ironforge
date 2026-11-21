@@ -984,7 +984,15 @@ async fn m04_filtering_scans_on_until_the_page_is_full() {
         (empty["has_more"].as_bool(), empty["next_cursor"].is_null()),
         (Some(false), true)
     );
-    let raw = empty.to_string();
+    // `as_of` is a nanosecond timestamp whose digits can spell "105" or "108" by
+    // chance (that failed CI once); what must not leak is the *count*, so look at
+    // everything except the timestamp.
+    let mut shown = empty.clone();
+    shown
+        .as_object_mut()
+        .expect("the page is an object")
+        .remove("as_of");
+    let raw = shown.to_string();
     assert!(
         !raw.contains("hidden-pile") && !raw.contains("105") && !raw.contains("108"),
         "{raw}"
