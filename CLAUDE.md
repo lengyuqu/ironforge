@@ -10,7 +10,9 @@
 
 ## 项目简介
 
-**IronForge**（铁匠铺）是一个用 Rust 从零实现的轻量级 Git 托管平台，对标 Gitea/Forgejo。内存 <50MB、单二进制部署、全功能（仓库/Issue/PR/Wiki/CI/包注册表/企业认证/审计/代码搜索）。Phase 1~21 全部完成。
+**IronForge**（铁匠铺）是一个用 Rust 从零实现的、**面向 AI Agent 编程的 Git 托管平台**。内存 <50MB、单二进制部署，带完整的托管基本盘（仓库/Issue/PR/Wiki/CI/包注册表/企业认证/审计/代码搜索）。Phase 1~21 全部完成。
+
+> **定位（项目负责人多次强调，2026-11-21 写入）**：项目起步时对标 Gitea/Forgejo，但**早已不只是那样的 Git 托管平台**。此后的设计重心是 Agent 友好：Agent 主体身份与最小权限令牌、可预览/可并发/可重试的写入、改-推-看 CI-修 的短闭环、MCP（77 个工具，stdio + streamable HTTP）、多 Agent 协作。评估新功能或取舍时，先问「是否让 Agent 更省 token、更可控、更可追溯」，而不是「Gitea 有没有」。对标 Gitea 的差距清单仍在 `ironforge-docs/comparison/`，只作参考，不是目标。Agent 能力的接入与协议见 [`.ai/README.md`](.ai/README.md)。
 
 ---
 
