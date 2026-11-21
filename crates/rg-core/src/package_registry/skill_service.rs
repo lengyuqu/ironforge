@@ -35,12 +35,11 @@ use super::skill_bundle::{
     MAX_UNPACKED_BYTES, SKILL_MD,
 };
 use super::storage::PackageStorage;
+use super::version_select;
 
 /// Largest single file the text endpoints will return inline. Bigger files are
 /// still in the archive.
 pub const MAX_INLINE_FILE_BYTES: usize = 1024 * 1024;
-/// Version-list entries returned in an error's `available` list.
-const MAX_AVAILABLE_VERSIONS: usize = 100;
 /// Names a skill cannot take because they are path segments of the registry's
 /// own routes (`…/skills/publish`).
 const RESERVED_NAMES: &[&str] = &["publish"];
@@ -72,7 +71,11 @@ pub struct SkillError {
 }
 
 impl SkillError {
-    fn new(kind: SkillErrorKind, code: &'static str, message: impl Into<String>) -> Self {
+    pub(super) fn new(
+        kind: SkillErrorKind,
+        code: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             kind,
             code,
@@ -81,12 +84,12 @@ impl SkillError {
         }
     }
 
-    fn with_details(mut self, details: Value) -> Self {
+    pub(super) fn with_details(mut self, details: Value) -> Self {
         self.details = Some(details);
         self
     }
 
-    fn internal(message: impl std::fmt::Display) -> Self {
+    pub(super) fn internal(message: impl std::fmt::Display) -> Self {
         Self::new(SkillErrorKind::Internal, "INTERNAL", message.to_string())
     }
 }
@@ -632,29 +635,6 @@ fn version_not_found(name: &str, version: &str) -> SkillError {
     )
 }
 
-/// Versions whose string parses as semver, with the parsed value.
-fn parsed(versions: &[package_version::Model]) -> Vec<(semver::Version, &package_version::Model)> {
-    versions
-        .iter()
-        .filter_map(|v| semver::Version::parse(&v.version).ok().map(|p| (p, v)))
-        .collect()
-}
-
-/// The version `latest` means: the highest non-yanked stable version, or, when
-/// there is none, the highest non-yanked pre-release.
-fn pick_latest(versions: &[package_version::Model]) -> Option<&package_version::Model> {
-    let candidates: Vec<_> = parsed(versions)
-        .into_iter()
-        .filter(|(_, v)| !v.is_yanked)
-        .collect();
-    candidates
-        .iter()
-        .filter(|(p, _)| p.pre.is_empty())
-        .max_by(|a, b| a.0.cmp(&b.0))
-        .or_else(|| candidates.iter().max_by(|a, b| a.0.cmp(&b.0)))
-        .map(|(_, v)| *v)
-}
-
 fn description_of(pkg: &package::Model, latest: Option<&package_version::Model>) -> String {
     latest
         .and_then(parse_metadata)
@@ -666,6 +646,30 @@ fn description_of(pkg: &package::Model, latest: Option<&package_version::Model>)
         })
         .or_else(|| pkg.description.clone())
         .unwrap_or_default()
+}
+
+/// What a cross-repository listing shows of one version: the digests of its
+/// content and of its archive, and whether the server built it from the commit.
+pub(super) struct DiscoveryView {
+    pub content_digest: String,
+    pub archive_digest: String,
+    pub source_verified: bool,
+    pub description: String,
+}
+
+pub(super) fn discovery_view(version: &package_version::Model) -> Option<DiscoveryView> {
+    let meta = parse_metadata(version)?;
+    Some(DiscoveryView {
+        description: meta
+            .frontmatter
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        source_verified: meta.source.built_by == "server",
+        content_digest: meta.content_digest,
+        archive_digest: meta.archive_digest,
+    })
 }
 
 fn version_summary(v: &package_version::Model) -> SkillVersionSummary {
@@ -691,7 +695,7 @@ pub async fn list_skills(db: &DatabaseConnection, repo_id: i64) -> Result<Vec<Sk
     let mut out = Vec::new();
     for pkg in rg_db::ops::package_ops::list_by_registry(db, registry.id).await? {
         let versions = rg_db::ops::package_version_ops::list_by_package(db, pkg.id).await?;
-        let latest = pick_latest(&versions);
+        let latest = version_select::pick_latest(&versions);
         out.push(SkillSummary {
             description: description_of(&pkg, latest),
             latest_version: latest.map(|v| v.version.clone()),
@@ -715,7 +719,7 @@ pub async fn get_skill(db: &DatabaseConnection, repo_id: i64, name: &str) -> Res
         .await?
         .ok_or_else(|| skill_not_found(name))?;
     let versions = rg_db::ops::package_version_ops::list_by_package(db, pkg.id).await?;
-    let latest = pick_latest(&versions);
+    let latest = version_select::pick_latest(&versions);
     Ok(SkillDetail {
         description: description_of(&pkg, latest),
         latest_version: latest.map(|v| v.version.clone()),
@@ -787,43 +791,27 @@ pub async fn resolve(
     name: &str,
     constraint: Option<&str>,
 ) -> Result<ResolvedSkill> {
-    let text = constraint
-        .map(str::trim)
-        .filter(|c| !c.is_empty())
-        .unwrap_or("*");
-    let text = if text == "latest" { "*" } else { text };
-    let requirement = semver::VersionReq::parse(text).map_err(|error| {
-        SkillError::new(
-            SkillErrorKind::BadRequest,
-            "SKILL_CONSTRAINT_INVALID",
-            format!("constraint {text:?} is not a semantic-version requirement: {error}"),
-        )
-    })?;
+    let (text, requirement) =
+        version_select::parse_constraint(constraint).map_err(|(text, error)| {
+            SkillError::new(
+                SkillErrorKind::BadRequest,
+                "SKILL_CONSTRAINT_INVALID",
+                format!("constraint {text:?} is not a semantic-version requirement: {error}"),
+            )
+        })?;
 
     let pkg = find_skill_package(db, repo_id, name)
         .await?
         .ok_or_else(|| skill_not_found(name))?;
     let versions = rg_db::ops::package_version_ops::list_by_package(db, pkg.id).await?;
 
-    let chosen = parsed(&versions)
-        .into_iter()
-        .filter(|(p, v)| !v.is_yanked && requirement.matches(p))
-        .max_by(|a, b| a.0.cmp(&b.0))
-        .map(|(_, v)| v);
-
-    let Some(chosen) = chosen else {
-        let mut available: Vec<String> = parsed(&versions)
-            .into_iter()
-            .filter(|(_, v)| !v.is_yanked)
-            .map(|(_, v)| v.version.clone())
-            .collect();
-        available.truncate(MAX_AVAILABLE_VERSIONS);
+    let Some(chosen) = version_select::highest_matching(&versions, &requirement) else {
         return Err(SkillError::new(
             SkillErrorKind::NotFound,
             "NO_MATCHING_VERSION",
             format!("no published, non-yanked version of {name:?} satisfies {text:?}"),
         )
-        .with_details(serde_json::json!({ "available": available })));
+        .with_details(serde_json::json!({ "available": version_select::available(&versions) })));
     };
     let meta = parse_metadata(chosen).ok_or_else(|| {
         SkillError::internal(format!(
@@ -833,7 +821,7 @@ pub async fn resolve(
     })?;
     Ok(ResolvedSkill {
         name: name.to_string(),
-        constraint: text.to_string(),
+        constraint: text,
         version: chosen.version.clone(),
         content_digest: meta.content_digest,
         archive_digest: meta.archive_digest,

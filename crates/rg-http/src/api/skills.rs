@@ -34,7 +34,7 @@ use crate::AppState;
 
 /// Map a registry failure to an HTTP error. A server-side failure keeps its
 /// detail in the log only: it can carry storage paths.
-fn app_error(error: SkillError) -> AppError {
+pub(super) fn app_error(error: SkillError) -> AppError {
     let status = match error.kind {
         SkillErrorKind::BadRequest => StatusCode::BAD_REQUEST,
         SkillErrorKind::NotFound => StatusCode::NOT_FOUND,
@@ -61,7 +61,7 @@ fn app_error(error: SkillError) -> AppError {
     mapped
 }
 
-async fn require_read(
+pub(super) async fn require_read(
     state: &AppState,
     headers: &HeaderMap,
     owner: &str,
@@ -72,7 +72,7 @@ async fn require_read(
         .await
 }
 
-fn storage(state: &AppState) -> PackageStorage {
+pub(super) fn storage(state: &AppState) -> PackageStorage {
     PackageStorage::from_backend(state.blob_storage.clone())
 }
 

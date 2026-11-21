@@ -1672,6 +1672,12 @@ fn build_routes(
             "/repos/{owner}/{name}/transfer",
             post(api::repos::transfer_repo_handler),
         )
+        // Cross-repository discovery of skills and MCP server manifests.
+        .route("/skills", get(api::registry_discovery::discover_skills))
+        .route(
+            "/mcp-servers",
+            get(api::registry_discovery::discover_mcp_servers),
+        )
         // Skill registry. `publish` is a static segment, so a skill cannot be
         // named `publish` (the service refuses that name).
         .route(
@@ -1702,6 +1708,24 @@ fn build_routes(
         .route(
             "/repos/{owner}/{name}/skills/{skill}/versions/{version}/archive",
             get(api::skills::get_archive),
+        )
+        // MCP server manifest registry. A server is `namespace/server`, two
+        // path segments.
+        .route(
+            "/repos/{owner}/{name}/mcp-servers",
+            post(api::mcp_servers::publish).get(api::mcp_servers::list_servers),
+        )
+        .route(
+            "/repos/{owner}/{name}/mcp-servers/{namespace}/{server}",
+            get(api::mcp_servers::get_server),
+        )
+        .route(
+            "/repos/{owner}/{name}/mcp-servers/{namespace}/{server}/resolve",
+            get(api::mcp_servers::resolve),
+        )
+        .route(
+            "/repos/{owner}/{name}/mcp-servers/{namespace}/{server}/versions/{version}",
+            get(api::mcp_servers::get_version),
         )
         // Package Registry — protocol-specific routes first (before generic catch-all)
         .route(
