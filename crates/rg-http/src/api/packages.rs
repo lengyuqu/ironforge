@@ -231,6 +231,16 @@ pub async fn publish(
         );
     }
 
+    // Skills are built by the server from a Git ref so that their source is
+    // checked, and are compared by content digest so that a published version
+    // cannot change. This generic route does neither.
+    if pkg_type == rg_core::package_registry::package_types::SKILL {
+        return err(
+            StatusCode::BAD_REQUEST,
+            "skills are published with POST /repos/{owner}/{name}/skills/publish",
+        );
+    }
+
     let filename = headers
         .get(header::CONTENT_DISPOSITION)
         .and_then(|v| v.to_str().ok())

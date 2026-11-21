@@ -4774,6 +4774,7 @@ dependencies = [
  "rg-db",
  "rg-git",
  "sea-orm",
+ "semver",
  "serde",
  "serde-saphyr",
  "serde_json",

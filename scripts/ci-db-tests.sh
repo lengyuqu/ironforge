@@ -107,7 +107,7 @@ for t in pat_ref_allowlist_tests file_commit_semantics_tests idempotency_tests \
          fork_pr_ref_tests merge_pinned_head_tests repo_settings_tests wiki_tests repair_pull_refs_tests auto_merge_pinned_head_tests \
          merge_readiness_tests update_branch_tests ai_symbol_query_tests \
          cherry_pick_revert_tests notification_prefs_tests \
-         apply_patch_tests audit_on_behalf_of_tests; do
+         apply_patch_tests audit_on_behalf_of_tests skills_registry_tests; do
   run cargo test -p rg-http --test "$t"
 done
 echo "$suite $backend suites passed"

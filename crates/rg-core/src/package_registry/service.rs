@@ -24,12 +24,13 @@ pub mod package_types {
     pub const DEBIAN: &str = "debian";
     pub const RPM: &str = "rpm";
     pub const SWIFT: &str = "swift";
+    pub const SKILL: &str = "skill";
     pub const GENERIC: &str = "generic";
 
     /// All supported package types.
     pub const ALL: &[&str] = &[
         CARGO, NPM, MAVEN, PYPI, DOCKER, NUGET, RUBYGEMS, GO, HELM, COMPOSER, CONAN, CONDA, ALPINE,
-        DEBIAN, RPM, SWIFT, GENERIC,
+        DEBIAN, RPM, SWIFT, SKILL, GENERIC,
     ];
 
     /// Validate a package type string.

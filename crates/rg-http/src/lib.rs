@@ -1672,6 +1672,37 @@ fn build_routes(
             "/repos/{owner}/{name}/transfer",
             post(api::repos::transfer_repo_handler),
         )
+        // Skill registry. `publish` is a static segment, so a skill cannot be
+        // named `publish` (the service refuses that name).
+        .route(
+            "/repos/{owner}/{name}/skills/publish",
+            post(api::skills::publish),
+        )
+        .route("/repos/{owner}/{name}/skills", get(api::skills::list_skills))
+        .route(
+            "/repos/{owner}/{name}/skills/{skill}",
+            get(api::skills::get_skill),
+        )
+        .route(
+            "/repos/{owner}/{name}/skills/{skill}/resolve",
+            get(api::skills::resolve),
+        )
+        .route(
+            "/repos/{owner}/{name}/skills/{skill}/versions/{version}",
+            get(api::skills::get_version),
+        )
+        .route(
+            "/repos/{owner}/{name}/skills/{skill}/versions/{version}/content",
+            get(api::skills::get_content),
+        )
+        .route(
+            "/repos/{owner}/{name}/skills/{skill}/versions/{version}/files/{*path}",
+            get(api::skills::get_file),
+        )
+        .route(
+            "/repos/{owner}/{name}/skills/{skill}/versions/{version}/archive",
+            get(api::skills::get_archive),
+        )
         // Package Registry — protocol-specific routes first (before generic catch-all)
         .route(
             "/repos/{owner}/{name}/packages",
