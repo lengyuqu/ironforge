@@ -36,6 +36,9 @@ mod legacy {
         "/search",
         "/ai",
         "/ws",
+        // Cross-repository registry discovery (`GET /skills`, `GET /mcp-servers`).
+        "/skills",
+        "/mcp-servers",
     ];
 
     /// `required_pat_scope` + `repo_scope_for`, with the method reduced to

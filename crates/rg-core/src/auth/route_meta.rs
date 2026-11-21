@@ -426,6 +426,10 @@ pub const ROUTES: &[RouteMeta] = &[
     other_repos("/repos/{owner}/{name}/transfer"),
     // Skill registry. Publishing builds from a ref but moves no branch or tag, so
     // it is neither `.open()` nor `.checked()`: a branch-limited token is refused.
+    // Cross-repository discovery: no single repository, so a repository
+    // allow-list token is refused by the path rule, not by a declaration.
+    repo("/skills"),
+    repo("/mcp-servers"),
     repo("/repos/{owner}/{name}/skills/publish"),
     repo("/repos/{owner}/{name}/skills"),
     repo("/repos/{owner}/{name}/skills/{skill}"),
@@ -782,6 +786,10 @@ pub fn family_scope(is_read: bool, path: &str) -> Option<&'static str> {
         "/search",
         "/ai",
         "/ws",
+        // Cross-repository registry discovery: it reads what the caller may
+        // read, so it needs `repo:read` and nothing more.
+        "/skills",
+        "/mcp-servers",
     ];
     if REPO_SCOPED.iter().any(|prefix| path.starts_with(prefix)) {
         return Some(family_repo_scope(is_read, path));

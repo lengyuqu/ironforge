@@ -381,6 +381,9 @@ pub struct PaginatedRepoResponse {
         crate::api::skills::get_content,
         crate::api::skills::get_file,
         crate::api::skills::get_archive,
+        // Cross-repository discovery
+        crate::api::registry_discovery::discover_skills,
+        crate::api::registry_discovery::discover_mcp_servers,
         // MCP server manifest registry
         crate::api::mcp_servers::publish,
         crate::api::mcp_servers::list_servers,

@@ -58,6 +58,12 @@ struct McpVersionMetadata {
     digest: String,
     size: u64,
     declared_schema: Option<String>,
+    /// The manifest's `description` (at most 100 characters), kept here so a
+    /// listing shows the **latest** version's text: the package row's own
+    /// description is written once, when the first version creates it.
+    /// Versions published before this field existed lack it.
+    #[serde(default)]
+    description: String,
 }
 
 fn parse_metadata(version: &package_version::Model) -> Option<McpVersionMetadata> {
@@ -171,6 +177,7 @@ pub async fn publish(
         digest: digest.clone(),
         size: canonical.len() as u64,
         declared_schema,
+        description: description.clone(),
     };
     let metadata_json = serde_json::to_string(&metadata)
         .map_err(|error| McpError::internal(format!("metadata did not serialize: {error}")))?;
@@ -298,6 +305,30 @@ fn version_not_found(name: &str, version: &str) -> McpError {
     )
 }
 
+/// The description to show for a server: the latest version's, else the one the
+/// package row was created with.
+fn description_of(pkg: &package::Model, latest: Option<&package_version::Model>) -> String {
+    latest
+        .and_then(parse_metadata)
+        .map(|m| m.description)
+        .filter(|d| !d.is_empty())
+        .or_else(|| pkg.description.clone())
+        .unwrap_or_default()
+}
+
+/// The description a cross-repository listing shows for `latest`.
+pub(super) fn discovery_description(
+    pkg: &package::Model,
+    latest: &package_version::Model,
+) -> String {
+    description_of(pkg, Some(latest))
+}
+
+/// What a cross-repository listing shows of one version: its manifest digest.
+pub(super) fn discovery_digest(version: &package_version::Model) -> Option<String> {
+    parse_metadata(version).map(|m| m.digest)
+}
+
 fn version_summary(v: &package_version::Model) -> McpVersionSummary {
     McpVersionSummary {
         version: v.version.clone(),
@@ -323,7 +354,7 @@ pub async fn list(db: &DatabaseConnection, repo_id: i64) -> Result<Vec<McpServer
         let versions = rg_db::ops::package_version_ops::list_by_package(db, pkg.id).await?;
         let latest = version_select::pick_latest(&versions);
         out.push(McpServerSummary {
-            description: pkg.description.clone().unwrap_or_default(),
+            description: description_of(&pkg, latest),
             latest_version: latest.map(|v| v.version.clone()),
             version_count: versions.len(),
             updated_at: versions
@@ -348,7 +379,7 @@ pub async fn get(db: &DatabaseConnection, repo_id: i64, name: &str) -> Result<Mc
     let versions = rg_db::ops::package_version_ops::list_by_package(db, pkg.id).await?;
     let latest = version_select::pick_latest(&versions);
     Ok(McpServerDetail {
-        description: pkg.description.clone().unwrap_or_default(),
+        description: description_of(&pkg, latest),
         latest_version: latest.map(|v| v.version.clone()),
         versions: versions.iter().map(version_summary).collect(),
         name: pkg.name,

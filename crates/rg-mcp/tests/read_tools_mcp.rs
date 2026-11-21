@@ -598,3 +598,281 @@ fn the_token_is_sent_as_a_bearer_credential() {
         .unwrap_or_default();
     assert_eq!(auth, "Bearer pat-for-tests");
 }
+
+// ── skill and MCP-server registry tools ──────────────────────────────
+
+/// The routes the registry tools call, answering what the real server does.
+fn registry_api() -> Handler {
+    Box::new(|req| {
+        if req.method != "GET" {
+            return (405, String::new(), "text/plain");
+        }
+        let (path, _query) = req.path.split_once('?').unwrap_or((req.path.as_str(), ""));
+        match path {
+            "/api/v1/skills" => json_ok(json!({
+                "entries": [{
+                    "owner": "alice", "repo": "demo", "name": "pdf-tools",
+                    "latest_version": "1.2.0", "origin": "user_content",
+                    "content_digest": "sha256:aa", "archive_digest": "sha256:bb",
+                    "source_verified": true,
+                    "publisher": {"username": "alice", "kind": "human"}
+                }],
+                "next_cursor": "7"
+            })),
+            "/api/v1/mcp-servers" => json_ok(json!({
+                "entries": [{
+                    "owner": "alice", "repo": "demo", "name": "io.github.acme/weather",
+                    "latest_version": "2.0.0", "ownership": "unverified"
+                }],
+                "next_cursor": null
+            })),
+            "/api/v1/repos/alice/demo/skills/pdf-tools/resolve" => json_ok(json!({
+                "name": "pdf-tools", "constraint": "*", "version": "1.2.0",
+                "content_digest": "sha256:aa", "archive_digest": "sha256:bb",
+                "commit": "c0ffee", "yanked": false
+            })),
+            "/api/v1/repos/alice/demo/skills/pdf-tools/versions/1.2.0" => json_ok(json!({
+                "name": "pdf-tools", "version": "1.2.0", "content_digest": "sha256:aa",
+                "files": [{"path": "SKILL.md"}], "origin": "user_content"
+            })),
+            "/api/v1/repos/alice/demo/skills/pdf-tools/versions/1.2.0/content" => json_ok(json!({
+                "path": "SKILL.md", "content": "# PDF tools\n", "origin": "user_content"
+            })),
+            "/api/v1/repos/alice/demo/skills/old/resolve" => (
+                404,
+                json!({"error": {
+                    "code": "NO_MATCHING_VERSION",
+                    "message": "no published, non-yanked version of \"old\" satisfies \"^9\"",
+                    "details": {"available": ["1.0.0"]}
+                }})
+                .to_string(),
+                "application/json",
+            ),
+            "/api/v1/repos/alice/demo/mcp-servers/io.github.acme/weather/resolve" => {
+                json_ok(json!({
+                    "name": "io.github.acme/weather", "constraint": "*",
+                    "version": "2.0.0", "digest": "sha256:cc", "yanked": false
+                }))
+            }
+            "/api/v1/repos/alice/demo/mcp-servers/io.github.acme/weather/versions/2.0.0" => {
+                json_ok(json!({
+                    "name": "io.github.acme/weather", "version": "2.0.0",
+                    "digest": "sha256:cc", "ownership": "unverified",
+                    "manifest": {"name": "io.github.acme/weather"},
+                    "endpoints": {"packages": [], "remotes": [{"transport": "sse"}]}
+                }))
+            }
+            _ => (200, "<!doctype html><html></html>".to_string(), "text/html"),
+        }
+    })
+}
+
+#[test]
+fn the_registry_tools_are_listed_and_say_they_are_read_only() {
+    let stub = Stub::spawn(registry_api());
+    let mut mcp = Mcp::start(&stub.url);
+    let resp = mcp.rpc("tools/list", json!({}));
+    let tools = resp["result"]["tools"].as_array().unwrap();
+    for name in [
+        "search_skills",
+        "resolve_skill",
+        "get_skill",
+        "search_mcp_servers",
+        "get_mcp_server",
+    ] {
+        let tool = tools
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("{name} must be listed"));
+        let description = tool["description"].as_str().unwrap();
+        // `resolve_skill` returns digests and a version, no publisher text.
+        if name != "resolve_skill" {
+            assert!(
+                description.contains("user_content"),
+                "{name} must warn that the text is the publisher's: {description}"
+            );
+        }
+        assert!(tool["inputSchema"]["properties"].is_object());
+    }
+    // None of them writes.
+    assert!(!tools
+        .iter()
+        .any(|t| t["name"].as_str().unwrap().contains("publish")));
+}
+
+#[test]
+fn the_search_tools_ask_the_discovery_routes_and_pass_the_answer_through() {
+    let stub = Stub::spawn(registry_api());
+    let mut mcp = Mcp::start(&stub.url);
+
+    let (err, text) = mcp.tool(
+        "search_skills",
+        json!({"q": "pdf tools", "limit": 5, "cursor": "12"}),
+    );
+    assert!(!err, "{text}");
+    let body: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(body["entries"][0]["name"], "pdf-tools");
+    assert_eq!(
+        body["next_cursor"], "7",
+        "the cursor is handed back as it came"
+    );
+    assert_eq!(
+        stub.paths(),
+        ["GET /api/v1/skills?q=pdf%20tools&limit=5&cursor=12"]
+    );
+
+    let (err, text) = mcp.tool("search_mcp_servers", json!({}));
+    assert!(!err, "{text}");
+    let body: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(body["entries"][0]["ownership"], "unverified");
+    assert_eq!(stub.paths().last().unwrap(), "GET /api/v1/mcp-servers");
+}
+
+#[test]
+fn resolve_and_get_skill_follow_the_registry_routes() {
+    let stub = Stub::spawn(registry_api());
+    let mut mcp = Mcp::start(&stub.url);
+
+    let (err, text) = mcp.tool(
+        "resolve_skill",
+        json!({"owner": "alice", "repo": "demo", "name": "pdf-tools", "constraint": "^1.2"}),
+    );
+    assert!(!err, "{text}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&text).unwrap()["version"],
+        "1.2.0"
+    );
+    assert_eq!(
+        stub.paths(),
+        ["GET /api/v1/repos/alice/demo/skills/pdf-tools/resolve?constraint=%5E1.2"]
+    );
+
+    // Without a version it resolves first, then reads the manifest and SKILL.md,
+    // and says what it resolved.
+    let before = stub.paths().len();
+    let (err, text) = mcp.tool(
+        "get_skill",
+        json!({"owner": "alice", "repo": "demo", "name": "pdf-tools"}),
+    );
+    assert!(!err, "{text}");
+    let body: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(body["resolved"]["version"], "1.2.0");
+    assert_eq!(body["manifest"]["content_digest"], "sha256:aa");
+    assert_eq!(body["skill_md"]["content"], "# PDF tools\n");
+    assert_eq!(body["skill_md"]["origin"], "user_content");
+    assert_eq!(
+        stub.paths()[before..],
+        [
+            "GET /api/v1/repos/alice/demo/skills/pdf-tools/resolve",
+            "GET /api/v1/repos/alice/demo/skills/pdf-tools/versions/1.2.0",
+            "GET /api/v1/repos/alice/demo/skills/pdf-tools/versions/1.2.0/content",
+        ]
+    );
+
+    // An exact version needs no resolve call.
+    let before = stub.paths().len();
+    let (err, text) = mcp.tool(
+        "get_skill",
+        json!({"owner": "alice", "repo": "demo", "name": "pdf-tools", "version": "1.2.0"}),
+    );
+    assert!(!err, "{text}");
+    assert!(serde_json::from_str::<Value>(&text).unwrap()["resolved"].is_null());
+    assert_eq!(stub.paths().len() - before, 2);
+}
+
+#[test]
+fn get_mcp_server_addresses_the_two_segment_name() {
+    let stub = Stub::spawn(registry_api());
+    let mut mcp = Mcp::start(&stub.url);
+    let (err, text) = mcp.tool(
+        "get_mcp_server",
+        json!({"owner": "alice", "repo": "demo", "name": "io.github.acme/weather"}),
+    );
+    assert!(!err, "{text}");
+    let body: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(body["resolved"]["digest"], "sha256:cc");
+    assert_eq!(body["version"]["ownership"], "unverified");
+    assert_eq!(
+        body["version"]["endpoints"]["remotes"][0]["transport"],
+        "sse"
+    );
+    assert_eq!(
+        stub.paths(),
+        [
+            "GET /api/v1/repos/alice/demo/mcp-servers/io.github.acme/weather/resolve",
+            "GET /api/v1/repos/alice/demo/mcp-servers/io.github.acme/weather/versions/2.0.0",
+        ]
+    );
+}
+
+#[test]
+fn a_registry_refusal_is_a_tool_error_that_carries_the_server_code() {
+    let stub = Stub::spawn(registry_api());
+    let mut mcp = Mcp::start(&stub.url);
+    let (err, text) = mcp.tool(
+        "resolve_skill",
+        json!({"owner": "alice", "repo": "demo", "name": "old", "constraint": "^9"}),
+    );
+    assert!(err, "{text}");
+    assert!(
+        text.contains("NO_MATCHING_VERSION") && text.contains("1.0.0"),
+        "{text}"
+    );
+}
+
+#[test]
+fn bad_registry_arguments_are_refused_before_any_request_is_made() {
+    let stub = Stub::spawn(registry_api());
+    let mut mcp = Mcp::start(&stub.url);
+    let base = json!({"owner": "alice", "repo": "demo"});
+    let with = |extra: Value| {
+        let mut args = base.clone();
+        for (k, v) in extra.as_object().unwrap() {
+            args[k] = v.clone();
+        }
+        args
+    };
+    for (tool, args) in [
+        ("search_skills", json!({"q": 5})),
+        ("search_skills", json!({"limit": 0})),
+        ("search_skills", json!({"limit": "ten"})),
+        ("search_mcp_servers", json!({"cursor": 12})),
+        ("resolve_skill", with(json!({}))),
+        ("resolve_skill", with(json!({"name": "Pdf"}))),
+        ("resolve_skill", with(json!({"name": "a/b"}))),
+        ("resolve_skill", with(json!({"name": ".."}))),
+        ("resolve_skill", with(json!({"name": "x?y=1"}))),
+        ("resolve_skill", with(json!({"name": "x".repeat(65)}))),
+        (
+            "resolve_skill",
+            with(json!({"name": "pdf-tools", "constraint": "x".repeat(201)})),
+        ),
+        (
+            "get_skill",
+            with(json!({"name": "pdf-tools", "version": "1/../x"})),
+        ),
+        (
+            "get_skill",
+            with(json!({"name": "pdf-tools", "version": 3})),
+        ),
+        (
+            "get_skill",
+            json!({"owner": "../x", "repo": "demo", "name": "pdf-tools"}),
+        ),
+        ("get_mcp_server", with(json!({"name": "weather"}))),
+        ("get_mcp_server", with(json!({"name": "a/b/c"}))),
+        ("get_mcp_server", with(json!({"name": "../x"}))),
+        ("get_mcp_server", with(json!({"name": "x/.."}))),
+        ("get_mcp_server", with(json!({"name": "a b/c"}))),
+        ("get_mcp_server", with(json!({"name": "a/b?x=1"}))),
+        ("get_mcp_server", with(json!({"name": "_/c"}))),
+    ] {
+        let (err, text) = mcp.tool(tool, args.clone());
+        assert!(err && text.starts_with("Error:"), "{tool} {args}: {text}");
+    }
+    assert!(
+        stub.paths().is_empty(),
+        "no request may be sent: {:?}",
+        stub.paths()
+    );
+}

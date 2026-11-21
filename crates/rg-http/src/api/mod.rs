@@ -61,6 +61,7 @@ pub mod packages;
 pub mod pr_export;
 pub mod pull_readiness;
 pub mod pulls;
+pub mod registry_discovery;
 pub mod releases;
 pub(crate) mod repo_access;
 pub mod repo_commits;

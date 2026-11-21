@@ -1,6 +1,6 @@
 # Agent 技能 / MCP 服务注册中心 — 设计与分期计划
 
-> **状态**：P1（Skill，每仓库）已在分支 `feat/skills-registry-p1` 实现，证据与未覆盖项见 [skills-registry-p1-verification-2026-11.md](../../ironforge-docs/architecture/skills-registry-p1-verification-2026-11.md)；P1b（MCP 清单）在栈在其上的分支 `feat/mcp-server-manifest-p1b` 实现，见 [mcp-server-manifest-p1b-verification-2026-11.md](../../ironforge-docs/architecture/mcp-server-manifest-p1b-verification-2026-11.md) 与文末 §14；P2 及之后**未开始**。下文 §1–§12 是原计划；实际与计划的差异见文末 §13。
+> **状态**：P1（Skill，每仓库）已在分支 `feat/skills-registry-p1` 实现，证据与未覆盖项见 [skills-registry-p1-verification-2026-11.md](../../ironforge-docs/architecture/skills-registry-p1-verification-2026-11.md)；P1b（MCP 清单）在栈在其上的分支 `feat/mcp-server-manifest-p1b` 实现，见 [mcp-server-manifest-p1b-verification-2026-11.md](../../ironforge-docs/architecture/mcp-server-manifest-p1b-verification-2026-11.md) 与文末 §14；P2 的发现与 MCP 读取工具（P2a）在栈在其上的分支 `feat/registry-discovery-p2a` 实现，见 [registry-discovery-p2a-verification-2026-11.md](../../ironforge-docs/architecture/registry-discovery-p2a-verification-2026-11.md) 与文末 §15；**P2 的 agent 发布审批门（P2b）未做，且前提与计划不符，见 §15**；P3 未开始。下文 §1–§12 是原计划；实际与计划的差异见文末 §13。
 > 编号未分配（T 编号由负责人分配，批准后再改文件名）。
 > 证据标注：`确认` = 读过仓库代码；`外部` = 来自网络检索，实现前须对着官方文档再核；`待核实` = 未读代码或未验证。
 
@@ -215,4 +215,30 @@ skill 是会被其他 agent 当指令加载的文本，注册表因此是**持�
 | — | yank 沿用通用 `PATCH …/packages/mcp-server/{name}/{v}/yank`，名字里的 `/` 写成 `%2F`；通用 `publish` 拒绝该类型 | 少一条重复路由；测试覆盖编码名 |
 
 **没做**：官方注册表的命名空间与包所有权核验（子 agent 没读 `quickstart.mdx` 与 `package-types.mdx`，所以 npm `mcpName` 等规则**未核实**）、在线探测、与官方注册表 API 形状兼容的端点（P3）、跨仓库发现与 MCP 工具（P2）。
+
+## 15. P2a 实现与原计划的差异（2026-11-21）
+
+P2 拆成两块：**P2a** = 跨仓库发现 + 五个只读 MCP 工具（本节，已做）；**P2b** = agent 发布审批门（**未做**）。
+
+**对 §11 的两个待决问题，这次是按"按计划"取计划里写明的默认处理的，不是负责人明确回答的：**
+
+- #3（agent 默认不能发布到全局发现）：计划的立场是"要"，但**这一块是 P2b，没做**，所以 P2a 上线后**这条约束并不存在**，见下面"风险"。
+- #5（未登录用户能否发现公开仓库里的 skill）：**已读代码核实**。`can_read_repo` 对 `is_private = false` 的仓库在不看调用者的情况下直接返回 true，所以匿名调用者按现有语义就能发现公开仓库里的条目；发现接口沿用该语义，并有测试（匿名只见公开、私有与已删除仓库不出现）。
+
+**§2 的"待核实项"已核实，结论是计划的前提不成立：** 授权原语 #19 在 `rg-core`/`rg-db` 里有（`authorization::request/approve/consume`），但**没有任何 REST 端点**（`rg-http` 里没有处理函数，模块之外也没有 `request` 的调用方）。所以 P2b 不是"接一个现成入口"，而是要新做：`Action::SkillPublish` 与它的执行面（`subject = "<name>@<version>"`、`head_sha` = 来源 commit）、请求/批准/拒绝的 REST 端点、agent 一侧的准入检查（`request()` 的注释写明"等请求端点出现时再接"）、MCP 工具，以及把 `consume` 与"写版本"放进同一个事务——而现在的通用 `service::publish` 不在事务里，要改写。这是一个单独的、较大的任务，需要负责人先确认要不要做、做多大。
+
+| 原计划 | 实际 | 原因 |
+|---|---|---|
+| §5 `GET /api/v1/skills?q=&limit=&cursor=`、`GET /api/v1/mcp-servers?…` | 同；匿名可调用，登录后看到自己能读的；`limit` 1–100（默认 20，超过是 400 `INVALID_LIMIT`）；`q` ≤200 字符；坏 `cursor` 是 400 `INVALID_CURSOR` | — |
+| §5 "每页逐项重新做 `can_read_repo`，不可读项静默过滤，不返回总数" | 同。按 package id 升序走候选，逐项 `can_read_repo`（含 agent 的所有者上限），攒够 `limit` 为止；**一次请求最多看 200 个候选**，没攒满就返回短页并**仍带 `next_cursor`**；没有总数、没有占位 | 防止一次请求读完整张表 |
+| §5 每项含 `yanked` | 没有这个字段：**没有任何未撤回版本的条目不列出**，列出的总是最新的未撤回版本 | 列出一个无法 resolve 的条目没有意义 |
+| §5 每项含 `publisher`（`ActorRef`） | 同，取最新版本的发布者；账号已删除为 `null` | — |
+| §5 搜索第一期用 `LIKE` | 同；`%`、`_` 按字面处理（`ESCAPE '!'`，因为反斜杠在三库的字符串字面量里含义不同）；按发布先后排序，无相关度排序 | 三库行为一致 |
+| §5 五个 MCP 只读工具 | `search_skills`、`resolve_skill`、`get_skill`（默认返回清单 + `SKILL.md`）、`search_mcp_servers`、`get_mcp_server`；没有安装工具；`get_*` 不给版本就先 resolve，并在结果里写明解析到了什么 | — |
+| §6 第 4 条跨仓库发现声明为 `other_repos` | **没有用 `other_repos`**：该标志只对 `/repos/{o}/{n}/**` 路径有意义；仓库白名单令牌被拒绝是因为白名单只放行 `/repos/{owner}/{name}` 路径（与 `/search` 相同），有测试。路由声明为 `repo("/skills")`、`repo("/mcp-servers")`，并把这两个前缀加进 `route_meta::family_scope` 的仓库族与 `route_metadata_tests` 里冻结的旧表 | 现有机制就是这样工作的 |
+| — | 停用的注册表（`package_registry.enabled = false`）不进发现；每仓库读取沿用 P1/P1b 的行为（不看 `enabled`） | 发现是对外广告，应更保守；两者不一致已记入验证文档 |
+
+**顺带修复的 P1b 缺陷：** MCP 清单列表/详情显示的描述取自 `packages.description`，那一列只在第一个版本创建包时写一次，所以发布 1.1.0 改了描述后列表仍显示 1.0.0 的。现在把描述存进版本元数据，列表取最新版本的（旧版本回退到包行的描述）；有测试。skill 一侧原本就取最新版本的 frontmatter，不受影响。
+
+**风险（P2b 之前）：** 持 `repo:write` 的 agent 令牌可以在**公开**仓库发布条目，发现接口会把它展示给所有人。缓解只有标注：每项带 `publisher.kind`（`agent` 时带所有者）、`origin: user_content`、MCP 条目 `ownership: unverified`，以及没有任何"安装"工具。
 

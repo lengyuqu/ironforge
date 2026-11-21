@@ -1672,6 +1672,12 @@ fn build_routes(
             "/repos/{owner}/{name}/transfer",
             post(api::repos::transfer_repo_handler),
         )
+        // Cross-repository discovery of skills and MCP server manifests.
+        .route("/skills", get(api::registry_discovery::discover_skills))
+        .route(
+            "/mcp-servers",
+            get(api::registry_discovery::discover_mcp_servers),
+        )
         // Skill registry. `publish` is a static segment, so a skill cannot be
         // named `publish` (the service refuses that name).
         .route(

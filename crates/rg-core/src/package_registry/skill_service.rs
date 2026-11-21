@@ -648,6 +648,30 @@ fn description_of(pkg: &package::Model, latest: Option<&package_version::Model>)
         .unwrap_or_default()
 }
 
+/// What a cross-repository listing shows of one version: the digests of its
+/// content and of its archive, and whether the server built it from the commit.
+pub(super) struct DiscoveryView {
+    pub content_digest: String,
+    pub archive_digest: String,
+    pub source_verified: bool,
+    pub description: String,
+}
+
+pub(super) fn discovery_view(version: &package_version::Model) -> Option<DiscoveryView> {
+    let meta = parse_metadata(version)?;
+    Some(DiscoveryView {
+        description: meta
+            .frontmatter
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        source_verified: meta.source.built_by == "server",
+        content_digest: meta.content_digest,
+        archive_digest: meta.archive_digest,
+    })
+}
+
 fn version_summary(v: &package_version::Model) -> SkillVersionSummary {
     let meta = parse_metadata(v);
     SkillVersionSummary {
