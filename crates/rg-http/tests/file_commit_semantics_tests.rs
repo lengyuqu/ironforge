@@ -80,6 +80,34 @@ impl Fixture {
         (status, resp.json().await.unwrap_or(Value::Null))
     }
 
+    /// Wait until pull request `number` records `sha` as its head. The post-push
+    /// hook that does this runs in a spawned task, so a test that must see the
+    /// synced record waits for it here rather than guessing a delay.
+    async fn wait_for_recorded_head(&self, number: u64, sha: &str) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        loop {
+            let pr: Value = self
+                .client
+                .get(self.url(&format!("/pulls/{number}")))
+                .bearer_auth(&self.jwt)
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            if pr["head_sha"] == json!(sha) {
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "pull request {number} still records head {} after 20s; wanted {sha}",
+                pr["head_sha"]
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    }
+
     async fn delete(&self, query: &str) -> (StatusCode, Value) {
         let resp = self
             .client
@@ -371,6 +399,13 @@ async fn a_merge_can_be_dry_run_and_pinned_to_the_reviewed_head() {
         .await;
     assert_eq!(status, StatusCode::OK, "{v}");
     let moved = v["commit_sha"].as_str().unwrap().to_string();
+    // The contents API syncs the pull request's recorded head in a spawned task
+    // after it answers. Until that lands the merge gate refuses with 403 ("the
+    // pull request records head X but the branch is at Y") instead of reaching
+    // the `expected_head_sha` check, which is what failed on the scheduled run.
+    // Wait for the observable completion signal -- the recorded head equals the
+    // new tip -- so the checks below always see the synced state.
+    f.wait_for_recorded_head(1, &moved).await;
     for dry in [false, true] {
         let (status, v) = merge(
             json!({"strategy": "merge", "expected_head_sha": reviewed, "dry_run": dry}),
