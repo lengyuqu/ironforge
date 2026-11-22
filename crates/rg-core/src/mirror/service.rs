@@ -415,7 +415,7 @@ pub async fn trigger_sync(
 /// invocation. `ext::` executes arbitrary commands (RCE), `file://` reads
 /// local paths, and ssh is not supported for mirrors — all three are
 /// disabled at the git layer as defence in depth on top of the URL guard.
-const GIT_TRANSPORT_LOCKDOWN: [&str; 6] = [
+pub(crate) const GIT_TRANSPORT_LOCKDOWN: [&str; 6] = [
     "-c",
     "protocol.ext.allow=never",
     "-c",

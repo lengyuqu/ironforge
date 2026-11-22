@@ -373,6 +373,8 @@ pub const ROUTES: &[RouteMeta] = &[
         .idem(),
     repo("/repos/{owner}/{name}/mirror"),
     repo("/repos/{owner}/{name}/mirror/sync"),
+    repo("/repos/{owner}/{name}/push-mirror"),
+    repo("/repos/{owner}/{name}/push-mirror/sync"),
     // Remote credentials: tokens for other Git hosts. Not `.open()` — a token
     // that is branch-limited has no business configuring a credential that can
     // reach an entirely different platform.
