@@ -106,6 +106,7 @@ pub mod m20261117_000001_add_repo_events_dispatched_at;
 pub mod m20261118_000001_create_symbol_graph;
 pub mod m20261118_000002_symbol_commit_completeness;
 pub mod m20261123_000001_create_remote_credentials;
+pub mod m20261123_000002_create_push_mirrors;
 
 use sea_orm_migration::prelude::*;
 
@@ -225,6 +226,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261118_000001_create_symbol_graph::Migration),
             Box::new(m20261118_000002_symbol_commit_completeness::Migration),
             Box::new(m20261123_000001_create_remote_credentials::Migration),
+            Box::new(m20261123_000002_create_push_mirrors::Migration),
         ]
     }
 }

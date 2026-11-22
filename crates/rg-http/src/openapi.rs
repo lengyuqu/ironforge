@@ -466,6 +466,12 @@ pub struct PaginatedRepoResponse {
         crate::api::remote_credentials::create_org_credential,
         crate::api::remote_credentials::update_org_credential,
         crate::api::remote_credentials::delete_org_credential,
+        // Push mirrors (forward this repository's refs to an external host)
+        crate::api::push_mirrors::get_push_mirror,
+        crate::api::push_mirrors::create_push_mirror,
+        crate::api::push_mirrors::update_push_mirror,
+        crate::api::push_mirrors::delete_push_mirror,
+        crate::api::push_mirrors::trigger_push_sync,
         // Boards
         crate::api::boards::create_board,
         crate::api::boards::list_boards,
@@ -585,6 +591,8 @@ pub struct PaginatedRepoResponse {
             crate::api::mirrors::UpdateMirrorRequest,
             crate::api::remote_credentials::CreateRemoteCredentialRequest,
             crate::api::remote_credentials::UpdateRemoteCredentialRequest,
+            crate::api::push_mirrors::UpsertPushMirrorRequest,
+            crate::api::push_mirrors::UpdatePushMirrorRequest,
             crate::api::boards::CreateBoardRequest,
             crate::api::boards::UpdateBoardRequest,
             crate::api::boards::CreateColumnRequest,

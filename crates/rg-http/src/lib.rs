@@ -1470,6 +1470,20 @@ fn build_routes(
             "/repos/{owner}/{name}/mirror/sync",
             post(api::mirrors::trigger_mirror_sync),
         )
+        // Push mirror: forward this repository's refs to an external host after
+        // every push. A separate table from `mirror` (pull), so both directions
+        // can be configured on the same repository.
+        .route(
+            "/repos/{owner}/{name}/push-mirror",
+            get(api::push_mirrors::get_push_mirror)
+                .post(api::push_mirrors::create_push_mirror)
+                .patch(api::push_mirrors::update_push_mirror)
+                .delete(api::push_mirrors::delete_push_mirror),
+        )
+        .route(
+            "/repos/{owner}/{name}/push-mirror/sync",
+            post(api::push_mirrors::trigger_push_sync),
+        )
         // Imports (GitHub/GitLab migration)
         .route(
             "/imports",
@@ -3594,13 +3608,15 @@ async fn post_push_hooks(
     // Find repo_id from DB
     let repo_model = find_repo_by_name(db, owner, repo_name).await;
 
-    let (repo_id, repo_owner_id) = match repo_model {
-        Ok(Some(r)) => (r.id, r.owner_id),
+    let repo_model = match repo_model {
+        Ok(Some(r)) => r,
         _ => {
             tracing::warn!(owner = %owner, repo = %repo_name, "Post-push: repo not found in DB, skipping hooks");
             return;
         }
     };
+    let repo_id = repo_model.id;
+    let repo_owner_id = repo_model.owner_id;
 
     // Secret-scan audit trail for the push that just moved these refs (T04's
     // scanner reported it through a sink because `rg-git` has no database).
@@ -3948,6 +3964,26 @@ async fn post_push_hooks(
                     "ref": update.refname,
                     "commit": update.new_sha,
                 }),
+            );
+        }
+    }
+
+    // Push mirror: forward the refs that just moved to the configured external
+    // remote. Last, so a slow or failing external push cannot delay webhooks,
+    // CI or notifications. Best-effort by contract — the push this responds to
+    // has already been acknowledged, and a mirror failure must not undo it.
+    let accepted = ref_updates.iter().any(|update| update.status == "ok");
+    if accepted {
+        let enc_key = rg_core::auth::encryption::derive_key(jwt_secret);
+        if let Err(e) =
+            rg_core::mirror::push_service::push_after_receive(db, &repo_model, repo_path, &enc_key)
+                .await
+        {
+            tracing::warn!(
+                owner = %owner,
+                repo = %repo_name,
+                error = %e,
+                "push mirror failed after receive-pack"
             );
         }
     }

@@ -61,6 +61,7 @@ pub mod packages;
 pub mod pr_export;
 pub mod pull_readiness;
 pub mod pulls;
+pub mod push_mirrors;
 pub mod registry_discovery;
 pub mod releases;
 pub mod remote_credentials;

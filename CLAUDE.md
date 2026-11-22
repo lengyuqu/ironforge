@@ -140,12 +140,13 @@ Phase 1~21 全部完成。核心能力：
 | 审计日志 | `rg-http/src/api/audit.rs`（写入）+ `rg-core/src/audit/`（归档） | 审计记录 + 默认 90 天归档（NDJSON.zst） |
 | Mirror | `rg-core/src/mirror/` | 仓库镜像同步（git CLI 经网关执行，transport lockdown + net_guard URL 校验；唯一生产 CLI 例外） |
 | Remote Credentials | `rg-core/src/remote_credential/` + `rg-db/entities/remote_credential.rs` | 外部 Git 主机令牌字典：`(owner_kind, owner_id, host)` 唯一，AES-256-GCM 存密文；按远端 URL 的 host 自动匹配，一处配置供所有镜像/推送复用。注入走 `GIT_CONFIG_COUNT` 环境变量（作用域钉死 `scheme://host/`），**不进 URL、不进 `ps`**；org 仓库用 org 凭据、个人仓库用个人凭据，双向不 fallback |
+| Push Mirror | `rg-core/src/mirror/push_service.rs` + `rg-db/entities/push_mirror.rs` | 每次推送后把分支（可选标签）强制转发到外部主机（`push_mirrors`，repo_id 唯一，与 pull 镜像分表所以同仓库可双向配置）。refspec `+refs/heads/*`（`+` = force，重写历史也能落地）+ 可选 `+refs/tags/*`，**不 prune**（目标独有 ref 不删）。凭据同 pull 走 host 字典，按 repo 的 scope 解析；`on_push`/`manual` 两种触发；进程内 per-repo 去抖（同一仓库同时只跑一个推送，后来的触发跳过）；`git://` 等非 HTTP 传输拿不到 header |
 | Board | `rg-core/src/board/` | 看板管理（Board/Column/Card） |
 | Time Tracking | `rg-core/src/time_tracking/` | 工时追踪 |
 | 数据导入 | `rg-core/src/import/` | GitHub/GitLab 导入 |
 | 搜索 | `rg-core/src/search/` | FTS5 全文搜索（repos/issues/wiki/code） |
 | 附件 | `rg-core/src/attachment.rs` | 四类归属、统一 BlobStorage、配额、IDOR 防护 |
-| 多数据库后端 | `rg-db::connect_with_pool` | SQLite/PostgreSQL/MySQL，backend-aware 迁移；`crates/rg-db/src/migrations/mod.rs::Migrator::migrations()` 现有 **108** 条，`Migrator::down` 从最后一条起可回滚 **34** 步（`rg-db/src/lib.rs` 的迁移回滚测试按这个窗口断言，加迁移要同步 +1） |
+| 多数据库后端 | `rg-db::connect_with_pool` | SQLite/PostgreSQL/MySQL，backend-aware 迁移；`crates/rg-db/src/migrations/mod.rs::Migrator::migrations()` 现有 **109** 条，`Migrator::down` 从最后一条起可回滚 **35** 步（`rg-db/src/lib.rs` 的迁移回滚测试按这个窗口断言，加迁移要同步 +1） |
 | TLS/HTTPS | `rg-http/src/lib.rs` | axum-server + rustls |
 | TOML 配置 | `rg-cli/src/main.rs` | CLI > config > defaults |
 | API 分页 | `rg-http/src/pagination.rs` | PaginationParams + PaginatedResponse\<T\> |
