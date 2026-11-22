@@ -87,6 +87,7 @@ pub mod pull_request;
 pub mod reactions;
 pub mod release;
 pub mod release_asset;
+pub mod remote_credential;
 pub mod repo_collaborator;
 pub mod repo_event;
 pub mod repo_star;

@@ -165,6 +165,8 @@
       </FormField>
     </div>
 
+    <p class="credential-hint">{t('settings.mirror.credential_hint')}</p>
+
     <div class="form-group small">
       <label for="mirror-interval">{t('settings.mirror.interval_hours')}</label>
       <input
@@ -223,6 +225,13 @@
 
   .form-group.small {
     max-width: 180px;
+  }
+
+  .credential-hint {
+    margin: -0.5rem 0 0;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    line-height: 1.5;
   }
 
   label {

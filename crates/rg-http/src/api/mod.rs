@@ -70,6 +70,7 @@ pub mod repo_events;
 pub mod repo_patch;
 pub mod repo_pick;
 pub mod repos;
+pub mod remote_credentials;
 pub mod reviews;
 pub mod runners;
 pub mod search;

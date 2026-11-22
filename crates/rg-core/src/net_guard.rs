@@ -51,6 +51,119 @@ fn default_port(scheme: &str) -> u16 {
     }
 }
 
+/// Ports that never appear in a credential key.
+///
+/// The key answers "which platform is this?", not "which socket?". A token
+/// minted on github.com works for `https://github.com/...`, `http://github.com/...`
+/// and `git://github.com/...` alike, so all three spellings have to collapse to
+/// the same key or the user would configure the same token three times. The set
+/// is the union of the transports a mirror may use, deliberately *not* computed
+/// from the scheme: that would make `git://host` and `https://host` differ by
+/// port and defeat the point.
+const CANONICAL_PORTS: [u16; 3] = [80, 443, 9418];
+
+/// Wrap IPv6 literals back in brackets; `parse_url` strips them.
+fn bracketed(host: &str) -> String {
+    if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    }
+}
+
+/// Build the credential lookup key for a `(host, port)` pair.
+///
+/// Lowercases the host, wraps IPv6 literals back in brackets (the parser strips
+/// them) and drops [`CANONICAL_PORTS`].
+pub fn format_host_key(host: &str, port: u16) -> String {
+    let host = bracketed(host.trim());
+    let host = host.to_ascii_lowercase();
+    if CANONICAL_PORTS.contains(&port) {
+        host
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+/// The `scheme://host[:port]` part of a remote URL.
+///
+/// Kept as a value (rather than three return values) because callers need both
+/// halves of the same parse: the host key for the database lookup, and a
+/// scoped URL for git's `http.<url>.extraheader` config key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemoteAuthority {
+    /// Lowercased scheme (`https`, `http`, `git`).
+    pub scheme: String,
+    /// Host as parsed — no brackets, original case.
+    pub host: String,
+    pub port: u16,
+}
+
+impl RemoteAuthority {
+    /// Key used to look a credential up.
+    pub fn host_key(&self) -> String {
+        format_host_key(&self.host, self.port)
+    }
+
+    /// Can this transport carry an HTTP `Authorization` header at all?
+    ///
+    /// `git://` is anonymous by design, so a token cannot be attached; SSH is
+    /// not an accepted mirror transport (`validate_mirror_url`).
+    pub fn is_http_transport(&self) -> bool {
+        matches!(self.scheme.as_str(), "http" | "https")
+    }
+
+    /// The URL git matches `http.<url>.*` config keys against.
+    ///
+    /// Always ends in `/` and always carries the scheme: git's urlmatch
+    /// compares scheme, host and port, and a key without them would apply the
+    /// header to *every* remote the process talks to — including a redirect
+    /// target that is not the host the token belongs to.
+    pub fn scoped_url(&self) -> String {
+        let host = bracketed(&self.host).to_ascii_lowercase();
+        if CANONICAL_PORTS.contains(&self.port) {
+            format!("{}://{}/", self.scheme, host)
+        } else {
+            format!("{}://{}:{}/", self.scheme, host, self.port)
+        }
+    }
+}
+
+/// Parse the authority of a remote URL.
+pub fn parse_remote_authority(url: &str) -> Result<RemoteAuthority, String> {
+    let (scheme, host, port) = parse_url(url)?;
+    Ok(RemoteAuthority { scheme, host, port })
+}
+
+/// Credential lookup key for a remote URL: `https://github.com/a/b.git` →
+/// `github.com`, `http://gitea.local:3000/x.git` → `gitea.local:3000`.
+///
+/// Shares [`parse_url`] with the SSRF guards on purpose: two parsers would drift,
+/// and the one that decides which token to attach must agree with the one that
+/// decides whether the URL may be contacted at all. The URL is *not* validated
+/// for reachability here — callers use [`validate_mirror_url`] for that.
+pub fn url_host_key(url: &str) -> Result<String, String> {
+    Ok(parse_remote_authority(url)?.host_key())
+}
+
+
+/// Same as [`url_host_key`], but accepts what a person types into a form: a bare
+/// host (`github.com`, `gitea.local:3000`, `[::1]:8080`) as well as a full URL
+/// (`https://github.com/some/repo`).
+///
+/// A bare host is parsed by giving it a scheme, so ports and IPv6 literals go
+/// through exactly the same code path.
+pub fn normalize_host_input(input: &str) -> Result<String, String> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Err("host is empty".to_string());
+    }
+    if input.contains("://") {
+        return url_host_key(input);
+    }
+    url_host_key(&format!("https://{input}"))
+}
+
 /// Minimal URL parse: `scheme://[userinfo@]host[:port]/...`.
 ///
 /// Returns `(scheme, host, port)`. URLs without an explicit `scheme://`
