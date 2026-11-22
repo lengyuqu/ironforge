@@ -540,8 +540,8 @@ fn check_transport(value: &Value, in_package: bool) -> Result<(String, Option<bo
         Some(Value::String(url)) => url,
         _ => return Err(err(format!("a {kind} transport needs a url"))),
     };
-    let parsed = parse_url(url, "url").map_err(&err)?;
-    let insecure_local = require_https_or_local(&parsed, "url").map_err(&err)?;
+    let parsed = parse_url(url, "url").map_err(err)?;
+    let insecure_local = require_https_or_local(&parsed, "url").map_err(err)?;
     check_named(object.get("headers"), "headers").map_err(|e| err(e.message))?;
     Ok((kind.to_string(), Some(insecure_local)))
 }
