@@ -1332,6 +1332,79 @@ fn validate_jwt_secret(jwt_secret: &str, source: &str) -> anyhow::Result<()> {
 
 /// Validate critical configuration before starting servers.
 /// Refuses to start with dangerous defaults or invalid settings.
+/// S3-compatible object storage for blobs, enabled by
+/// `IRONFORGE_S3_ENDPOINT`.
+///
+/// Credentials come as a set: endpoint, bucket, access key and secret key are
+/// all required together. A half-configured store is an error rather than a
+/// silent fall back to the local directory — that fallback is exactly how half
+/// an instance's blobs end up on a disk nobody backs up, discovered only when
+/// someone restores.
+///
+/// * `IRONFORGE_S3_REGION` — SigV4 region (default `us-east-1`; MinIO ignores it)
+/// * `IRONFORGE_S3_PATH_STYLE` — `true` (default) addresses as
+///   `endpoint/bucket/key`, which is what MinIO and most self-hosted stores
+///   need; `false` uses `bucket.endpoint/...` for AWS
+/// * `IRONFORGE_S3_PREFIX` — optional key prefix, to share a bucket
+fn resolve_s3_storage() -> anyhow::Result<Option<rg_core::blob_storage::S3Config>> {
+    let read = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    };
+
+    let Some(endpoint) = read("IRONFORGE_S3_ENDPOINT") else {
+        // Any of the other keys alone is a configuration mistake worth naming.
+        for name in [
+            "IRONFORGE_S3_BUCKET",
+            "IRONFORGE_S3_ACCESS_KEY",
+            "IRONFORGE_S3_SECRET_KEY",
+        ] {
+            if read(name).is_some() {
+                anyhow::bail!(
+                    "{name} is set but IRONFORGE_S3_ENDPOINT is not; set all of them to use S3, or none to keep local storage"
+                );
+            }
+        }
+        return Ok(None);
+    };
+
+    let missing: Vec<&str> = [
+        ("IRONFORGE_S3_BUCKET", read("IRONFORGE_S3_BUCKET")),
+        ("IRONFORGE_S3_ACCESS_KEY", read("IRONFORGE_S3_ACCESS_KEY")),
+        ("IRONFORGE_S3_SECRET_KEY", read("IRONFORGE_S3_SECRET_KEY")),
+    ]
+    .into_iter()
+    .filter(|(_, value)| value.is_none())
+    .map(|(name, _)| name)
+    .collect();
+    if !missing.is_empty() {
+        anyhow::bail!(
+            "IRONFORGE_S3_ENDPOINT is set but {} is missing",
+            missing.join(", ")
+        );
+    }
+
+    let path_style = match read("IRONFORGE_S3_PATH_STYLE").as_deref() {
+        None | Some("1") | Some("true") => true,
+        Some("0") | Some("false") => false,
+        Some(other) => {
+            anyhow::bail!("IRONFORGE_S3_PATH_STYLE must be true or false, got {other:?}")
+        }
+    };
+
+    Ok(Some(rg_core::blob_storage::S3Config {
+        endpoint,
+        bucket: read("IRONFORGE_S3_BUCKET").expect("checked above"),
+        region: read("IRONFORGE_S3_REGION").unwrap_or_else(|| "us-east-1".to_string()),
+        access_key: read("IRONFORGE_S3_ACCESS_KEY").expect("checked above"),
+        secret_key: read("IRONFORGE_S3_SECRET_KEY").expect("checked above"),
+        path_style,
+        prefix: read("IRONFORGE_S3_PREFIX"),
+    }))
+}
+
 fn validate_config(
     jwt_secret: &str,
     repo_root: &std::path::Path,
@@ -2497,6 +2570,7 @@ async fn run_serve(
     };
 
     validate_config(&resolved_jwt_secret, &repo_root, &tls_config)?;
+    let s3_storage = resolve_s3_storage()?;
 
     let http_config = rg_http::HttpServerConfig {
         listen_addr: resolved_http_addr,
@@ -2511,6 +2585,7 @@ async fn run_serve(
         smtp_config,
         tls_config,
         oci_storage_path: None,
+        s3_storage,
         external_url: resolved_external_url,
         job_timeout_secs: resolved_job_timeout,
         allow_host_execution: resolved_allow_host_execution,

@@ -176,6 +176,9 @@ pub struct HttpServerConfig {
     pub smtp_config: Option<rg_core::email::SmtpConfig>,
     /// OCI container registry storage path. None = use {repo_root}/oci.
     pub oci_storage_path: Option<PathBuf>,
+    /// S3-compatible object storage for LFS/packages/artifacts/attachments.
+    /// `None` keeps the local directory backend under `repo_root`.
+    pub s3_storage: Option<rg_core::blob_storage::S3Config>,
     /// TLS configuration: (cert_path, key_path). None = HTTP only.
     pub tls_config: Option<(PathBuf, PathBuf)>,
     /// External-facing base URL (e.g., "https://git.example.com").
@@ -203,9 +206,29 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
         tracing::warn!("metrics init failed: {e}");
     }
 
-    let blob_storage: Arc<dyn rg_core::blob_storage::BlobStorage> = Arc::new(
-        rg_core::blob_storage::LocalBlobStorage::new(config.repo_root.clone()),
-    );
+    // Object storage: S3 when configured, a directory otherwise. Failing to
+    // construct the S3 backend is fatal rather than a silent fallback — writing
+    // half the blobs to a local disk nobody will back up is worse than not
+    // starting.
+    let blob_storage: Arc<dyn rg_core::blob_storage::BlobStorage> = match config.s3_storage.as_ref()
+    {
+        Some(s3) => {
+            let storage = rg_core::blob_storage::S3BlobStorage::new(s3)
+                .map_err(|e| anyhow::anyhow!("S3 blob storage is misconfigured: {e}"))?;
+            tracing::info!(
+                endpoint = %s3.endpoint,
+                bucket = %s3.bucket,
+                "blob storage: s3"
+            );
+            Arc::new(storage)
+        }
+        None => {
+            tracing::info!(root = %config.repo_root.display(), "blob storage: local");
+            Arc::new(rg_core::blob_storage::LocalBlobStorage::new(
+                config.repo_root.clone(),
+            ))
+        }
+    };
     let oci_storage = if let Some(path) = config.oci_storage_path.as_ref() {
         tracing::warn!(
             path = %path.display(),

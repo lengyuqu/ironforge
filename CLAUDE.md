@@ -146,6 +146,7 @@ Phase 1~21 全部完成。核心能力：
 | 数据导入 | `rg-core/src/import/` | GitHub/GitLab 导入 |
 | 搜索 | `rg-core/src/search/` | FTS5 全文搜索（repos/issues/wiki/code） |
 | 附件 | `rg-core/src/attachment.rs` | 四类归属、统一 BlobStorage、配额、IDOR 防护 |
+| 对象存储 | `rg-core/src/blob_storage/`（`mod.rs` 契约 + 本地实现 + `s3.rs`） | `BlobStorage` object-safe trait（`BoxFuture`）双后端：`LocalBlobStorage`（原子 rename）与 `S3BlobStorage`（rusty-s3 presigned URL + reqwest，支持 path-style/virtual-host、key 前缀、list 分页）。配置走 `IRONFORGE_S3_*`，**四项必填要么都有要么都没有**（半配置直接报错，不回退本地盘）。S3 的 `delete` 先 HEAD 再 DELETE，因为 S3 对不存在的 key 也回 204 |
 | 多数据库后端 | `rg-db::connect_with_pool` | SQLite/PostgreSQL/MySQL，backend-aware 迁移；`crates/rg-db/src/migrations/mod.rs::Migrator::migrations()` 现有 **109** 条，`Migrator::down` 从最后一条起可回滚 **35** 步（`rg-db/src/lib.rs` 的迁移回滚测试按这个窗口断言，加迁移要同步 +1） |
 | TLS/HTTPS | `rg-http/src/lib.rs` | axum-server + rustls |
 | TOML 配置 | `rg-cli/src/main.rs` | CLI > config > defaults |
@@ -489,6 +490,7 @@ axum-server     = "0.8"      # features: tls-rustls；bind_rustls 对地址类�
 tower           = "0.5"
 tower-http      = "0.6"      # features: cors, trace, fs
 russh           = "0.65"   # 通道开启为两阶段：必须 accept ChannelOpenHandle；auth_publickey 收 VerifiedPublicKey
+rusty-s3        = "0.12"     # features: full（SigV4 签名 + ListObjectsV2 XML 解析）；S3 blob backend
 sea-orm         = "1.1"      # features: sqlx-sqlite, runtime-tokio-rustls, macros
 clap            = "4"        # features: derive
 tokio           = "1"        # features: full

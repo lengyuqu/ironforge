@@ -2,6 +2,10 @@
 //!
 //! Database rows store [`BlobKey`] values, never backend-specific absolute paths.
 //! A backend owns atomic writes, lookup, deletion and inventory under its root.
+//!
+//! Two backends exist: [`LocalBlobStorage`] (a directory, the default) and
+//! [`S3BlobStorage`] (any S3-compatible object store). Keys are identical in
+//! both, so moving from one to the other is a copy, not a rewrite.
 
 use futures::future::BoxFuture;
 use std::fmt;
@@ -79,6 +83,9 @@ pub enum BlobStorageError {
 }
 
 pub type Result<T> = std::result::Result<T, BlobStorageError>;
+
+mod s3;
+pub use s3::{S3BlobStorage, S3Config};
 
 /// Object-safe storage contract used by LFS, packages, OCI, CI artifacts and
 /// future attachments/archive caches.
