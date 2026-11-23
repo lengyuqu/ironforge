@@ -1220,6 +1220,8 @@ mod tests {
                 updated_at: Set(now),
                 deleted_at: Set(None),
                 origin_repo_id: Set(None),
+
+                is_template: sea_orm::ActiveValue::Set(false),
             },
         )
         .await
@@ -1286,6 +1288,8 @@ mod tests {
                 updated_at: Set(now),
                 deleted_at: Set(None),
                 origin_repo_id: Set(None),
+
+                is_template: sea_orm::ActiveValue::Set(false),
             },
         )
         .await
@@ -1429,6 +1433,8 @@ mod tests {
                 updated_at: Set(now),
                 deleted_at: Set(None),
                 origin_repo_id: Set(None),
+
+                is_template: sea_orm::ActiveValue::Set(false),
             },
         )
         .await
@@ -1734,6 +1740,8 @@ mod tests {
                 updated_at: Set(now),
                 deleted_at: Set(None),
                 origin_repo_id: Set(None),
+
+                is_template: sea_orm::ActiveValue::Set(false),
             },
         )
         .await
@@ -1928,6 +1936,8 @@ mod tests {
                 updated_at: Set(now),
                 deleted_at: Set(None),
                 origin_repo_id: Set(None),
+
+                is_template: sea_orm::ActiveValue::Set(false),
             },
         )
         .await

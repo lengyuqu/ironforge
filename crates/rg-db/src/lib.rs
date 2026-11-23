@@ -683,45 +683,59 @@ mod soft_delete_tests {
         .expect("user id")
     }
 
+    /// Insert a repository through raw SQL, naming only the columns that exist
+    /// at the migration anchor these tests stop at.
+    ///
+    /// The entity would name every column it knows about, including ones added
+    /// by later migrations — which is precisely the schema state this helper
+    /// must be able to write to.
     async fn repository(db: &DatabaseConnection, owner_id: i64, name: &str) -> i64 {
-        crate::entities::repository::ActiveModel {
-            owner_id: sea_orm::Set(owner_id),
-            name: sea_orm::Set(name.to_string()),
-            default_branch: sea_orm::Set("main".to_string()),
-            is_private: sea_orm::Set(false),
-            stars_count: sea_orm::Set(0),
-            forks_count: sea_orm::Set(0),
-            created_at: sea_orm::Set(chrono::Utc::now()),
-            updated_at: sea_orm::Set(chrono::Utc::now()),
-            ..Default::default()
-        }
-        .insert(db)
+        let now = chrono::Utc::now();
+        db.query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Sqlite,
+            "INSERT INTO repositories \
+             (owner_id, name, default_branch, is_private, stars_count, forks_count, created_at, updated_at) \
+             VALUES (?, ?, 'main', 0, 0, 0, ?, ?) RETURNING id",
+            [
+                owner_id.into(),
+                name.into(),
+                now.into(),
+                now.into(),
+            ],
+        ))
         .await
         .expect("insert repository")
-        .id
+        .expect("repository row")
+        .try_get_by_index::<i64>(0)
+        .expect("repository id")
     }
 
+    /// Raw SQL for the same reason as [`repository`]: this writes into the
+    /// schema as it existed at the anchor migration.
     async fn org_repository(
         db: &DatabaseConnection,
         owner_id: i64,
         org_id: i64,
         name: &str,
     ) -> Result<i64, sea_orm::DbErr> {
-        crate::entities::repository::ActiveModel {
-            owner_id: sea_orm::Set(owner_id),
-            org_id: sea_orm::Set(Some(org_id)),
-            name: sea_orm::Set(name.to_string()),
-            default_branch: sea_orm::Set("main".to_string()),
-            is_private: sea_orm::Set(false),
-            stars_count: sea_orm::Set(0),
-            forks_count: sea_orm::Set(0),
-            created_at: sea_orm::Set(chrono::Utc::now()),
-            updated_at: sea_orm::Set(chrono::Utc::now()),
-            ..Default::default()
-        }
-        .insert(db)
-        .await
-        .map(|model| model.id)
+        let now = chrono::Utc::now();
+        let row = db
+            .query_one(Statement::from_sql_and_values(
+                DatabaseBackend::Sqlite,
+                "INSERT INTO repositories \
+                 (owner_id, org_id, name, default_branch, is_private, stars_count, forks_count, created_at, updated_at) \
+                 VALUES (?, ?, ?, 'main', 0, 0, 0, ?, ?) RETURNING id",
+                [
+                    owner_id.into(),
+                    org_id.into(),
+                    name.into(),
+                    now.into(),
+                    now.into(),
+                ],
+            ))
+            .await?;
+        row.ok_or_else(|| sea_orm::DbErr::RecordNotInserted)?
+            .try_get_by_index::<i64>(0)
     }
 
     /// Uniqueness is per namespace: a user's personal repositories, and each
@@ -872,10 +886,16 @@ mod soft_delete_tests {
             "nothing dropped"
         );
 
-        // The operator resolves it; the migration then goes through.
-        crate::ops::repo_ops::soft_delete(&db, second)
-            .await
-            .unwrap();
+        // The operator resolves it; the migration then goes through. Raw SQL
+        // again: the schema at this point still lacks columns later migrations
+        // add, and the entity would name all of them.
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Sqlite,
+            "UPDATE repositories SET deleted_at = ? WHERE id = ?",
+            [chrono::Utc::now().into(), second.into()],
+        ))
+        .await
+        .expect("soft delete the duplicate");
         migrations::Migrator::up(&db, None)
             .await
             .expect("migrates once resolved");
@@ -1021,11 +1041,11 @@ mod soft_delete_tests {
         // constraint; re-applying must then succeed again.
         //
         // The count covers the `m20261015_000002` partial-unique-index anchor
-        // itself plus every migration after it (36 today: this test starts at
-        // 74, the upgrade above applies all 110, the rollback must land back on
+        // itself plus every migration after it (37 today: this test starts at
+        // 74, the upgrade above applies all 111, the rollback must land back on
         // 74); add 1 whenever one is appended, or this assertion silently stops
         // testing that window. Do not "fix" the `before` index above instead.
-        migrations::Migrator::down(&db, Some(36))
+        migrations::Migrator::down(&db, Some(37))
             .await
             .expect("downgrade");
         assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repo_stars").await, 1);

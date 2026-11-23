@@ -82,6 +82,8 @@ async fn migrations_crud_counters_and_fts_work_on_server_database() {
             updated_at: Set(now),
             deleted_at: Set(None),
             origin_repo_id: Set(None),
+
+            is_template: sea_orm::ActiveValue::Set(false),
         },
     )
     .await
@@ -196,6 +198,8 @@ async fn insert_repo(
             updated_at: Set(now),
             deleted_at: Set(None),
             origin_repo_id: Set(None),
+
+            is_template: sea_orm::ActiveValue::Set(false),
         },
     )
     .await

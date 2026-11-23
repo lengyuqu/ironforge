@@ -76,6 +76,9 @@ pub struct CreateRepoRequest {
     /// Default branch name (default: "main")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_branch: Option<String>,
+    /// Repository to copy into the new one. Takes precedence over `auto_init`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_repo_id: Option<i64>,
     /// .gitignore template key (e.g., "go", "rust", "python")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gitignores: Option<String>,
@@ -189,6 +192,7 @@ pub async fn create_repo(
         .unwrap_or_else(|| username.clone());
 
     let opts = rg_core::repo::service::CreateRepoOptions {
+        template_repo_id: body.template_repo_id,
         owner_id,
         name: body.name.clone(),
         description: body.description.clone(),

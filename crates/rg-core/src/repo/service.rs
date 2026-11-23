@@ -32,6 +32,9 @@ pub struct CreateRepoOptions {
     pub gitignores: Option<String>,
     /// LICENSE template key (e.g., "mit", "apache-2.0")
     pub license: Option<String>,
+    /// Repository to copy into the new one. Takes precedence over `auto_init`:
+    /// a template already carries the files.
+    pub template_repo_id: Option<i64>,
     /// README template key (e.g., "default")
     pub readme: Option<String>,
     /// Default issue label set (e.g., "default", "scrum", "none")
@@ -412,6 +415,7 @@ pub async fn create_repo(
     create_repo_with_opts(
         db,
         CreateRepoOptions {
+            template_repo_id: None,
             owner_id,
             name: name.to_string(),
             description: description.map(str::to_string),
@@ -477,6 +481,29 @@ fn name_conflict_or_internal(
 }
 
 /// Create a new repository with full template/auto-init support.
+/// Disk path of an existing repository, resolving its owner's name.
+///
+/// Repositories live at `{repo_root}/{owner_or_org}/{name}.git`; the prefix is
+/// the owner's *current* name, so it has to be looked up rather than stored.
+async fn repository_disk_path(
+    db: &DatabaseConnection,
+    repo: &rg_db::entities::repository::Model,
+    repo_root: &std::path::Path,
+) -> CoreResult<std::path::PathBuf> {
+    let prefix = if let Some(org_id) = repo.org_id {
+        rg_db::ops::org_ops::get_org(db, org_id)
+            .await?
+            .ok_or_else(|| CoreError::not_found("repository owner organization not found"))?
+            .name
+    } else {
+        rg_db::ops::user_ops::find_by_id(db, repo.owner_id)
+            .await?
+            .ok_or_else(|| CoreError::not_found("repository owner not found"))?
+            .username
+    };
+    Ok(repo_root.join(format!("{}/{}.git", prefix, repo.name)))
+}
+
 pub async fn create_repo_with_opts(
     db: &DatabaseConnection,
     opts: CreateRepoOptions,
@@ -549,8 +576,33 @@ pub async fn create_repo_with_opts(
     )
     .with_context(|| format!("gix init --bare failed for {:?}", git_path))?;
 
+    // A template carries the files, so it replaces `auto_init` rather than
+    // stacking on top of it.
+    if let Some(template_id) = opts.template_repo_id {
+        let template = rg_db::ops::repo_ops::find_by_id(db, template_id)
+            .await?
+            .ok_or_else(|| CoreError::not_found("template repository not found"))?;
+        if template.deleted_at.is_some() {
+            return Err(CoreError::not_found("template repository not found"));
+        }
+        if !template.is_template {
+            // Being copyable is an explicit choice by the template's owner;
+            // without the flag any repository would be silently readable
+            // through this path.
+            return Err(CoreError::invalid_input(
+                "the selected repository is not marked as a template",
+            ));
+        }
+        let source = repository_disk_path(db, &template, repo_root).await?;
+        let target = git_path.clone();
+        tokio::task::spawn_blocking(move || copy_repository_contents(&source, &target))
+            .await
+            .map_err(|error| CoreError::internal(format!("template copy task failed: {error}")))?
+            .map_err(|error| CoreError::internal(format!("template copy failed: {error}")))?;
+    }
+
     // Auto-initialize with template files if requested
-    if opts.auto_init {
+    if opts.template_repo_id.is_none() && opts.auto_init {
         let init_result = auto_init_repo(
             &git_path,
             name,
@@ -1147,6 +1199,79 @@ pub async fn find_active_repo_by_owner_name(
     Ok(repo.filter(|r| r.deleted_at.is_none()))
 }
 
+/// Copy every ref, the symbolic HEAD and the whole object universe from one
+/// bare repository into another.
+///
+/// `target_dir` must already exist and be empty. Extracted from `fork_repo` so
+/// that creating a repository from a template reuses exactly the same object
+/// transfer — the two differ only in the bookkeeping around it.
+fn copy_repository_contents(
+    source_dir: &std::path::Path,
+    target_dir: &std::path::Path,
+) -> anyhow::Result<()> {
+    use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
+
+    let src = gix::open(source_dir)
+        .map_err(|error| anyhow::anyhow!("failed to open source repository: {error}"))?;
+    // The caller owns initialisation: `fork_repo` creates the target first,
+    // and a template copy writes into the repository `create_repo` just made.
+    let dst = gix::open(target_dir)
+        .map_err(|error| anyhow::anyhow!("failed to open target repository: {error}"))?;
+
+    // Copy every ref (loose and packed alike).
+    let platform = src
+        .references()
+        .map_err(|error| anyhow::anyhow!("failed to list source refs: {error}"))?;
+    let refs = platform
+        .all()
+        .map_err(|error| anyhow::anyhow!("failed to iterate source refs: {error}"))?;
+    for reference in refs.flatten() {
+        let target = reference.target();
+        let Some(id) = target.try_id() else {
+            continue;
+        };
+        let name = reference.name().to_owned();
+        dst.reference(
+            name,
+            gix::hash::ObjectId::from(id),
+            PreviousValue::MustNotExist,
+            "fork: copy ref",
+        )
+        .map_err(|error| anyhow::anyhow!("failed to copy ref: {error}"))?;
+    }
+
+    // Point HEAD at the same branch as the source.
+    let referent = src
+        .head()
+        .ok()
+        .and_then(|head| head.referent_name().map(|name| name.to_owned()));
+    if let Some(name) = referent {
+        dst.edit_reference(RefEdit {
+            change: Change::Update {
+                log: LogChange {
+                    mode: RefLog::AndReference,
+                    force_create_reflog: false,
+                    message: "fork: set HEAD".into(),
+                },
+                expected: PreviousValue::Any,
+                new: gix::refs::Target::Symbolic(name),
+            },
+            name: "HEAD"
+                .try_into()
+                .map_err(|error| anyhow::anyhow!("invalid HEAD ref: {error}"))?,
+            deref: false,
+        })
+        .map_err(|error| anyhow::anyhow!("failed to set HEAD: {error}"))?;
+    }
+
+    // Transfer the object universe as one pack.
+    let pack = rg_git::ops::pack_universe(source_dir)
+        .map_err(|error| anyhow::anyhow!("failed to pack source objects: {error}"))?;
+    rg_git::ops::index_pack_bytes(target_dir, &pack)
+        .map_err(|error| anyhow::anyhow!("failed to index fork pack: {error}"))?;
+    Ok(())
+}
+
 /// Fork a repository. Returns the forked repo.
 pub async fn fork_repo(
     db: &DatabaseConnection,
@@ -1212,83 +1337,22 @@ pub async fn fork_repo(
     )
     .with_context(|| format!("failed to create directory: {:?}", target_path.parent()))?;
 
-    // gix-native local bare fork: init an empty bare repository, copy every
-    // ref plus the symbolic HEAD, then transfer the complete object universe
-    // as one pack (replaces `git clone --bare`).
     let source_dir = source_path.clone();
     let target_dir = target_path.clone();
     tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-        use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
-
         if target_dir.exists() {
             anyhow::bail!(
                 "target repository path already exists: {}",
                 target_dir.display()
             );
         }
-        let src = gix::open(&source_dir)
-            .map_err(|error| anyhow::anyhow!("failed to open source repository: {error}"))?;
         gix::create::into(
             &target_dir,
             gix::create::Kind::Bare,
             gix::create::Options::default(),
         )
         .map_err(|error| anyhow::anyhow!("failed to init bare fork: {error}"))?;
-        let dst = gix::open(&target_dir)
-            .map_err(|error| anyhow::anyhow!("failed to open fork: {error}"))?;
-
-        // Copy every ref (loose and packed alike).
-        let platform = src
-            .references()
-            .map_err(|error| anyhow::anyhow!("failed to list source refs: {error}"))?;
-        let refs = platform
-            .all()
-            .map_err(|error| anyhow::anyhow!("failed to iterate source refs: {error}"))?;
-        for reference in refs.flatten() {
-            let target = reference.target();
-            let Some(id) = target.try_id() else {
-                continue;
-            };
-            let name = reference.name().to_owned();
-            dst.reference(
-                name,
-                gix::hash::ObjectId::from(id),
-                PreviousValue::MustNotExist,
-                "fork: copy ref",
-            )
-            .map_err(|error| anyhow::anyhow!("failed to copy ref: {error}"))?;
-        }
-
-        // Point HEAD at the same branch as the source.
-        let referent = src
-            .head()
-            .ok()
-            .and_then(|head| head.referent_name().map(|name| name.to_owned()));
-        if let Some(name) = referent {
-            dst.edit_reference(RefEdit {
-                change: Change::Update {
-                    log: LogChange {
-                        mode: RefLog::AndReference,
-                        force_create_reflog: false,
-                        message: "fork: set HEAD".into(),
-                    },
-                    expected: PreviousValue::Any,
-                    new: gix::refs::Target::Symbolic(name),
-                },
-                name: "HEAD"
-                    .try_into()
-                    .map_err(|error| anyhow::anyhow!("invalid HEAD ref: {error}"))?,
-                deref: false,
-            })
-            .map_err(|error| anyhow::anyhow!("failed to set HEAD: {error}"))?;
-        }
-
-        // Transfer the object universe as one pack.
-        let pack = rg_git::ops::pack_universe(&source_dir)
-            .map_err(|error| anyhow::anyhow!("failed to pack source objects: {error}"))?;
-        rg_git::ops::index_pack_bytes(&target_dir, &pack)
-            .map_err(|error| anyhow::anyhow!("failed to index fork pack: {error}"))?;
-        Ok(())
+        copy_repository_contents(&source_dir, &target_dir)
     })
     .await
     .map_err(|error| CoreError::internal(format!("fork task failed: {error}")))?
@@ -3008,6 +3072,88 @@ mod secret_scan_tests {
         let db = rg_db::connect("sqlite::memory:").await.unwrap();
         rg_db::run_migrations(&db).await.unwrap();
         db
+    }
+
+    /// A repository created from a template starts with the template's history,
+    /// and the flag is what makes it copyable at all.
+    #[tokio::test]
+    async fn a_repository_created_from_a_template_starts_with_its_history() {
+        let db = memory_db().await;
+        let temp = tempfile::tempdir().unwrap();
+        let owner = user_ops::create_user(&db, "owner", "owner@example.invalid", "x", "Owner")
+            .await
+            .unwrap();
+
+        let template = create_repo(
+            &db,
+            owner.id,
+            "cookiecutter",
+            Some("a template"),
+            false,
+            temp.path(),
+            None,
+        )
+        .await
+        .unwrap();
+        let template = repo_ops::set_template(&db, template.id, true)
+            .await
+            .unwrap();
+        assert!(template.is_template);
+        let tip = commit(
+            &temp.path().join("owner/cookiecutter.git"),
+            None,
+            &[("README.md", "# Template"), ("src/main.rs", "fn main() {}")],
+        );
+
+        let options = |name: &str, template_repo_id: Option<i64>| CreateRepoOptions {
+            owner_id: owner.id,
+            name: name.to_string(),
+            description: None,
+            is_private: false,
+            org_id: None,
+            default_branch: None,
+            auto_init: false,
+            gitignores: None,
+            license: None,
+            template_repo_id,
+            readme: None,
+            issue_labels: None,
+            owner_display_name: "Owner".to_string(),
+            git_author_name: None,
+            git_author_email: None,
+        };
+
+        let created =
+            create_repo_with_opts(&db, options("my-service", Some(template.id)), temp.path())
+                .await
+                .expect("template copy must succeed");
+
+        let created_path = temp.path().join("owner/my-service.git");
+        let repo = gix::open(&created_path).unwrap();
+        let head = repo.head_commit().expect("the copy carries a HEAD");
+        assert_eq!(
+            head.id().to_string(),
+            tip,
+            "the new repository must start at the template's tip"
+        );
+        // The default branch pointer came along too, not just the objects.
+        assert_eq!(
+            repo.head_name().unwrap().unwrap().shorten().to_string(),
+            "main"
+        );
+        assert_eq!(created.name, "my-service");
+
+        // A repository that is not marked as a template must not be copyable:
+        // the flag is the owner's explicit choice, not an accident of visibility.
+        let plain = create_repo(&db, owner.id, "plain", None, false, temp.path(), None)
+            .await
+            .unwrap();
+        let refused =
+            create_repo_with_opts(&db, options("copied", Some(plain.id)), temp.path()).await;
+        assert!(
+            matches!(&refused, Err(CoreError::InvalidInput(_))),
+            "expected a refusal, got {refused:?}"
+        );
     }
 
     #[tokio::test]

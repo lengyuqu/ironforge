@@ -8,6 +8,40 @@ use crate::entities::repository::{
     self, ActiveModel as RepoActiveModel, Entity as RepoEntity, Model as Repo,
 };
 
+/// Mark a repository as (or cease to be) a template.
+///
+/// Touches only the flag and `updated_at`: everything else about a template is
+/// an ordinary repository.
+pub async fn set_template(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    is_template: bool,
+) -> Result<Repo> {
+    use sea_orm::{EntityTrait, QueryFilter};
+
+    let result = RepoEntity::update_many()
+        .col_expr(
+            repository::Column::IsTemplate,
+            sea_query::Expr::value(is_template),
+        )
+        .col_expr(
+            repository::Column::UpdatedAt,
+            sea_query::Expr::value(chrono::Utc::now()),
+        )
+        .filter(repository::Column::Id.eq(repo_id))
+        .exec(db)
+        .await
+        .context("db: set repository template flag")?;
+    if result.rows_affected == 0 {
+        anyhow::bail!("repository {} not found", repo_id);
+    }
+    RepoEntity::find_by_id(repo_id)
+        .one(db)
+        .await
+        .context("db: reload repository after template flag")?
+        .ok_or_else(|| anyhow::anyhow!("repository {} disappeared", repo_id))
+}
+
 /// Find a non-deleted repository by ID.
 pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Repo>> {
     RepoEntity::find_by_id(id)

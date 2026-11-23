@@ -24,6 +24,8 @@ pub struct Model {
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,
     pub origin_repo_id: Option<i64>,
+    /// Offering this repository as a starting point for new ones.
+    pub is_template: bool,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
