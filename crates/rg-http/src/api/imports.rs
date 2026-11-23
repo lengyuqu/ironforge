@@ -111,6 +111,7 @@ pub async fn start_import(
         }
     };
 
+    let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
     match rg_core::import::service::start_import(
         &state.db,
         user_id,
@@ -127,6 +128,7 @@ pub async fn start_import(
         body.import_labels,
         body.import_milestones,
         &state.repo_root,
+        &enc_key,
     )
     .await
     {

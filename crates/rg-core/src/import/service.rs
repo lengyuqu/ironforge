@@ -48,18 +48,98 @@ pub struct ImportStats {
     pub wiki_pages_imported: usize,
 }
 
+/// Credentials for the source repository, resolved once per import run.
+///
+/// Deliberately no `Debug`: the token is plaintext and an accidental
+/// `tracing::debug!(?auth)` must not be able to print it.
+pub(crate) struct SourceAuth {
+    pub username: String,
+    pub token: String,
+}
+
+impl std::fmt::Debug for SourceAuth {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SourceAuth")
+            .field("username", &self.username)
+            .field("token", &"***")
+            .finish()
+    }
+}
+
+/// Read the task's stored token, tolerating rows written before the column was
+/// actually encrypted.
+///
+/// Same shape as `mirror::service::decode_mirror_password`; the duplication is
+/// deliberate until that one lands, at which point both should call a single
+/// helper in `auth::encryption`.
+fn decode_task_token(stored: &str, enc_key: &[u8; 32]) -> CoreResult<String> {
+    match crate::auth::encryption::decrypt(stored, enc_key) {
+        Ok(plain) => Ok(plain),
+        Err(e) => {
+            if looks_like_ciphertext(stored) {
+                return Err(CoreError::internal(format!(
+                    "stored import token cannot be decrypted (instance secret changed?): {e}"
+                )));
+            }
+            // A pre-encryption row: the column held whatever the caller sent.
+            Ok(stored.to_string())
+        }
+    }
+}
+
+/// Is this value shaped like `encrypt` output (base64url of nonce + ciphertext)?
+fn looks_like_ciphertext(value: &str) -> bool {
+    use base64::Engine as _;
+    match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(value) {
+        Ok(bytes) => bytes.len() >= 28,
+        Err(_) => false,
+    }
+}
+
+/// Which credentials the clone (and the platform API) should use.
+///
+/// Order: the task's own token first — a user who pasted one into the import
+/// dialog meant *that* token. Failing that, the importing user's host
+/// dictionary, which is the "configure `github.com` once" path.
+async fn resolve_source_auth(
+    db: &DatabaseConnection,
+    task: &ImportTask,
+    enc_key: &[u8; 32],
+) -> CoreResult<Option<SourceAuth>> {
+    if let Some(stored) = task.auth_token_encrypted.as_deref() {
+        let token = decode_task_token(stored, enc_key)?;
+        if !token.is_empty() {
+            return Ok(Some(SourceAuth {
+                username: rg_db::entities::remote_credential::DEFAULT_BASIC_USERNAME.to_string(),
+                token,
+            }));
+        }
+    }
+
+    let scope = crate::remote_credential::service::Scope::User(task.user_id);
+    match crate::remote_credential::service::resolve(db, scope, &task.source_url, enc_key).await? {
+        Some(credential) => Ok(Some(SourceAuth {
+            username: credential.username,
+            token: credential.token,
+        })),
+        None => Ok(None),
+    }
+}
+
 /// Run a full import pipeline and update the import task as it progresses.
 pub async fn run_import(
     db: &DatabaseConnection,
     task: &ImportTask,
     repo_root: &Path,
+    enc_key: &[u8; 32],
 ) -> Result<ImportStats> {
     let mut stats = ImportStats::default();
+    let auth = resolve_source_auth(db, task, enc_key).await?;
 
     match task.platform.as_str() {
-        "github" => run_github_import(db, task, repo_root, &mut stats).await?,
-        "gitlab" => run_gitlab_import(db, task, repo_root, &mut stats).await?,
-        "gitea" | "git" => run_git_import(db, task, repo_root, &mut stats).await?,
+        "github" => run_github_import(db, task, repo_root, auth.as_ref(), &mut stats).await?,
+        "gitlab" => run_gitlab_import(db, task, repo_root, auth.as_ref(), &mut stats).await?,
+        "gitea" | "git" => run_git_import(db, task, repo_root, auth.as_ref(), &mut stats).await?,
         other => {
             return Err(CoreError::invalid_input(format!("unsupported platform: {other}")).into())
         }
@@ -76,6 +156,7 @@ async fn run_git_import(
     db: &DatabaseConnection,
     task: &ImportTask,
     repo_root: &Path,
+    auth: Option<&SourceAuth>,
     stats: &mut ImportStats,
 ) -> Result<()> {
     let repo_id =
@@ -89,7 +170,7 @@ async fn run_git_import(
             repo_root,
             &task.target_owner,
             &task.target_name,
-            task.auth_token_encrypted.as_deref().unwrap_or(""),
+            auth,
         )?;
         stats.repo_cloned = true;
         update_stage(db, task.id, "importing", 90, "Repository cloned").await?;
@@ -115,9 +196,10 @@ async fn run_github_import(
     db: &DatabaseConnection,
     task: &ImportTask,
     repo_root: &Path,
+    auth: Option<&SourceAuth>,
     stats: &mut ImportStats,
 ) -> Result<()> {
-    let token = task.auth_token_encrypted.as_deref().unwrap_or("");
+    let token = auth.map(|auth| auth.token.as_str()).unwrap_or("");
     let client = GitHubClient::new(token.to_string(), None);
 
     // Parse owner/repo from source URL (https://github.com/owner/repo)
@@ -138,7 +220,7 @@ async fn run_github_import(
             repo_root,
             &task.target_owner,
             &task.target_name,
-            token,
+            auth,
         )?;
         stats.repo_cloned = true;
         update_stage(db, task.id, "importing", 10, "Repository cloned").await?;
@@ -284,9 +366,10 @@ async fn run_gitlab_import(
     db: &DatabaseConnection,
     task: &ImportTask,
     repo_root: &Path,
+    auth: Option<&SourceAuth>,
     stats: &mut ImportStats,
 ) -> Result<()> {
-    let token = task.auth_token_encrypted.as_deref().unwrap_or("");
+    let token = auth.map(|auth| auth.token.as_str()).unwrap_or("");
     let client = GitLabClient::new(token.to_string(), None);
 
     // Extract project path from source URL (https://gitlab.com/group/project)
@@ -302,13 +385,15 @@ async fn run_gitlab_import(
     if task.import_repo {
         update_stage(db, task.id, "cloning", 0, "Cloning repository...").await?;
         let project = client.get_project(&project_path).await?;
-        let clone_url = build_gitlab_clone_url(&project.http_url_to_repo, token);
+        // The token is *not* spliced into the URL any more: gix persists the
+        // clone URL as `remote.origin.url`, so `oauth2:<token>@host` would stay
+        // readable in the repository config forever. It goes in the header.
         clone_repo(
-            &clone_url,
+            &project.http_url_to_repo,
             repo_root,
             &task.target_owner,
             &task.target_name,
-            token,
+            auth,
         )?;
         stats.repo_cloned = true;
         update_stage(db, task.id, "importing", 10, "Repository cloned").await?;
@@ -484,13 +569,51 @@ async fn resolve_or_create_target_repo(
 // Git helpers
 // ═══════════════════════════════════════════════════════════════════════
 
+/// `http.extraHeader=Authorization: Basic <base64(user:token)>`
+fn http_auth_override(username: &str, token: &str) -> String {
+    use base64::Engine as _;
+    let raw = format!("{username}:{token}");
+    format!(
+        "http.extraHeader=Authorization: Basic {}",
+        base64::engine::general_purpose::STANDARD.encode(raw)
+    )
+}
+
+fn is_http_url(url: &str) -> bool {
+    url.starts_with("http://") || url.starts_with("https://")
+}
+
+/// Open options for the clone, optionally carrying a credential.
+///
+/// Mirrors what `gix::prepare_clone_bare` builds internally (full trust, config
+/// from the git installation so credential helpers keep working) and adds the
+/// token as a configuration override — the gix equivalent of `git -c`. Nothing
+/// is written to disk and the token never appears in the URL.
+fn source_open_options(auth: Option<&SourceAuth>, source_url: &str) -> gix::open::Options {
+    use gix_sec::trust::DefaultForLevel;
+    let mut opts = gix::open::Options::default_for_level(gix_sec::Trust::Full);
+    opts.permissions.config.git_binary = true;
+    if let Some(auth) = auth {
+        // `git://` is anonymous and ssh:// carries its own key: an HTTP header
+        // would be silently ignored on both, so only attach it where it applies.
+        if is_http_url(source_url) {
+            opts = opts.config_overrides([http_auth_override(&auth.username, &auth.token)]);
+        }
+    }
+    opts
+}
+
 /// Clone a repository (bare) into the IronForge repo root.
+///
+/// `auth` reaches the remote as an `http.extraHeader` config override, never in
+/// the URL — the URL is persisted as `remote.origin.url` in the new repository's
+/// config, where a token would remain readable.
 fn clone_repo(
     source_url: &str,
     repo_root: &Path,
     owner: &str,
     name: &str,
-    _token: &str,
+    auth: Option<&SourceAuth>,
 ) -> Result<()> {
     let target_dir = repo_root.join(format!("{}/{}.git", owner, name));
     if target_dir.join("HEAD").exists() {
@@ -511,7 +634,14 @@ fn clone_repo(
     // `blocking-network-client` feature (implied by the curl transport) also
     // enables the credential helpers, so private sources keep working.
     let interrupt = std::sync::atomic::AtomicBool::new(false);
-    let cloned = gix::prepare_clone_bare(source_url, &target_dir).and_then(|mut prepare| {
+    let cloned = gix::clone::PrepareFetch::new(
+        source_url,
+        &target_dir,
+        gix::create::Kind::Bare,
+        gix::create::Options::default(),
+        source_open_options(auth, source_url),
+    )
+    .and_then(|mut prepare| {
         prepare
             .fetch_only(gix::progress::Discard, &interrupt)
             .map(|_| ())
@@ -556,14 +686,6 @@ fn parse_gitlab_url(url: &str) -> Result<String> {
         }
     }
     Err(CoreError::invalid_input(format!("invalid GitLab URL: {url}")).into())
-}
-
-fn build_gitlab_clone_url(http_url: &str, token: &str) -> String {
-    if token.is_empty() {
-        http_url.to_string()
-    } else {
-        http_url.replacen("://", &format!("://oauth2:{}@", token), 1)
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1390,9 +1512,18 @@ pub async fn start_import(
     import_labels: bool,
     import_milestones: bool,
     repo_root: &Path,
+    enc_key: &[u8; 32],
 ) -> CoreResult<ImportTask> {
     let now = Utc::now();
     let supports_metadata = matches!(platform.as_str(), "github" | "gitlab");
+    // The column has always been called `auth_token_encrypted`; until now the
+    // caller's string went straight in.
+    let auth_token = match auth_token {
+        Some(token) if !token.trim().is_empty() => {
+            Some(crate::auth::encryption::encrypt(token.trim(), enc_key)?)
+        }
+        _ => None,
+    };
 
     let model = import_task::ActiveModel {
         user_id: Set(user_id),
@@ -1426,8 +1557,9 @@ pub async fn start_import(
     // Spawn background task
     let db_clone = db.clone();
     let repo_root_clone = repo_root.to_path_buf();
+    let key = *enc_key;
     tokio::spawn(async move {
-        match run_import(&db_clone, &task_clone, &repo_root_clone).await {
+        match run_import(&db_clone, &task_clone, &repo_root_clone, &key).await {
             Ok(stats) => {
                 let stats_json = serde_json::to_string(&stats).unwrap_or_default();
                 let _ =
@@ -1468,6 +1600,68 @@ fn user_visible_failure(error: &anyhow::Error) -> String {
 mod tests {
     use super::*;
 
+    /// The exact header gix sends. These platforms compare
+    /// `base64(user:token)` literally, so the bytes matter.
+    #[test]
+    fn the_basic_auth_header_is_the_standard_form() {
+        assert_eq!(
+            http_auth_override("x-access-token", "ghp_example"),
+            "http.extraHeader=Authorization: Basic eC1hY2Nlc3MtdG9rZW46Z2hwX2V4YW1wbGU="
+        );
+        // GitLab's convention: any user works, `oauth2` is the documented one.
+        assert_eq!(
+            http_auth_override("oauth2", "glpat-example"),
+            "http.extraHeader=Authorization: Basic b2F1dGgyOmdscGF0LWV4YW1wbGU="
+        );
+    }
+
+    /// A token must never be spliced into the URL: gix writes the clone URL into
+    /// the new repository's config as `remote.origin.url`.
+    #[test]
+    fn a_token_never_appears_in_the_clone_url() {
+        let auth = SourceAuth {
+            username: "x-access-token".to_string(),
+            token: "super-secret".to_string(),
+        };
+        let override_value = http_auth_override(&auth.username, &auth.token);
+        assert!(!override_value.contains("super-secret"));
+        // ...but it does decode back to user:token, so it is the right credential.
+        use base64::Engine as _;
+        let encoded = override_value
+            .strip_prefix("http.extraHeader=Authorization: Basic ")
+            .expect("basic scheme");
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .expect("base64");
+        assert_eq!(
+            String::from_utf8(decoded).unwrap(),
+            "x-access-token:super-secret"
+        );
+        assert!(!is_http_url("git://example.com/a.git"));
+        assert!(is_http_url("https://example.com/a.git"));
+    }
+
+    /// The column has always been named `auth_token_encrypted`, and rows written
+    /// before this change hold plaintext in it. Both have to read back.
+    #[test]
+    fn stored_tokens_are_read_as_ciphertext_or_legacy_plaintext() {
+        let key = crate::auth::encryption::derive_key("import-test-secret");
+        let encrypted = crate::auth::encryption::encrypt("ghp_live_token", &key).unwrap();
+        assert_eq!(
+            decode_task_token(&encrypted, &key).unwrap(),
+            "ghp_live_token"
+        );
+        // Legacy row: plaintext that is not shaped like ciphertext.
+        assert_eq!(decode_task_token("ghp_legacy", &key).unwrap(), "ghp_legacy");
+        // Ciphertext we cannot open is an error, not a plaintext guess.
+        let other = crate::auth::encryption::derive_key("different-secret");
+        let error = decode_task_token(&encrypted, &other).unwrap_err();
+        assert!(
+            format!("{error}").contains("cannot be decrypted"),
+            "unexpected error: {error}"
+        );
+    }
+
     /// `clone_repo` replaced `git clone --bare`, so the result still has to be
     /// a bare repository that Git itself accepts, with the source branches and
     /// tags intact.
@@ -1499,7 +1693,14 @@ mod tests {
             .trim()
             .to_owned();
 
-        clone_repo(&source.to_string_lossy(), temp.path(), "owner", "name", "").unwrap();
+        clone_repo(
+            &source.to_string_lossy(),
+            temp.path(),
+            "owner",
+            "name",
+            None,
+        )
+        .unwrap();
 
         let target = temp.path().join("owner/name.git");
         let cloned = gix::open(&target).expect("cloned repository must open");
@@ -1517,7 +1718,14 @@ mod tests {
         assert_eq!(tag.stdout_str().trim(), head);
 
         // Re-running is a no-op instead of a destructive re-clone.
-        clone_repo(&source.to_string_lossy(), temp.path(), "owner", "name", "").unwrap();
+        clone_repo(
+            &source.to_string_lossy(),
+            temp.path(),
+            "owner",
+            "name",
+            None,
+        )
+        .unwrap();
         assert_eq!(cloned.head_id().unwrap().detach().to_string(), head);
     }
 }
