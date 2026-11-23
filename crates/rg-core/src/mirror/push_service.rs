@@ -497,7 +497,7 @@ mod tests {
     fn init_upstream(path: &Path) {
         std::fs::create_dir_all(path).expect("mkdir");
         let bare = path.to_string_lossy().to_string();
-        git(&["init", "--bare", &bare], None);
+        git(&["init", "--bare", "--initial-branch=main", &bare], None);
 
         let work = path.with_extension("work");
         std::fs::create_dir_all(&work).expect("mkdir work");
@@ -525,7 +525,10 @@ mod tests {
         let target = tmp.path().join("target.git");
         std::fs::create_dir_all(&target).expect("mkdir target");
         let target_str = target.to_string_lossy().to_string();
-        git(&["init", "--bare", &target_str], None);
+        git(
+            &["init", "--bare", "--initial-branch=main", &target_str],
+            None,
+        );
 
         // First push: branches and tags land.
         let outcome =
@@ -591,7 +594,10 @@ mod tests {
         let target = tmp.path().join("target.git");
         std::fs::create_dir_all(&target).expect("mkdir target");
         let target_str = target.to_string_lossy().to_string();
-        git(&["init", "--bare", &target_str], None);
+        git(
+            &["init", "--bare", "--initial-branch=main", &target_str],
+            None,
+        );
 
         let outcome =
             run_git_push(&target_str, &refspecs(false), &source, &[], &[]).expect("git push runs");
