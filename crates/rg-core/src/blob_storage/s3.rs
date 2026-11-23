@@ -14,10 +14,10 @@
 //!
 //! # What is deliberately not here
 //!
-//! * **Streaming uploads.** `put_file` reads the file into memory and PUTs it.
-//!   That is fine for the object sizes this instance stores today (attachments,
-//!   package blobs, CI artifacts); a multi-GB LFS object would want a
-//!   `multipart` upload, which is a separate piece of work.
+//! * **Streaming uploads via a single request.** Objects past
+//!   [`MULTIPART_THRESHOLD`] are uploaded in [`PART_SIZE`] chunks, so peak
+//!   memory is one part rather than the whole file; smaller ones still go in a
+//!   single PUT, which is simpler and atomic.
 //! * **Redirects for downloads.** Callers that want the client to fetch
 //!   directly from S3 need a presigned GET; the trait returns bytes, and adding
 //!   `presigned_get` here without a caller would be speculative.
@@ -33,6 +33,12 @@ use std::time::{Duration, SystemTime};
 /// Long enough for a slow upload of a large artifact on a bad link; short enough
 /// that a URL leaked into a log is useless by the time anyone reads it.
 const PRESIGN_TTL: Duration = Duration::from_secs(15 * 60);
+
+/// Below this, a single PUT is simpler and cheaper than a multipart dance.
+const MULTIPART_THRESHOLD: u64 = 16 * 1024 * 1024;
+/// S3 requires every part except the last to be at least 5 MiB; 8 leaves
+/// headroom and keeps the part count far below the 10 000 limit.
+const PART_SIZE: usize = 8 * 1024 * 1024;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
@@ -149,6 +155,186 @@ impl S3BlobStorage {
             .sign(PRESIGN_TTL)
     }
 
+    /// `CreateMultipartUpload` → the upload id that ties the parts together.
+    async fn create_multipart(&self, object: &str) -> Result<String> {
+        let action = self
+            .bucket
+            .create_multipart_upload(Some(&self.credentials), object);
+        let url = action.sign(PRESIGN_TTL);
+        let response = self
+            .client
+            .post(url)
+            .send()
+            .await
+            .map_err(transport_error)?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(BlobStorageError::Io(std::io::Error::other(format!(
+                "S3 CreateMultipartUpload failed with HTTP {status}"
+            ))));
+        }
+        let body = response.text().await.map_err(transport_error)?;
+        let parsed =
+            rusty_s3::actions::CreateMultipartUpload::parse_response(&body).map_err(|e| {
+                BlobStorageError::Io(std::io::Error::other(format!(
+                    "S3 CreateMultipartUpload response could not be parsed: {e}"
+                )))
+            })?;
+        Ok(parsed.upload_id().to_string())
+    }
+
+    /// Upload every part, in order. Returns the ETags the completion needs.
+    async fn upload_parts(
+        &self,
+        object: &str,
+        upload_id: &str,
+        source: &Path,
+    ) -> Result<Vec<String>> {
+        use tokio::io::AsyncReadExt;
+
+        let mut file = tokio::fs::File::open(source).await?;
+        let mut etags: Vec<String> = Vec::new();
+        let mut part_number: u16 = 1;
+
+        loop {
+            // Read exactly one part, or whatever is left at the end.
+            let mut buffer = vec![0u8; PART_SIZE];
+            let mut filled = 0usize;
+            while filled < PART_SIZE {
+                let read = file.read(&mut buffer[filled..]).await?;
+                if read == 0 {
+                    break;
+                }
+                filled += read;
+            }
+            if filled == 0 {
+                break;
+            }
+            buffer.truncate(filled);
+
+            let action =
+                self.bucket
+                    .upload_part(Some(&self.credentials), object, part_number, upload_id);
+            let url = action.sign(PRESIGN_TTL);
+            let response = self
+                .client
+                .put(url)
+                .body(buffer)
+                .send()
+                .await
+                .map_err(transport_error)?;
+            let status = response.status();
+            if !status.is_success() {
+                return Err(BlobStorageError::Io(std::io::Error::other(format!(
+                    "S3 UploadPart {part_number} failed with HTTP {status}"
+                ))));
+            }
+            // The ETag is what proves the part arrived intact; without it the
+            // completion cannot name the part.
+            let etag = response
+                .headers()
+                .get(reqwest::header::ETAG)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    BlobStorageError::Io(std::io::Error::other(format!(
+                        "S3 UploadPart {part_number} returned no ETag"
+                    )))
+                })?;
+            etags.push(etag);
+            part_number = part_number.checked_add(1).ok_or_else(|| {
+                BlobStorageError::Io(std::io::Error::other(
+                    "S3 multipart upload exceeded 65535 parts".to_string(),
+                ))
+            })?;
+        }
+
+        if etags.is_empty() {
+            return Err(BlobStorageError::Io(std::io::Error::other(
+                "S3 multipart upload read no data",
+            )));
+        }
+        Ok(etags)
+    }
+
+    async fn complete_multipart(
+        &self,
+        object: &str,
+        upload_id: &str,
+        etags: &[String],
+    ) -> Result<()> {
+        // `body()` consumes the action, and the signature covers the body, so
+        // the XML is built once and attached to a separately signed request.
+        let body = self
+            .bucket
+            .complete_multipart_upload(
+                Some(&self.credentials),
+                object,
+                upload_id,
+                etags.iter().map(String::as_str),
+            )
+            .body();
+        let action = self.bucket.complete_multipart_upload(
+            Some(&self.credentials),
+            object,
+            upload_id,
+            etags.iter().map(String::as_str),
+        );
+        let url = action.sign(PRESIGN_TTL);
+        let response = self
+            .client
+            .post(url)
+            .body(body)
+            .send()
+            .await
+            .map_err(transport_error)?;
+        let status = response.status();
+        if !status.is_success() {
+            let detail = response.text().await.unwrap_or_default();
+            return Err(BlobStorageError::Io(std::io::Error::other(format!(
+                "S3 CompleteMultipartUpload failed with HTTP {status}: {detail}"
+            ))));
+        }
+        Ok(())
+    }
+
+    /// Best effort: an abandoned upload keeps costing storage and is invisible
+    /// in a bucket listing, so a failed migration must not leave one behind.
+    async fn abort_multipart(&self, object: &str, upload_id: &str) {
+        let action = self
+            .bucket
+            .abort_multipart_upload(Some(&self.credentials), object, upload_id);
+        let url = action.sign(PRESIGN_TTL);
+        if let Err(error) = self.client.delete(url).send().await {
+            tracing::warn!(%error, object, "could not abort a failed multipart upload");
+        }
+    }
+
+    /// Chunked upload for objects above [`MULTIPART_THRESHOLD`].
+    async fn send_multipart(
+        &self,
+        key: &BlobKey,
+        source: &Path,
+        size: u64,
+    ) -> Result<BlobMetadata> {
+        let object = self.object_name(key);
+        let upload_id = self.create_multipart(&object).await?;
+        match self.upload_parts(&object, &upload_id, source).await {
+            Ok(etags) => {
+                self.complete_multipart(&object, &upload_id, &etags).await?;
+                Ok(BlobMetadata {
+                    key: key.clone(),
+                    size,
+                    modified: Some(SystemTime::now()),
+                })
+            }
+            Err(error) => {
+                self.abort_multipart(&object, &upload_id).await;
+                Err(error)
+            }
+        }
+    }
+
     async fn send_put(&self, key: &BlobKey, body: Vec<u8>) -> Result<BlobMetadata> {
         let response = self
             .client
@@ -210,11 +396,16 @@ impl BlobStorage for S3BlobStorage {
         source: &'a Path,
     ) -> BoxFuture<'a, Result<BlobMetadata>> {
         Box::pin(async move {
-            // Read-then-PUT: S3 writes are atomic per object, so the
-            // "never observe a partial object" rule in the trait holds without
-            // a temporary sibling. See the module note about streaming.
-            let body = tokio::fs::read(source).await?;
-            self.send_put(key, body).await
+            let size = tokio::fs::metadata(source).await?.len();
+            if size < MULTIPART_THRESHOLD {
+                // Small objects: one PUT is atomic, which satisfies the trait's
+                // "never observe a partial object" rule without a temporary.
+                let body = tokio::fs::read(source).await?;
+                return self.send_put(key, body).await;
+            }
+            // Large objects (LFS, release assets, OCI blobs): chunked, so peak
+            // memory stays at one part instead of the whole file.
+            self.send_multipart(key, source, size).await
         })
     }
 
@@ -494,6 +685,27 @@ mod tests {
         // overwrite is a replace, not an append
         storage.put(&key, b"second").await.expect("overwrite");
         assert_eq!(storage.get(&key).await.expect("get"), b"second");
+
+        // A large object goes through multipart (8 MiB parts); the payload must
+        // come back byte-identical, which is what proves the parts were
+        // assembled in order with the right ETags.
+        let big_key = BlobKey::from_segments(["lfs", "live", "multipart"]).unwrap();
+        let _ = storage.delete(&big_key).await;
+        let payload: Vec<u8> = (0..(17 * 1024 * 1024u32))
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("big.bin");
+        std::fs::write(&path, &payload).expect("write fixture");
+        let written = storage
+            .put_file(&big_key, &path)
+            .await
+            .expect("multipart put");
+        assert_eq!(written.size, payload.len() as u64);
+        let read_back = storage.get(&big_key).await.expect("get multipart");
+        assert_eq!(read_back.len(), payload.len());
+        assert_eq!(read_back, payload, "multipart assembly changed the bytes");
+        assert!(storage.delete(&big_key).await.expect("delete multipart"));
 
         // delete reports existence correctly
         assert!(storage.delete(&key).await.expect("delete"));
