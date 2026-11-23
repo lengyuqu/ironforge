@@ -537,6 +537,18 @@ impl BlobStorage for S3BlobStorage {
             Ok(collected)
         })
     }
+
+    fn presigned_url(&self, key: &BlobKey, ttl: Duration) -> Option<String> {
+        let object = self.object_name(key);
+        // Same signing path as every other request; only the method differs, so
+        // a signed GET is a signed GET whatever the caller means to do with it.
+        Some(
+            self.bucket
+                .get_object(Some(&self.credentials), &object)
+                .sign(ttl)
+                .to_string(),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -715,6 +727,41 @@ mod tests {
             storage.get(&key).await,
             Err(BlobStorageError::NotFound(_))
         ));
+    }
+
+    /// A presigned URL must carry a signature and point at the object; both
+    /// are what makes it usable without credentials.
+    #[test]
+    fn a_presigned_url_is_signed_and_names_the_object() {
+        let storage = S3BlobStorage::new(&config(true)).expect("valid configuration");
+        let key = BlobKey::from_segments(["releases", "acme", "v1", "app.tar.gz"]).unwrap();
+        let url = storage
+            .presigned_url(&key, Duration::from_secs(300))
+            .expect("S3 can presign");
+        assert!(
+            url.contains("releases/acme/v1/app.tar.gz"),
+            "url must name the object: {url}"
+        );
+        assert!(
+            url.contains("X-Amz-Signature="),
+            "url must be signed: {url}"
+        );
+        assert!(
+            url.contains("X-Amz-Expires=300"),
+            "ttl must be honoured: {url}"
+        );
+    }
+
+    /// The local backend has no such thing, and says so instead of returning a
+    /// URL that would not work.
+    #[test]
+    fn a_local_backend_offers_no_presigned_url() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = crate::blob_storage::LocalBlobStorage::new(dir.path());
+        let key = BlobKey::new("releases/a/b").unwrap();
+        assert!(storage
+            .presigned_url(&key, Duration::from_secs(60))
+            .is_none());
     }
 
     #[test]
