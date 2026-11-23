@@ -1684,6 +1684,50 @@ async fn main() -> anyhow::Result<()> {
                         failed = true;
                     }
                 }
+
+                // Group memberships. A provider with the three group columns
+                // empty is skipped: that is the off state, not a failure.
+                match rg_core::auth::ldap_group_sync::plan_provider_groups(
+                    &db,
+                    &provider,
+                    &jwt_secret,
+                )
+                .await
+                {
+                    Ok(None) => {}
+                    Ok(Some(group_plan)) => {
+                        println!("  groups: {}", group_plan.summary());
+                        for add in &group_plan.add {
+                            println!("  + {} -> team {}", add.username, add.team_name);
+                        }
+                        for group_name in &group_plan.unmatched_groups {
+                            println!("  ? group with no team: {group_name}");
+                        }
+                        for dn in &group_plan.unmatched_members {
+                            println!("  ? member with no account: {dn}");
+                        }
+                        for (team, username) in &group_plan.extra_members {
+                            println!("  = in team {team} but not in the group: {username}");
+                        }
+                        if !dry_run && !group_plan.is_noop() {
+                            match rg_core::auth::ldap_group_sync::apply_groups(&db, &group_plan)
+                                .await
+                            {
+                                Ok(inserted) => {
+                                    println!("  applied: {inserted} membership(s) added")
+                                }
+                                Err(error) => {
+                                    eprintln!("  group apply failed: {error}");
+                                    failed = true;
+                                }
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!("  group sync failed: {error}");
+                        failed = true;
+                    }
+                }
             }
 
             if failed {

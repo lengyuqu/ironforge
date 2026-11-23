@@ -538,8 +538,11 @@ pub async fn update_agent<C: ConnectionTrait>(
 
 /// Local accounts that log in through one LDAP provider.
 ///
-/// `kind = 'user'` excludes agents: an agent has no directory entry and must
-/// never be swept up by a sync that deactivates the missing.
+/// `kind = 'human'` excludes agents: an agent has no directory entry and must
+/// never be swept up by a sync that deactivates the missing. The value is
+/// `human`, not `user` — `user_ops::create_ldap_user` writes `human`, and a
+/// filter on the wrong word returns an empty list, which makes the whole sync
+/// a silent no-op rather than an error.
 pub async fn list_by_ldap_provider<C: ConnectionTrait>(
     db: &C,
     provider_id: i64,
@@ -547,7 +550,7 @@ pub async fn list_by_ldap_provider<C: ConnectionTrait>(
     UserEntity::find()
         .filter(user::Column::AuthProvider.eq("ldap"))
         .filter(user::Column::LdapProviderId.eq(provider_id))
-        .filter(user::Column::Kind.eq("user"))
+        .filter(user::Column::Kind.eq("human"))
         .order_by_asc(user::Column::Id)
         .all(db)
         .await
@@ -563,7 +566,7 @@ pub async fn set_active<C: ConnectionTrait>(db: &C, user_id: i64, is_active: boo
         .col_expr(user::Column::IsActive, Expr::value(is_active))
         .col_expr(user::Column::UpdatedAt, Expr::value(chrono::Utc::now()))
         .filter(user::Column::Id.eq(user_id))
-        .filter(user::Column::Kind.eq("user"))
+        .filter(user::Column::Kind.eq("human"))
         .exec(db)
         .await
         .context("db: set user active flag")?;

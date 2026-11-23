@@ -4165,6 +4165,36 @@ fn spawn_background_job_worker(state: AppState) {
             // `sync_all_enabled` refuses a mass deactivation on its own; the
             // scheduled path deliberately has no way to override that.
             let outcomes = rg_core::auth::ldap_sync::sync_all_enabled(&db, &secret).await;
+            // Group memberships run on the same tick: a provider with the three
+            // group columns empty is skipped inside, so this costs nothing for
+            // instances that do not use it.
+            let group_outcomes =
+                rg_core::auth::ldap_group_sync::sync_all_enabled(&db, &secret).await;
+            for outcome in group_outcomes {
+                match outcome {
+                    rg_core::auth::ldap_group_sync::GroupOutcome::NotConfigured { .. } => {}
+                    rg_core::auth::ldap_group_sync::GroupOutcome::Unchanged { provider_id } => {
+                        tracing::debug!(provider_id, "LDAP group sync: nothing to add");
+                    }
+                    rg_core::auth::ldap_group_sync::GroupOutcome::Applied {
+                        provider_id,
+                        inserted,
+                        plan,
+                    } => {
+                        tracing::info!(
+                            provider_id,
+                            inserted,
+                            unmatched_groups = plan.unmatched_groups.len(),
+                            unmatched_members = plan.unmatched_members.len(),
+                            extra_members = plan.extra_members.len(),
+                            "LDAP group sync: applied"
+                        );
+                    }
+                    rg_core::auth::ldap_group_sync::GroupOutcome::Failed { provider_id, error } => {
+                        tracing::error!(provider_id, %error, "LDAP group sync: provider failed");
+                    }
+                }
+            }
             for outcome in outcomes {
                 match outcome {
                     rg_core::auth::ldap_sync::ProviderOutcome::Unchanged { provider_id } => {
