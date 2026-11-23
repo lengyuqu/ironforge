@@ -34,6 +34,7 @@ pub mod config;
 pub mod gitea_actions;
 pub mod quota;
 pub mod runner;
+pub mod step_output;
 
 use anyhow::{Context, Result};
 use gix::bstr::ByteSlice;
