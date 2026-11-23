@@ -278,7 +278,10 @@
       "label_set": "默认标签集",
       "none": "无",
       "submit": "创建仓库",
-      "cancel": "取消"
+      "cancel": "取消",
+      "template": "从模板创建",
+      "template_none": "不使用模板 —— 从空仓库开始",
+      "template_hint": "复制模板的提交历史；下面的自动生成文件不再适用。"
     },
     "empty": {
       "no_repos": "暂无仓库",
@@ -1285,7 +1288,12 @@
       "setup": "设置 MFA",
       "enabled_notice": "MFA 已启用。离开此页面前请保存备份码。"
     },
-    "label_color_aria": "颜色 {color}"
+    "label_color_aria": "颜色 {color}",
+    "template": {
+      "title": "模板",
+      "enable": "把此仓库用作模板",
+      "hint": "其他人可以基于它创建新仓库。只复制提交历史，不复制标签与 issue。"
+    }
   },
   "commit": {
     "status": "状态检查",

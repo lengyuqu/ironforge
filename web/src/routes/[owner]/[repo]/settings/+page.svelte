@@ -23,6 +23,24 @@
     loadRepository();
   });
 
+  let savingTemplate = $state(false);
+
+  async function toggleTemplate(event: Event) {
+    const target = event.currentTarget as HTMLInputElement;
+    const next = target.checked;
+    try {
+      savingTemplate = true;
+      await repos.setTemplate(owner, repo, next);
+      await loadRepository();
+    } catch (err) {
+      // Put the checkbox back: the flag did not change on the server.
+      target.checked = !next;
+      error = toErrorMessage(err, t('errors.save_failed'));
+    } finally {
+      savingTemplate = false;
+    }
+  }
+
   async function loadRepository() {
     try {
       loading = true;
@@ -48,7 +66,23 @@
   {:else if error}
     <ErrorBanner message={error} />
   {:else if repository}
-    <RepoInfoSection {repository} />
+    <section class="section surface">
+    <h2>{t('settings.template.title')}</h2>
+    <label class="toggle-row">
+      <input
+        type="checkbox"
+        checked={repository?.is_template ?? false}
+        disabled={savingTemplate}
+        onchange={toggleTemplate}
+      />
+      <span>
+        <strong>{t('settings.template.enable')}</strong>
+        <span class="hint">{t('settings.template.hint')}</span>
+      </span>
+    </label>
+  </section>
+
+  <RepoInfoSection {repository} />
     <TransferSection {owner} {repo} />
     <DangerZoneSection {owner} {repo} />
   {/if}
@@ -64,4 +98,7 @@
     color: var(--text-primary);
   }
 
+  .toggle-row { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; cursor: pointer; }
+  .toggle-row input[type='checkbox'] { width: 18px; height: 18px; margin-top: 2px; }
+  .toggle-row .hint { display: block; font-size: 12px; opacity: 0.75; margin-top: 2px; }
 </style>

@@ -68,6 +68,7 @@ pub struct PaginatedRepoResponse {
         crate::api::repos::get_repo,
         crate::api::repos::update_repo_settings,
         crate::api::repos::set_repo_template,
+        crate::api::repos::list_available_templates,
         crate::api::repos::delete_repo_handler,
         crate::api::repos::star_repo,
         crate::api::repos::get_starred_status,

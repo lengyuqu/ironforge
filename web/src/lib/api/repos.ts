@@ -104,10 +104,23 @@ export const repos = {
     license?: string;
     readme?: string;
     issue_labels?: string;
+    /** Copy this repository's history into the new one (disables auto_init). */
+    template_repo_id?: number;
   }) =>
     request<{ id: number; name: string }>('/repos', {
       method: 'POST',
       body: JSON.stringify(opts),
+    }),
+  /** Templates the caller may start from (public ones plus their own). */
+  availableTemplates: () =>
+    request<{
+      data: { id: number; name: string; description: string | null; is_private: boolean }[];
+    }>('/repos/templates/available'),
+  /** Offer (or stop offering) this repository as a template. Owner/admin only. */
+  setTemplate: (owner: string, repo: string, isTemplate: boolean) =>
+    request<{ id: number; is_template: boolean }>(`/repos/${owner}/${repo}/template`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_template: isTemplate }),
     }),
   templates: {
     gitignores: () => request<{ data: { key: string; name: string; description: string }[] }>('/repos/templates/gitignores'),

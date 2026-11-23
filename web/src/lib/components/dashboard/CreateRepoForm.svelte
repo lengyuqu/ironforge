@@ -26,6 +26,8 @@
   let selectedLicense = $state('');
   let selectedReadme = $state('default');
   let selectedLabels = $state('default');
+  /** 0 = start empty; otherwise the id of a repository to copy. */
+  let selectedTemplate = $state(0);
   let submitting = $state(false);
 
   // Q6.3: Client-side form validation
@@ -64,6 +66,9 @@
   let licenseOptions = $state<{ key: string; name: string; description: string }[]>([]);
   let readmeOptions = $state<{ key: string; name: string; description: string }[]>([]);
   let labelSetOptions = $state<{ key: string; name: string; description: string }[]>([]);
+  let templateOptions = $state<
+    { id: number; name: string; description: string | null; is_private: boolean }[]
+  >([]);
 
   $effect(() => {
     loadTemplates();
@@ -71,16 +76,19 @@
 
   async function loadTemplates() {
     try {
-      const [gi, li, re, lb] = await Promise.all([
+      const [gi, li, re, lb, tpl] = await Promise.all([
         repos.templates.gitignores(),
         repos.templates.licenses(),
         repos.templates.readmes(),
         repos.templates.labels(),
+        // Optional: an instance may have no templates at all.
+        repos.availableTemplates().catch(() => ({ data: [] })),
       ]);
       gitignoreOptions = gi.data;
       licenseOptions = li.data;
       readmeOptions = re.data;
       labelSetOptions = lb.data;
+      templateOptions = tpl.data;
     } catch (_) {
       // Templates are optional — proceed without them
     }
@@ -97,16 +105,21 @@
     }
     submitting = true;
     try {
+      // A template carries its own files, so the generated ones are not sent:
+      // the server ignores them anyway, and sending them would suggest a
+      // combination that does not exist.
+      const fromTemplate = selectedTemplate > 0;
       await repos.create({
         name: newName,
         description: newDesc || undefined,
         is_private: newPrivate,
-        auto_init: autoInit,
+        auto_init: fromTemplate ? false : autoInit,
         default_branch: defaultBranch || undefined,
-        gitignores: selectedGitignore || undefined,
-        license: selectedLicense || undefined,
-        readme: autoInit ? selectedReadme : undefined,
-        issue_labels: autoInit ? selectedLabels : undefined,
+        gitignores: fromTemplate || !autoInit ? undefined : selectedGitignore || undefined,
+        license: fromTemplate || !autoInit ? undefined : selectedLicense || undefined,
+        readme: !fromTemplate && autoInit ? selectedReadme : undefined,
+        issue_labels: !fromTemplate && autoInit ? selectedLabels : undefined,
+        template_repo_id: fromTemplate ? selectedTemplate : undefined,
       });
       await onCreated(newName);
     } catch (e) {
@@ -165,16 +178,32 @@
 
     <hr class="divider" />
 
+    <!-- Start from a template (only when the instance has any) -->
+    {#if templateOptions.length > 0}
+      <label>
+        {t('dashboard.create_form.template')}
+        <select bind:value={selectedTemplate}>
+          <option value={0}>{t('dashboard.create_form.template_none')}</option>
+          {#each templateOptions as template (template.id)}
+            <option value={template.id}>
+              {template.name}{template.is_private ? ' 🔒' : ''}
+            </option>
+          {/each}
+        </select>
+        <span class="hint">{t('dashboard.create_form.template_hint')}</span>
+      </label>
+    {/if}
+
     <!-- Auto-initialize -->
-    <label class="checkbox-label">
-      <input type="checkbox" bind:checked={autoInit} />
+    <label class="checkbox-label" class:disabled={selectedTemplate > 0}>
+      <input type="checkbox" bind:checked={autoInit} disabled={selectedTemplate > 0} />
       <span>
         <strong>{t('dashboard.create_form.auto_init')}</strong>
         <span class="hint">{t('dashboard.create_form.auto_init_hint')}</span>
       </span>
     </label>
 
-    {#if autoInit}
+    {#if autoInit && selectedTemplate === 0}
       <div class="template-section">
         <!-- Default branch -->
         <label>
@@ -272,6 +301,8 @@
     color: var(--text-muted);
     margin-top: 2px;
   }
+
+  .checkbox-label.disabled { opacity: 0.5; }
 
   .divider {
     border: none;
