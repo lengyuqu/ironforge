@@ -39,9 +39,40 @@ pub struct CiConfig {
     pub jobs: HashMap<String, JobConfig>,
 }
 
+/// One step of a job, as the workflow declared it.
+///
+/// Hand-written `.ironforge-ci.yml` jobs use `script` and leave `steps` empty;
+/// a job converted from a Gitea workflow carries both — `steps` as the faithful
+/// declaration, `script` as the flattened form the current executor runs.
+/// Stage B of CI-202 executes `steps` directly and stops flattening.
+///
+/// `skip_serializing_if` keeps existing serialized configs byte-identical: a
+/// job without steps must not gain `"steps": null`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StepConfig {
+    /// `id` from the workflow. Required only when something references
+    /// `steps.<id>.outputs.*`.
+    pub id: Option<String>,
+    pub name: Option<String>,
+    /// Command to run. Exactly one of `run` / `uses` is set.
+    pub run: Option<String>,
+    /// Action to invoke.
+    pub uses: Option<String>,
+    /// Step condition, **unevaluated**. The executor will evaluate it at
+    /// runtime once CI-203 lands; until then the flattened `script` has
+    /// already applied it at conversion time.
+    pub condition: Option<String>,
+    pub env: HashMap<String, String>,
+    pub with: HashMap<String, String>,
+}
+
 /// A single CI job configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobConfig {
+    /// Steps as declared. `None` for a hand-written config that only has
+    /// `script`; `Some` for a job converted from a Gitea workflow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steps: Option<Vec<StepConfig>>,
     /// Which stage this job belongs to.
     pub stage: Option<String>,
 
