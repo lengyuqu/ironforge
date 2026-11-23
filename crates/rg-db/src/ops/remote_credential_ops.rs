@@ -8,7 +8,10 @@ use crate::entities::remote_credential::{self, ActiveModel, Entity as Credential
 
 /// Create a credential record.
 pub async fn create(db: &DatabaseConnection, model: ActiveModel) -> Result<Model> {
-    model.insert(db).await.context("db: create remote credential")
+    model
+        .insert(db)
+        .await
+        .context("db: create remote credential")
 }
 
 /// Find a credential by its ID.
@@ -55,7 +58,10 @@ pub async fn list_for_owner(
 
 /// Update a credential record.
 pub async fn update(db: &DatabaseConnection, model: ActiveModel) -> Result<Model> {
-    model.update(db).await.context("db: update remote credential")
+    model
+        .update(db)
+        .await
+        .context("db: update remote credential")
 }
 
 /// Delete a credential by ID.
@@ -92,7 +98,11 @@ pub async fn delete_all_for_owner(
 /// Best-effort by design: it is called on the sync path, and a failed
 /// bookkeeping write must never turn a successful fetch into an error. Callers
 /// log the failure instead of propagating it.
-pub async fn touch_last_used(db: &DatabaseConnection, id: i64, at: chrono::DateTime<Utc>) -> Result<()> {
+pub async fn touch_last_used(
+    db: &DatabaseConnection,
+    id: i64,
+    at: chrono::DateTime<Utc>,
+) -> Result<()> {
     CredentialEntity::update_many()
         .col_expr(
             remote_credential::Column::LastUsedAt,

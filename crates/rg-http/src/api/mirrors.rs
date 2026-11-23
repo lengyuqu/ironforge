@@ -303,7 +303,8 @@ pub async fn trigger_mirror_sync(
     }
 
     let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
-    match rg_core::mirror::service::trigger_sync(&state.db, repo.id, &state.repo_root, &enc_key).await
+    match rg_core::mirror::service::trigger_sync(&state.db, repo.id, &state.repo_root, &enc_key)
+        .await
     {
         Ok(()) => (
             StatusCode::OK,

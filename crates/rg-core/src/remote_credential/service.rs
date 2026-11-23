@@ -7,7 +7,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use chrono::Utc;
 use rg_db::entities::remote_credential::{
-    ActiveModel, DEFAULT_BASIC_USERNAME, Model, AUTH_SCHEME_BASIC, AUTH_SCHEME_BEARER,
+    ActiveModel, Model, AUTH_SCHEME_BASIC, AUTH_SCHEME_BEARER, DEFAULT_BASIC_USERNAME,
     OWNER_KIND_ORG, OWNER_KIND_USER,
 };
 use rg_db::entities::repository;
@@ -244,9 +244,9 @@ pub async fn upsert(
         Ok(model) => Ok(model),
         // Two concurrent upserts: the loser hits the unique index and must end
         // up with the same "already configured" outcome as the winner.
-        Err(error) if crate::user::service::is_unique_violation(&error) => Err(CoreError::conflict(
-            "a credential for this host already exists for this owner",
-        )),
+        Err(error) if crate::user::service::is_unique_violation(&error) => Err(
+            CoreError::conflict("a credential for this host already exists for this owner"),
+        ),
         Err(error) => Err(error.into()),
     }
 }
@@ -637,7 +637,10 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(created.host, "github.com", "a full URL normalises to its host");
+        assert_eq!(
+            created.host, "github.com",
+            "a full URL normalises to its host"
+        );
         assert_eq!(created.auth_scheme, AUTH_SCHEME_BASIC);
         assert!(
             !created.token_encrypted.contains("ghp_example_token"),
@@ -663,25 +666,37 @@ mod tests {
                 .unwrap()
                 .into_iter()
                 .collect();
-        assert_eq!(env["GIT_CONFIG_KEY_0"], "http.https://github.com/.extraheader");
+        assert_eq!(
+            env["GIT_CONFIG_KEY_0"],
+            "http.https://github.com/.extraheader"
+        );
         assert!(env["GIT_CONFIG_VALUE_0"].starts_with("Authorization: Basic "));
 
         // Re-submitting the same host rotates in place instead of adding a row.
-        let rotated = upsert(&db, Scope::User(1), input("GitHub.com", "ghp_rotated"), &key)
-            .await
-            .unwrap();
+        let rotated = upsert(
+            &db,
+            Scope::User(1),
+            input("GitHub.com", "ghp_rotated"),
+            &key,
+        )
+        .await
+        .unwrap();
         assert_eq!(rotated.id, created.id, "upsert by host, not a new row");
         assert_eq!(list(&db, Scope::User(1)).await.unwrap().len(), 1);
 
         // Scopes are isolated: neither another user nor an org sees this token.
-        assert!(resolve(&db, Scope::User(2), "https://github.com/acme/repo", &key)
-            .await
-            .unwrap()
-            .is_none());
-        assert!(resolve(&db, Scope::Org(1), "https://github.com/acme/repo", &key)
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            resolve(&db, Scope::User(2), "https://github.com/acme/repo", &key)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            resolve(&db, Scope::Org(1), "https://github.com/acme/repo", &key)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     /// A row encrypted under a different instance secret must be an error, not
@@ -693,13 +708,23 @@ mod tests {
         let writer_key = crate::auth::encryption::derive_key("old-secret");
         let reader_key = crate::auth::encryption::derive_key("new-secret");
 
-        upsert(&db, Scope::User(1), input("gitlab.com", "glpat-example"), &writer_key)
-            .await
-            .unwrap();
+        upsert(
+            &db,
+            Scope::User(1),
+            input("gitlab.com", "glpat-example"),
+            &writer_key,
+        )
+        .await
+        .unwrap();
 
-        let error = resolve(&db, Scope::User(1), "https://gitlab.com/a/b.git", &reader_key)
-            .await
-            .expect_err("a ciphertext that cannot be opened is an error");
+        let error = resolve(
+            &db,
+            Scope::User(1),
+            "https://gitlab.com/a/b.git",
+            &reader_key,
+        )
+        .await
+        .expect_err("a ciphertext that cannot be opened is an error");
         assert!(
             format!("{error}").contains("cannot be decrypted"),
             "the message must name the actual problem: {error}"

@@ -321,7 +321,10 @@ mod tests {
             table_create().to_string(MysqlQueryBuilder),
         ] {
             assert!(sql.contains(TABLE), "{TABLE} missing in: {sql}");
-            assert!(!sql.contains("remote_credential "), "singular table in: {sql}");
+            assert!(
+                !sql.contains("remote_credential "),
+                "singular table in: {sql}"
+            );
             assert!(
                 sql.contains(UNIQUE_INDEX),
                 "{UNIQUE_INDEX} missing in: {sql}"
@@ -391,7 +394,10 @@ mod tests {
         };
         let exec = |sql: String| {
             let db = db.clone();
-            async move { db.execute(Statement::from_string(db.get_database_backend(), sql)).await }
+            async move {
+                db.execute(Statement::from_string(db.get_database_backend(), sql))
+                    .await
+            }
         };
 
         exec(insert("user", 1, "github.com")).await.unwrap();

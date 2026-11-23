@@ -199,7 +199,9 @@ pub async fn update_user_credential(
     };
     let key = enc_key(&state);
     match credential_service::update(&state.db, Scope::User(user_id), id, body.into(), &key).await {
-        Ok(model) => Json(serde_json::json!(credential_service::view(&model, &key))).into_response(),
+        Ok(model) => {
+            Json(serde_json::json!(credential_service::view(&model, &key))).into_response()
+        }
         Err(e) => AppError::from(e).into_response(),
     }
 }
@@ -234,11 +236,7 @@ pub async fn delete_user_credential(
 // ── Org-owned endpoints ─────────────────────────────────────────────────
 
 /// Resolve `{org}` and authorize the caller to read it.
-async fn org_scope_for_read(
-    state: &AppState,
-    org: &str,
-    user_id: i64,
-) -> Result<Scope, AppError> {
+async fn org_scope_for_read(state: &AppState, org: &str, user_id: i64) -> Result<Scope, AppError> {
     let org = rg_core::org::require_org_read(&state.db, org, Some(user_id))
         .await
         .map_err(AppError::from)?;
@@ -246,11 +244,7 @@ async fn org_scope_for_read(
 }
 
 /// Resolve `{org}` and authorize the caller to administer it.
-async fn org_scope_for_write(
-    state: &AppState,
-    org: &str,
-    user_id: i64,
-) -> Result<Scope, AppError> {
+async fn org_scope_for_write(state: &AppState, org: &str, user_id: i64) -> Result<Scope, AppError> {
     let org = rg_core::org::require_org_admin(&state.db, org, user_id)
         .await
         .map_err(AppError::from)?;
@@ -363,7 +357,9 @@ pub async fn update_org_credential(
     };
     let key = enc_key(&state);
     match credential_service::update(&state.db, scope, id, body.into(), &key).await {
-        Ok(model) => Json(serde_json::json!(credential_service::view(&model, &key))).into_response(),
+        Ok(model) => {
+            Json(serde_json::json!(credential_service::view(&model, &key))).into_response()
+        }
         Err(e) => AppError::from(e).into_response(),
     }
 }

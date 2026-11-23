@@ -146,7 +146,6 @@ pub fn url_host_key(url: &str) -> Result<String, String> {
     Ok(parse_remote_authority(url)?.host_key())
 }
 
-
 /// Same as [`url_host_key`], but accepts what a person types into a form: a bare
 /// host (`github.com`, `gitea.local:3000`, `[::1]:8080`) as well as a full URL
 /// (`https://github.com/some/repo`).

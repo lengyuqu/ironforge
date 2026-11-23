@@ -88,7 +88,6 @@ pub async fn create_mirror(
         ..Default::default()
     };
 
-
     // Two concurrent creates can both pass the check above; the loser hits
     // the unique index on repo_id and must see the same conflict.
     let mirror = match rg_db::ops::mirror_ops::create(db, model).await {
