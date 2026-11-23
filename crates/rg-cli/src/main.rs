@@ -1971,6 +1971,20 @@ async fn main() -> anyhow::Result<()> {
 
             // Start import
             println!("\n⏳ Starting import...");
+            // The token is stored encrypted with the server's envelope, so the
+            // CLI needs the same secret. Only required when a token is given:
+            // an import without one never touches the key.
+            let enc_key = match token.as_deref() {
+                Some(value) if !value.trim().is_empty() => {
+                    let secret = std::env::var("IRONFORGE_JWT_SECRET").map_err(|_| {
+                        anyhow::anyhow!(
+                            "IRONFORGE_JWT_SECRET must be set to store the import token encrypted"
+                        )
+                    })?;
+                    rg_core::auth::encryption::derive_key(&secret)
+                }
+                _ => [0u8; 32],
+            };
             let task = rg_core::import::service::start_import(
                 &db,
                 1, // user_id — in CLI mode, default to admin (ID 1)
@@ -1987,6 +2001,7 @@ async fn main() -> anyhow::Result<()> {
                 !skip_labels,
                 !skip_milestones,
                 &repo_root,
+                &enc_key,
             )
             .await?;
 

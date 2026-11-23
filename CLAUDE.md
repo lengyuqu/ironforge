@@ -143,7 +143,7 @@ Phase 1~21 全部完成。核心能力：
 | Push Mirror | `rg-core/src/mirror/push_service.rs` + `rg-db/entities/push_mirror.rs` | 每次推送后把分支（可选标签）强制转发到外部主机（`push_mirrors`，repo_id 唯一，与 pull 镜像分表所以同仓库可双向配置）。refspec `+refs/heads/*`（`+` = force，重写历史也能落地）+ 可选 `+refs/tags/*`，**不 prune**（目标独有 ref 不删）。凭据同 pull 走 host 字典，按 repo 的 scope 解析；`on_push`/`manual` 两种触发；进程内 per-repo 去抖（同一仓库同时只跑一个推送，后来的触发跳过）；`git://` 等非 HTTP 传输拿不到 header |
 | Board | `rg-core/src/board/` | 看板管理（Board/Column/Card） |
 | Time Tracking | `rg-core/src/time_tracking/` | 工时追踪 |
-| 数据导入 | `rg-core/src/import/` | GitHub/GitLab 导入 |
+| 数据导入 | `rg-core/src/import/` | GitHub/GitLab/通用 Git 导入。令牌优先取任务自填，否则按 `source_url` 的 host 查发起人（`Scope::User(task.user_id)`）的凭据字典；经 gix `http.extraHeader` 注入，**不再拼进 URL**（`build_gitlab_clone_url` 已删除——那会把 `oauth2:<token>@host` 永久写进 `remote.origin.url`）；`auth_token_encrypted` 现在真的加密，存量明文行首次解密失败时按明文读 |
 | 搜索 | `rg-core/src/search/` | FTS5 全文搜索（repos/issues/wiki/code） |
 | 附件 | `rg-core/src/attachment.rs` | 四类归属、统一 BlobStorage、配额、IDOR 防护 |
 | 对象存储 | `rg-core/src/blob_storage/`（`mod.rs` 契约 + 本地实现 + `s3.rs`） | `BlobStorage` object-safe trait（`BoxFuture`）双后端：`LocalBlobStorage`（原子 rename）与 `S3BlobStorage`（rusty-s3 presigned URL + reqwest，支持 path-style/virtual-host、key 前缀、list 分页）。配置走 `IRONFORGE_S3_*`，**四项必填要么都有要么都没有**（半配置直接报错，不回退本地盘）。S3 的 `delete` 先 HEAD 再 DELETE，因为 S3 对不存在的 key 也回 204 |
@@ -481,6 +481,18 @@ MySQL 的协作时间戳列是秒精度，同一秒创建的两条记录 `create
 
 - 正解：判别列 + 单列组 —— `owner_kind TEXT` + `owner_id BIGINT` + `UNIQUE(owner_kind, owner_id, host)`，语义在每个后端都一样（同 `usage_counters.subject_kind`）
 - 代价是没有外键可用（`owner_id` 多态），删除 owner 时要显式清理：`remote_credential_ops::delete_all_for_owner`
+
+### 29. gix 不认 `GIT_CONFIG_COUNT`：注入 header 只能走 `open::Options::config_overrides` ⚠️
+
+给 git CLI 传令牌用 `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`（见第 27 条）。**gix 不解析这套环境变量**（0.90 全仓 grep 无命中），但它在 `repository/config/transport.rs` 里确实读 `http.extraHeader` 配置，所以只能从 config 侧注入：
+
+- `gix::prepare_clone_bare(url, path)` **不接 Options**，要用底层的
+  `gix::clone::PrepareFetch::new(url, path, gix::create::Kind::Bare, gix::create::Options::default(), open_opts)`
+- `open_opts` 必须与 `prepare_clone_bare` 内部构造的一致：
+  `gix::open::Options::default_for_level(gix_sec::Trust::Full)` + `opts.permissions.config.git_binary = true`。
+  少了这两个，gix 不再读 git 安装的配置，credential helper 静默失效——对匿名源没影响，对私有源就是"突然要密码却不报错"
+- `git://` 是匿名协议，塞 header 无效；`source_open_options` 只对 `http(s)://` 附加
+- `Config::config_overrides()` 的值是 `key=value` 单行形式（等价 `git -c`），`http.extraHeader=Authorization: Basic <base64(user:token)>`
 
 ## 依赖版本速查
 

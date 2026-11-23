@@ -4825,6 +4825,7 @@ dependencies = [
  "flate2",
  "futures",
  "gix",
+ "gix-sec",
  "hex",
  "hmac 0.12.1",
  "home",
