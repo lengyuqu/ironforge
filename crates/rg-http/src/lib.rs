@@ -799,6 +799,10 @@ fn build_routes(
         .route("/repos/explore", get(api::repos::explore))
         .route("/repos/{owner}", get(api::repos::list_repos))
         .route("/repos/{owner}/{name}", get(api::repos::get_repo).patch(api::repos::update_repo_settings))
+        .route(
+            "/repos/{owner}/{name}/template",
+            put(api::repos::set_repo_template),
+        )
         // Milestones (before issues to avoid routing conflicts)
         .route(
             "/repos/{owner}/{name}/milestones",

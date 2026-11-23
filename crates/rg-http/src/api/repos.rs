@@ -111,6 +111,8 @@ pub struct RepoResponse {
     pub org_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin_repo_id: Option<i64>,
+    /// Whether this repository can be used as a template for new ones.
+    pub is_template: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     /// Opaque version of the editable settings, present on repository reads.
@@ -441,6 +443,52 @@ fn set_default_head(path: &std::path::Path, old: &str, new: &str) -> Result<(), 
     Ok(())
 }
 
+/// Body of `PUT /repos/{owner}/{name}/template`.
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+pub struct SetTemplateRequest {
+    /// Whether this repository may be used as a template for new ones.
+    pub is_template: bool,
+}
+
+/// PUT /api/v1/repos/{owner}/{name}/template
+///
+/// Being copyable is an explicit choice by the owner: without this flag the
+/// create-from-template path refuses the repository, so a visible repository
+/// cannot be silently used as a source.
+#[utoipa::path(
+    put,
+    path = "/repos/{owner}/{name}/template",
+    tag = "Repositories",
+    params(("owner" = String, Path), ("name" = String, Path)),
+    request_body = SetTemplateRequest,
+    responses(
+        (status = 200, description = "Template flag updated", body = serde_json::Value),
+        (status = 403, description = "Repository admin required", body = serde_json::Value),
+        (status = 404, description = "Repository not found", body = serde_json::Value),
+    ),
+)]
+pub async fn set_repo_template(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+    Json(body): Json<SetTemplateRequest>,
+) -> impl IntoResponse {
+    let (repo, _) = match require_admin(&state, &headers, &owner, &name).await {
+        Ok(found) => found,
+        Err(err) => return err.into_response(),
+    };
+    match rg_db::ops::repo_ops::set_template(&state.db, repo.id, body.is_template).await {
+        Ok(updated) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "id": updated.id,
+                "is_template": updated.is_template,
+            })),
+        )
+            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
+    }
+}
 #[utoipa::path(
     patch, path = "/repos/{owner}/{name}", tag = "Repositories",
     params(("owner" = String, Path), ("name" = String, Path)),
@@ -456,6 +504,7 @@ fn set_default_head(path: &std::path::Path, old: &str, new: &str) -> Result<(), 
         (status = 422, description = "Missing or malformed request fields")
     )
 )]
+
 pub async fn update_repo_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
