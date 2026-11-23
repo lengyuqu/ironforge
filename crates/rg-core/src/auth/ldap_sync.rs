@@ -137,6 +137,108 @@ pub fn plan(local: &[LinkedAccount], directory: &[LdapUser]) -> SyncPlan {
     plan
 }
 
+/// Does this plan look like a broken directory configuration rather than an
+/// offboarding wave?
+///
+/// Disabling a large share of the active accounts is what a wrong base DN, an
+/// expired bind account, or a partial listing looks like. Both the CLI and the
+/// scheduled run refuse it; only a human may override.
+pub fn looks_like_mass_deactivation(plan: &SyncPlan) -> bool {
+    let active_before = plan.unchanged + plan.deactivate.len();
+    plan.deactivate.len() >= 5 && plan.deactivate.len() * 2 >= active_before
+}
+
+/// What one provider did in a scheduled run.
+#[derive(Debug)]
+pub enum ProviderOutcome {
+    /// Nothing to do.
+    Unchanged { provider_id: i64 },
+    /// Changes were written.
+    Applied {
+        provider_id: i64,
+        changed: usize,
+        plan: SyncPlan,
+    },
+    /// The plan looked dangerous, so nothing was written.
+    RefusedMassDeactivation { provider_id: i64, plan: SyncPlan },
+    /// The directory could not be read; nothing was written.
+    Failed { provider_id: i64, error: String },
+}
+
+/// Sync every enabled LDAP provider — the scheduled entry point.
+///
+/// Deliberately cannot force a mass deactivation: a background job that
+/// disables an entire instance because someone edited a base DN is worse than
+/// one that does nothing and says so. The operator runs the CLI with
+/// `--allow-mass-deactivation` when they actually mean it.
+pub async fn sync_all_enabled(db: &DatabaseConnection, jwt_secret: &str) -> Vec<ProviderOutcome> {
+    let providers = match rg_db::ops::sso_provider_ops::list_enabled(db).await {
+        Ok(providers) => providers,
+        Err(error) => {
+            tracing::error!(%error, "LDAP sync: cannot list providers");
+            return Vec::new();
+        }
+    };
+
+    let mut outcomes = Vec::new();
+    for provider in providers
+        .into_iter()
+        .filter(|provider| provider.provider_type == "ldap")
+    {
+        let provider_id = provider.id;
+        let plan = match plan_provider(db, &provider, jwt_secret).await {
+            Ok(plan) => plan,
+            Err(error) => {
+                tracing::error!(provider_id, %error, "LDAP sync: provider failed");
+                outcomes.push(ProviderOutcome::Failed {
+                    provider_id,
+                    error: error.to_string(),
+                });
+                continue;
+            }
+        };
+
+        if plan.is_noop() {
+            outcomes.push(ProviderOutcome::Unchanged { provider_id });
+            continue;
+        }
+        if looks_like_mass_deactivation(&plan) {
+            tracing::warn!(
+                provider_id,
+                deactivate = plan.deactivate.len(),
+                "LDAP sync: refusing what looks like a mass deactivation; run `ironforge ldap-sync --allow-mass-deactivation` if it is real"
+            );
+            outcomes.push(ProviderOutcome::RefusedMassDeactivation { provider_id, plan });
+            continue;
+        }
+
+        match apply(db, &plan).await {
+            Ok((changed, _)) => {
+                tracing::info!(
+                    provider_id,
+                    changed,
+                    deactivate = plan.deactivate.len(),
+                    reactivate = plan.reactivate.len(),
+                    "LDAP sync applied"
+                );
+                outcomes.push(ProviderOutcome::Applied {
+                    provider_id,
+                    changed,
+                    plan,
+                });
+            }
+            Err(error) => {
+                tracing::error!(provider_id, %error, "LDAP sync: apply failed");
+                outcomes.push(ProviderOutcome::Failed {
+                    provider_id,
+                    error: error.to_string(),
+                });
+            }
+        }
+    }
+    outcomes
+}
+
 /// Work out the plan for one LDAP provider, without writing anything.
 pub async fn plan_provider(
     db: &DatabaseConnection,
@@ -264,6 +366,56 @@ mod tests {
         assert!(!plan.is_noop());
         // The summary is what an operator reads before approving.
         assert!(plan.summary().contains("2 to deactivate"));
+    }
+
+    /// The guard that keeps a scheduled run from wiping the instance: a
+    /// large share is a configuration smell, a small one is offboarding.
+    #[test]
+    fn mass_deactivation_is_recognised_by_share_not_only_by_count() {
+        // Four people: too few to call it mass, whatever the share.
+        let small = plan(
+            &[
+                account(1, "a", true),
+                account(2, "b", true),
+                account(3, "c", true),
+                account(4, "d", true),
+            ],
+            &[],
+        );
+        assert_eq!(small.deactivate.len(), 4);
+        assert!(!looks_like_mass_deactivation(&small));
+
+        // Five out of five: mass.
+        let everyone = plan(
+            &[
+                account(1, "a", true),
+                account(2, "b", true),
+                account(3, "c", true),
+                account(4, "d", true),
+                account(5, "e", true),
+            ],
+            &[],
+        );
+        assert!(looks_like_mass_deactivation(&everyone));
+
+        // Five out of twenty: a real offboarding wave, not a misconfiguration.
+        let mut local: Vec<LinkedAccount> = (1..=20).map(|i| account(i, "x", true)).collect();
+        for (i, account) in local.iter_mut().take(5).enumerate() {
+            account.username = format!("gone{i}");
+        }
+        let mut directory = Vec::new();
+        for account in local.iter().skip(5) {
+            directory.push(LdapUser {
+                username: account.username.clone(),
+                email: None,
+                display_name: None,
+                dn: String::new(),
+                uid: None,
+            });
+        }
+        let five_of_twenty = plan(&local, &directory);
+        assert_eq!(five_of_twenty.deactivate.len(), 5);
+        assert!(!looks_like_mass_deactivation(&five_of_twenty));
     }
 
     /// Whitespace around a directory name must not decide whether someone
