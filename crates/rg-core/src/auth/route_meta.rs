@@ -487,6 +487,7 @@ pub const ROUTES: &[RouteMeta] = &[
     admin("/admin/sso/providers"),
     admin("/admin/sso/providers/{id}"),
     admin("/admin/sso/providers/{id}/test"),
+    admin("/admin/sso/providers/{id}/ldap-group-sync"),
     admin("/admin/audit/logs"),
     admin("/admin/audit/logs/{id}"),
     admin("/admin/login-attempts"),

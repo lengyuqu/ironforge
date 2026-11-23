@@ -112,10 +112,21 @@ export interface AdminSsoProvider {
   ldap_bind_dn: string | null;
   ldap_base_dn: string | null;
   ldap_user_filter: string | null;
+  /** LDAP group -> team sync; all three are null when it is switched off. */
+  ldap_group_base_dn: string | null;
+  ldap_group_filter: string | null;
+  ldap_group_team_org_id: number | null;
   enabled: boolean;
   icon_url: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Body of the dedicated group-sync endpoint. All three go together. */
+export interface LdapGroupSyncPayload {
+  base_dn: string | null;
+  filter: string | null;
+  team_org_id: number | null;
 }
 
 export interface SsoProviderPayload {
@@ -202,5 +213,19 @@ export const admin = {
   testSsoProvider: (id: number) =>
     request<{ ok: boolean; message: string }>(`/admin/sso/providers/${id}/test`, {
       method: 'POST',
+    }),
+  /**
+   * Configure the LDAP group -> team mapping. Separate from `updateSsoProvider`
+   * on purpose: editing a bind password must not be able to clear it.
+   */
+  setLdapGroupSync: (id: number, payload: LdapGroupSyncPayload) =>
+    request<{
+      id: number;
+      ldap_group_base_dn: string | null;
+      ldap_group_filter: string | null;
+      ldap_group_team_org_id: number | null;
+    }>(`/admin/sso/providers/${id}/ldap-group-sync`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     }),
 };

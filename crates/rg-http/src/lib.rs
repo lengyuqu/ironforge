@@ -1929,6 +1929,12 @@ fn build_routes(
             "/admin/sso/providers/{id}/test",
             post(api::admin::test_sso_provider_connection),
         )
+        // LDAP group -> team sync is a second, optional configuration of a
+        // provider: its own endpoint so a provider edit cannot clear it.
+        .route(
+            "/admin/sso/providers/{id}/ldap-group-sync",
+            put(api::admin::set_sso_provider_ldap_group_sync),
+        )
         // Audit logs (admin only)
         .route("/admin/audit/logs", get(api::audit::list_audit_logs))
         .route("/admin/audit/logs/{id}", get(api::audit::get_audit_log))

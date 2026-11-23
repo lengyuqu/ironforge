@@ -426,6 +426,7 @@ pub struct PaginatedRepoResponse {
         crate::api::admin::update_sso_provider,
         crate::api::admin::delete_sso_provider,
         crate::api::admin::test_sso_provider_connection,
+        crate::api::admin::set_sso_provider_ldap_group_sync,
         // Audit logs
         crate::api::audit::list_audit_logs,
         crate::api::audit::get_audit_log,
@@ -547,6 +548,7 @@ pub struct PaginatedRepoResponse {
             crate::api::mfa::VerifyMfaResponse,
             crate::api::mfa::DisableMfaRequest,
             crate::api::sso::SsoProviderInfo,
+            crate::api::admin::LdapGroupSyncRequest,
             crate::api::sso::LoginResponse,
             crate::api::sso::RefreshRequest,
             crate::api::webhooks_external::ExternalCiWebhook,

@@ -511,6 +511,57 @@ pub struct UpsertSsoProviderRequest {
     pub icon_url: Option<String>,
 }
 
+/// Body of `PUT /admin/sso/providers/{id}/ldap-group-sync`.
+///
+/// All three values move together: sending all three `None` disables group
+/// sync, sending a partial set is rejected. That is the same all-or-nothing
+/// rule the S3 backend uses, for the same reason — a half-configuration syncs
+/// nothing and looks like a broken feature weeks later.
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+pub struct LdapGroupSyncRequest {
+    /// Group search base DN.
+    #[serde(default)]
+    pub base_dn: Option<String>,
+    /// Group filter, e.g. `(objectClass=groupOfNames)`.
+    #[serde(default)]
+    pub filter: Option<String>,
+    /// Organization whose teams the group names refer to.
+    #[serde(default)]
+    pub team_org_id: Option<i64>,
+}
+
+fn validate_ldap_group_sync(body: &LdapGroupSyncRequest) -> Result<(), String> {
+    let present = [
+        body.base_dn.as_deref().filter(|v| !v.trim().is_empty()),
+        body.filter.as_deref().filter(|v| !v.trim().is_empty()),
+    ]
+    .into_iter()
+    .flatten()
+    .count();
+    let none_at_all = present == 0 && body.team_org_id.is_none();
+    if none_at_all {
+        return Ok(());
+    }
+    if body
+        .base_dn
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        return Err("group sync needs a base DN".into());
+    }
+    if body
+        .filter
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        return Err("group sync needs a group filter".into());
+    }
+    if body.team_org_id.is_none() {
+        return Err("group sync needs a target organization".into());
+    }
+    Ok(())
+}
+
 fn validate_ldap_provider_request(
     body: &UpsertSsoProviderRequest,
     has_stored_password: bool,
@@ -724,6 +775,87 @@ pub async fn update_sso_provider(
     }
 }
 
+/// PUT /api/v1/admin/sso/providers/{id}/ldap-group-sync
+///
+/// Configure (or clear) the LDAP group → team mapping. Separate from the
+/// provider edit so changing a bind password cannot silently drop it.
+#[utoipa::path(
+    put,
+    path = "/admin/sso/providers/{id}/ldap-group-sync",
+    tag = "Admin",
+    params(("id" = i64, Path)),
+    request_body = LdapGroupSyncRequest,
+    responses(
+        (status = 200, description = "Group sync configuration saved", body = serde_json::Value),
+        (status = 400, description = "Partial configuration, non-LDAP provider, or unknown org", body = serde_json::Value),
+        (status = 403, description = "Admin required", body = serde_json::Value),
+        (status = 404, description = "Provider not found", body = serde_json::Value),
+    ),
+)]
+pub async fn set_sso_provider_ldap_group_sync(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Json(body): Json<LdapGroupSyncRequest>,
+) -> impl IntoResponse {
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::forbidden("admin required").into_response();
+    }
+    if let Err(message) = validate_ldap_group_sync(&body) {
+        return AppError::bad_request(message).into_response();
+    }
+
+    let provider = match rg_db::ops::sso_provider_ops::find_by_id(&state.db, id).await {
+        Ok(Some(provider)) => provider,
+        Ok(None) => return AppError::not_found("SSO provider not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
+    };
+    if provider.provider_type != "ldap" {
+        return AppError::bad_request("group sync applies to LDAP providers only").into_response();
+    }
+
+    // The org must exist: a typo here would make the sync report every group as
+    // unmatched, which looks like a directory problem.
+    if let Some(org_id) = body.team_org_id {
+        match rg_db::ops::org_ops::get_org(&state.db, org_id).await {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                return AppError::bad_request("target organization not found").into_response()
+            }
+            Err(e) => return AppError::internal(e).into_response(),
+        }
+    }
+
+    let base_dn = body
+        .base_dn
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let filter = body
+        .filter
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    match rg_db::ops::sso_provider_ops::set_ldap_group_sync(
+        &state.db,
+        id,
+        base_dn,
+        filter,
+        body.team_org_id,
+    )
+    .await
+    {
+        Ok(updated) => Json(serde_json::json!({
+            "id": updated.id,
+            "ldap_group_base_dn": updated.ldap_group_base_dn,
+            "ldap_group_filter": updated.ldap_group_filter,
+            "ldap_group_team_org_id": updated.ldap_group_team_org_id,
+        }))
+        .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
+    }
+}
 /// POST /api/v1/admin/sso/providers/{id}/test
 #[utoipa::path(
     post,
@@ -736,6 +868,7 @@ pub async fn update_sso_provider(
         (status = 403, description = "Admin required", body = serde_json::Value),
     ),
 )]
+
 pub async fn test_sso_provider_connection(
     State(state): State<AppState>,
     headers: HeaderMap,
