@@ -372,6 +372,7 @@ pub const ROUTES: &[RouteMeta] = &[
         .checked()
         .idem(),
     repo("/repos/{owner}/{name}/template"),
+    repo("/repos/templates/available"),
     repo("/repos/{owner}/{name}/mirror"),
     repo("/repos/{owner}/{name}/mirror/sync"),
     repo("/repos/{owner}/{name}/push-mirror"),

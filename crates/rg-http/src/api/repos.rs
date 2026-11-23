@@ -443,6 +443,47 @@ fn set_default_head(path: &std::path::Path, old: &str, new: &str) -> Result<(), 
     Ok(())
 }
 
+/// GET /api/v1/repos/templates
+///
+/// Templates the caller may start from: public ones plus their own. The create
+/// dialog needs this to offer a choice; without it the only way to use a
+/// template would be to know its numeric id.
+#[utoipa::path(
+    get,
+    path = "/repos/templates/available",
+    tag = "Repositories",
+    responses(
+        (status = 200, description = "Templates the caller can use", body = serde_json::Value),
+        (status = 401, description = "Authentication required", body = crate::error::ErrorResponse),
+    ),
+)]
+pub async fn list_available_templates(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let Some(claims) = extract_bearer_claims(&headers, &state.jwt_secret) else {
+        return AppError::unauthorized("authentication required").into_response();
+    };
+    let Ok(user_id) = claims.sub.parse::<i64>() else {
+        return AppError::unauthorized("invalid token subject").into_response();
+    };
+    match rg_db::ops::repo_ops::list_available_templates(&state.db, user_id).await {
+        Ok(repos) => Json(serde_json::json!({
+            "data": repos
+                .into_iter()
+                .map(|repo| serde_json::json!({
+                    "id": repo.id,
+                    "name": repo.name,
+                    "description": repo.description,
+                    "is_private": repo.is_private,
+                }))
+                .collect::<Vec<_>>(),
+        }))
+        .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
+    }
+}
+
 /// Body of `PUT /repos/{owner}/{name}/template`.
 #[derive(serde::Deserialize, utoipa::ToSchema)]
 pub struct SetTemplateRequest {

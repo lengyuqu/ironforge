@@ -278,7 +278,10 @@
       "label_set": "Default label set",
       "none": "None",
       "submit": "Create repository",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "template": "Start from a template",
+      "template_none": "No template — start empty",
+      "template_hint": "Copies the template's history. The generated files below do not apply."
     },
     "empty": {
       "no_repos": "No repositories yet",
@@ -1285,7 +1288,12 @@
       "setup": "Set up MFA",
       "enabled_notice": "MFA enabled. Save your backup codes before leaving this page."
     },
-    "label_color_aria": "Color {color}"
+    "label_color_aria": "Color {color}",
+    "template": {
+      "title": "Template",
+      "enable": "Use this repository as a template",
+      "hint": "Others can start new repositories from it. The history is copied; labels and issues are not."
+    }
   },
   "commit": {
     "status": "Status checks",

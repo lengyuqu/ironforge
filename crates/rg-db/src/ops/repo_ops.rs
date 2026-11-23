@@ -8,6 +8,32 @@ use crate::entities::repository::{
     self, ActiveModel as RepoActiveModel, Entity as RepoEntity, Model as Repo,
 };
 
+/// Templates this viewer may start from.
+///
+/// Public templates plus the viewer's own. A private template belonging to an
+/// organization is deliberately absent: resolving organization membership here
+/// would duplicate the permission model, and offering a repository the viewer
+/// cannot read would only fail later, at the copy.
+pub async fn list_available_templates(
+    db: &DatabaseConnection,
+    viewer_id: i64,
+) -> Result<Vec<Repo>> {
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+
+    RepoEntity::find()
+        .filter(repository::Column::IsTemplate.eq(true))
+        .filter(repository::Column::DeletedAt.is_null())
+        .filter(
+            sea_orm::Condition::any()
+                .add(repository::Column::IsPrivate.eq(false))
+                .add(repository::Column::OwnerId.eq(viewer_id)),
+        )
+        .order_by_asc(repository::Column::Id)
+        .all(db)
+        .await
+        .context("db: list available templates")
+}
+
 /// Mark a repository as (or cease to be) a template.
 ///
 /// Touches only the flag and `updated_at`: everything else about a template is

@@ -796,6 +796,10 @@ fn build_routes(
             get(api::repos::list_readme_templates),
         )
         .route("/repos/templates/labels", get(api::repos::list_label_sets))
+        .route(
+            "/repos/templates/available",
+            get(api::repos::list_available_templates),
+        )
         .route("/repos/explore", get(api::repos::explore))
         .route("/repos/{owner}", get(api::repos::list_repos))
         .route("/repos/{owner}/{name}", get(api::repos::get_repo).patch(api::repos::update_repo_settings))

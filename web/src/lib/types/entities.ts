@@ -129,6 +129,8 @@ export interface RepoInfo {
   default_branch: string;
   stars_count: number;
   created_at: string;
+  /** Optional in older responses; treat absence as false. */
+  is_template?: boolean;
 }
 
 export interface RepoTreeEntry {
