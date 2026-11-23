@@ -115,21 +115,52 @@ EOF
 
 服务端把上报的 map 写进 `pipeline_jobs.outputs_json`（与阶段 C 的迁移是同一列），下游 job 通过 `needs.<job>.outputs.*` 读。
 
+### 7. B1/B2 不可再拆（对第 6 条的修正）
+
+写 B1 的时候发现的第二层问题：**`steps` 在持久化时就丢了**。
+
+| 环节 | 现状 |
+|---|---|
+| `to_ci_config` 产出 | `JobConfig { steps, script }` ✅ |
+| 落库 | `pipeline_jobs.script: String`（换行分隔），**没有 steps 列**（`rg-db/src/entities/pipeline_job.rs:15`） |
+| 下发 | `PollJobResponse.script: Vec<String>`（从那个字符串切出来） |
+| runner | 拿到的只有命令列表 |
+
+所以 outputs 的链路是 **6 个改动点、跨 4 个 crate + 1 个迁移**：
+
+1. 迁移 `pipeline_jobs.steps_json`
+2. `api/ci.rs` 落库时写入
+3. `PollJobResponse` 下发
+4. runner 逐 step 执行 + 写/读 `$GITHUB_OUTPUT`
+5. `FinishJobRequest.outputs` + 服务端存 `outputs_json`
+6. 引用（同 job B3 / 跨 job C）
+
+**1~4 做完时功能仍然完全不可见**，因为产出值没有任何途径回到服务端。第 6 条把 B 拆成 B1/B2/B3 的前提是"每步可独立验证"，这个前提在这里不成立。
+
+**修正后的划分**：
+
+| 阶段 | 内容 | 可验证性 |
+|---|---|---|
+| **B** | 上面 1~5 一次做完 | ✅ 能端到端验证：一个 step 写 outputs，另一个 job 通过 `needs` 读到 |
+| **B3→C** | 引用语法（同 job 的 `env`/`if`、跨 job 的 `needs`） | ✅ 依赖 B 的存储 |
+| **D** | 运行时条件 | ✅ 依赖 B3/C |
+
+也就是说：**B 是一个不可再分的大改动**，不是三个小改。
+
+这不是"想偷懒合并"，而是"拆了之后每一步的验收标准都是空的"。宁可一个 PR 大一点、可验证，也不要三个 PR 都绿但功能不生效。
+
 ## 分阶段交付
 
 | 阶段 | 内容 | 风险 |
 |---|---|---|
 | **A** ✅ | `GiteaStep.id` + `GiteaJob.outputs` 解析；`StepConfig` 类型；`to_ci_config` 保留 step 列表（但仍拍平执行） | 低（已合并 #33） |
-| **B1** | runner 端逐 step 执行（`steps` 有值时）+ `$GITHUB_OUTPUT` 注入与解析 | **中高**：执行顺序变化 |
-| **B2** | `FinishJobRequest.outputs` + `pipeline_jobs.outputs_json` 迁移 + 服务端写入 | 中：协议 + 迁移 |
-| **B3** | `steps.<id>.outputs.*` 在同一 job 的后续 step 的 `env` / `if` 里可引用 | 中 |
-| **C** | `jobs.<job>.outputs` 求值 + `needs.<job>.outputs.*` 跨 job | 中 |
+| **B** | 迁移 `steps_json` + 落库 + 下发 + runner 逐 step 执行 + `$GITHUB_OUTPUT` + `FinishJobRequest.outputs` + `outputs_json` 落库 | **高**：一次跨 4 crate，但这是唯一可验证的切法（见第 7 条） |
+| **B3→C** | 引用语法：同 job 的 `env`/`if`、跨 job 的 `needs.<job>.outputs.*` | 中 |
+| **D** | `always()/failure()/cancelled()` + step 级 `if` 挪到运行时 | **高**：语义变更 |
 | **D** | `always()/failure()/cancelled()` + step 级 `if` 从转换期挪到运行时 | **高**：语义变更 |
 | **E** | 真 workflow 回归（含 outputs 与 `always()`） | — |
 
-A 已合并。B1~B3 + C 是 CI-202；D 是 CI-203；E 是验收。
-
-**B 拆成三步的原因**：B1 改执行顺序、B2 改协议与 schema、B3 改条件求值。三者任一出错都会表现为"outputs 是空的"，合在一起无法归因 —— 与第 4 条决策同一个理由。
+A 已合并（#33），`$GITHUB_OUTPUT` 解析器已合并（#35）。B + B3→C 是 CI-202；D 是 CI-203；E 是验收。
 
 ## 回归策略
 
