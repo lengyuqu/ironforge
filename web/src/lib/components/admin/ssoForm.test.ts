@@ -1,9 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
+  emptyLdapGroupSyncForm,
   emptySsoProviderForm,
   formFromProvider,
+  isLdapGroupSyncConfigured,
+  ldapGroupSyncFormFromProvider,
+  ldapGroupSyncPayloadFromForm,
   ssoPayloadFromForm,
   togglePayload,
+  validateLdapGroupSyncForm,
 } from './ssoForm';
 import type { AdminSsoProvider } from '$lib/api/client.svelte';
 
@@ -131,5 +136,76 @@ describe('togglePayload', () => {
 
   it('disables an enabled provider', () => {
     expect(togglePayload({ ...provider, enabled: true } as unknown as AdminSsoProvider).enabled).toBe(false);
+  });
+});
+
+describe('LDAP group -> team sync form', () => {
+  it('starts empty and reports itself as unconfigured', () => {
+    const form = emptyLdapGroupSyncForm();
+    expect(form).toEqual({ base_dn: '', filter: '', team_org_id: '' });
+    expect(isLdapGroupSyncConfigured(form)).toBe(false);
+    expect(validateLdapGroupSyncForm(form)).toBeNull();
+  });
+
+  it('reads back a configured provider', () => {
+    const form = ldapGroupSyncFormFromProvider({
+      ...provider,
+      ldap_group_base_dn: 'ou=groups,dc=corp',
+      ldap_group_filter: '(objectClass=groupOfNames)',
+      ldap_group_team_org_id: 3,
+    } as AdminSsoProvider);
+    expect(form.base_dn).toBe('ou=groups,dc=corp');
+    expect(form.team_org_id).toBe('3');
+    expect(isLdapGroupSyncConfigured(form)).toBe(true);
+  });
+
+  // Mirrors the server's all-or-nothing rule: a partial configuration is
+  // rejected before the provider write, so nothing is half-saved.
+  it('rejects each partial configuration', () => {
+    expect(
+      validateLdapGroupSyncForm({ base_dn: '', filter: '(x)', team_org_id: '1' })
+    ).toBe('base_dn');
+    expect(
+      validateLdapGroupSyncForm({ base_dn: 'ou=g', filter: '', team_org_id: '1' })
+    ).toBe('filter');
+    expect(
+      validateLdapGroupSyncForm({ base_dn: 'ou=g', filter: '(x)', team_org_id: '' })
+    ).toBe('org');
+    expect(
+      validateLdapGroupSyncForm({ base_dn: 'ou=g', filter: '(x)', team_org_id: 'abc' })
+    ).toBe('org');
+    expect(
+      validateLdapGroupSyncForm({ base_dn: 'ou=g', filter: '(x)', team_org_id: '0' })
+    ).toBe('org');
+  });
+
+  it('accepts a complete configuration', () => {
+    expect(
+      validateLdapGroupSyncForm({
+        base_dn: ' ou=groups,dc=corp ',
+        filter: ' (objectClass=groupOfNames) ',
+        team_org_id: ' 3 ',
+      })
+    ).toBeNull();
+  });
+
+  it('trims and converts to the payload, and switches off when cleared', () => {
+    expect(
+      ldapGroupSyncPayloadFromForm({
+        base_dn: ' ou=groups ',
+        filter: ' (objectClass=groupOfNames) ',
+        team_org_id: ' 3 ',
+      })
+    ).toEqual({
+      base_dn: 'ou=groups',
+      filter: '(objectClass=groupOfNames)',
+      team_org_id: 3,
+    });
+
+    expect(ldapGroupSyncPayloadFromForm(emptyLdapGroupSyncForm())).toEqual({
+      base_dn: null,
+      filter: null,
+      team_org_id: null,
+    });
   });
 });

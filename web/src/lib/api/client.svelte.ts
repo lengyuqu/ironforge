@@ -54,6 +54,7 @@ export {
   type LoginAttemptEntry,
   type LoginAttemptQuery,
   type LoginAttemptResponse,
+  type LdapGroupSyncPayload,
   type SsoProviderPayload,
   type UpdateUserData,
 } from './admin';
