@@ -31,6 +31,15 @@ pub struct DirectoryGroup {
     pub member_dns: Vec<String>,
 }
 
+impl From<crate::auth::ldap::LdapGroup> for DirectoryGroup {
+    fn from(group: crate::auth::ldap::LdapGroup) -> Self {
+        Self {
+            name: group.name,
+            member_dns: group.member_dns,
+        }
+    }
+}
+
 /// A team with its current members.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TeamSnapshot {
