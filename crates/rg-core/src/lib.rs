@@ -42,6 +42,7 @@ pub mod import;
 pub mod mirror;
 pub mod package_registry;
 pub mod release;
+pub mod remote_credential;
 
 // ── Infrastructure ──────────────────────────────────
 pub mod audit;

@@ -1580,6 +1580,19 @@ fn build_routes(
             "/orgs/{name}/teams/{team_id}/repositories",
             get(api::orgs::list_team_repositories).put(api::orgs::set_team_repositories),
         )
+        // Org-owned remote credentials: shared by every repository the org
+        // owns, so an org mirror authenticates as the org rather than as
+        // whichever member happened to trigger the sync.
+        .route(
+            "/orgs/{name}/remote-credentials",
+            get(api::remote_credentials::list_org_credentials)
+                .post(api::remote_credentials::create_org_credential),
+        )
+        .route(
+            "/orgs/{name}/remote-credentials/{id}",
+            patch(api::remote_credentials::update_org_credential)
+                .delete(api::remote_credentials::delete_org_credential),
+        )
         // Notifications
         .route(
             "/notifications",
@@ -1608,6 +1621,19 @@ fn build_routes(
             "/user/notification-preferences",
             get(api::notification_prefs::list_preferences)
                 .put(api::notification_prefs::update_preferences),
+        )
+        // Remote credentials: tokens for *other* Git hosts, keyed by host and
+        // matched from the mirror URL automatically. One row per host covers
+        // every mirror (and later every push) against that platform.
+        .route(
+            "/user/remote-credentials",
+            get(api::remote_credentials::list_user_credentials)
+                .post(api::remote_credentials::create_user_credential),
+        )
+        .route(
+            "/user/remote-credentials/{id}",
+            patch(api::remote_credentials::update_user_credential)
+                .delete(api::remote_credentials::delete_user_credential),
         )
         // Star/Watch
         .route("/repos/{owner}/{name}/star", put(api::repos::star_repo))
@@ -4033,11 +4059,17 @@ fn spawn_background_job_worker(state: AppState) {
     // Periodic: sync due mirrors (each mirror has its own interval).
     let mirror_db = state.db.clone();
     let mirror_repo_root = state.repo_root.clone();
+    // Derived once and copied into each tick: the same envelope that encrypts
+    // CI secrets and SSO tokens encrypts mirror passwords and remote
+    // credentials, so a mirror sync can decrypt what the API stored.
+    let mirror_enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
     let mirror_task: PeriodicTask = Arc::new(move || {
         let db = mirror_db.clone();
         let repo_root = mirror_repo_root.clone();
         Box::pin(async move {
-            match rg_core::mirror::service::sync_due_mirrors(&db, &repo_root, 10).await {
+            match rg_core::mirror::service::sync_due_mirrors(&db, &repo_root, 10, &mirror_enc_key)
+                .await
+            {
                 Ok(0) => Ok(()),
                 Ok(count) => {
                     tracing::info!(count, "mirrors synced");

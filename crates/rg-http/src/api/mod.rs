@@ -63,6 +63,7 @@ pub mod pull_readiness;
 pub mod pulls;
 pub mod registry_discovery;
 pub mod releases;
+pub mod remote_credentials;
 pub(crate) mod repo_access;
 pub mod repo_commits;
 pub mod repo_content;

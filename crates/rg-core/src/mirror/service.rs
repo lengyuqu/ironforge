@@ -2,11 +2,28 @@
 //!
 //! Supports creating a mirror of an external Git repository, periodic
 //! sync via cron-like scheduling, and manual sync triggers.
+//!
+//! # Authentication
+//!
+//! A private upstream needs a token. Two sources are honoured, in order:
+//!
+//! 1. the mirror's own `username` / `password_encrypted` columns (legacy
+//!    per-mirror configuration, still written by the API);
+//! 2. the owner's remote-credential row for the upstream host — see
+//!    [`crate::remote_credential`], which is what makes one configured token
+//!    cover every mirror on the same platform.
+//!
+//! The token never appears in the URL or in the argument vector; it reaches git
+//! through the process environment only (see
+//! [`crate::remote_credential::service::git_auth_env`]).
 
+use crate::auth::encryption::{decrypt, encrypt};
 use crate::error::{CoreError, CoreResult};
+use crate::remote_credential::service as credential_service;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rg_db::entities::mirror::{ActiveModel, Model as Mirror};
+use rg_db::entities::remote_credential::DEFAULT_BASIC_USERNAME;
 use rg_db::entities::repository;
 use rg_git::cli_gateway::global_gateway;
 use sea_orm::ActiveValue::Set;
@@ -14,6 +31,10 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use std::path::Path;
 
 /// Create a new mirror for a repository.
+///
+/// `password` is plaintext on the way in and encrypted before it is stored: the
+/// column is called `password_encrypted`, and until this was wired up it held
+/// whatever the caller sent.
 pub async fn create_mirror(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -21,6 +42,7 @@ pub async fn create_mirror(
     username: Option<String>,
     password: Option<String>,
     sync_interval_seconds: i64,
+    enc_key: &[u8; 32],
 ) -> CoreResult<Mirror> {
     // SSRF/RCE guard: reject ext::, file://, ssh:// and other dangerous
     // transports before persisting the remote URL.
@@ -46,12 +68,16 @@ pub async fn create_mirror(
 
     let now = Utc::now();
     let next_sync = now + chrono::Duration::seconds(sync_interval_seconds);
+    let password_encrypted = match password {
+        Some(plain) => Some(encrypt(&plain, enc_key)?),
+        None => None,
+    };
 
     let model = ActiveModel {
         repo_id: Set(repo_id),
         url: Set(url),
         username: Set(username),
-        password_encrypted: Set(password),
+        password_encrypted: Set(password_encrypted),
         sync_interval_seconds: Set(sync_interval_seconds),
         next_sync_at: Set(Some(next_sync)),
         last_sync_at: Set(None),
@@ -82,6 +108,14 @@ pub async fn get_mirror(db: &DatabaseConnection, repo_id: i64) -> CoreResult<Opt
 }
 
 /// Update mirror settings.
+///
+/// `password` is plaintext and encrypted before storage; `None` leaves the
+/// stored token untouched, so a caller that only changes the interval does not
+/// have to resend it.
+// `create_mirror` and this function take the same shape on purpose: the HTTP
+// layer destructures one DTO into both, and a parameter object would only move
+// the same fields into a struct that mirrors the DTO anyway.
+#[allow(clippy::too_many_arguments)]
 pub async fn update_mirror(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -90,6 +124,7 @@ pub async fn update_mirror(
     password: Option<String>,
     sync_interval_seconds: Option<i64>,
     status: Option<String>,
+    enc_key: &[u8; 32],
 ) -> CoreResult<Mirror> {
     let existing = rg_db::ops::mirror_ops::find_by_repo_id(db, repo_id)
         .await?
@@ -110,7 +145,7 @@ pub async fn update_mirror(
         model.username = Set(Some(v));
     }
     if let Some(v) = password {
-        model.password_encrypted = Set(Some(v));
+        model.password_encrypted = Set(Some(encrypt(&v, enc_key)?));
     }
     if let Some(v) = sync_interval_seconds {
         model.sync_interval_seconds = Set(v);
@@ -131,13 +166,111 @@ pub async fn delete_mirror(db: &DatabaseConnection, repo_id: i64) -> CoreResult<
     Ok(rg_db::ops::mirror_ops::delete_by_id(db, mirror.id).await?)
 }
 
+/// Credentials resolved for one sync, plus the bookkeeping that follows it.
+struct MirrorAuth {
+    /// Environment for the git invocation. Empty means "anonymous".
+    env: Vec<(String, String)>,
+    /// Credential row whose `last_used_at` should move after a successful sync.
+    credential_id: Option<i64>,
+    /// A legacy plaintext mirror password that must be re-encrypted once the
+    /// sync succeeds.
+    reencrypt: Option<String>,
+}
+
+/// Resolve the credentials a sync of `mirror` must use.
+///
+/// Order matters: the mirror's own token wins over the host dictionary, because
+/// it is the more specific configuration — a user who typed a token into this
+/// mirror's settings expects *that* token, not whatever the dictionary holds for
+/// the same host.
+async fn mirror_auth(
+    db: &DatabaseConnection,
+    mirror: &Mirror,
+    enc_key: &[u8; 32],
+) -> CoreResult<MirrorAuth> {
+    if let Some(stored) = mirror.password_encrypted.as_deref() {
+        let (plain, legacy) = decode_mirror_password(stored, enc_key)?;
+        let cred = credential_service::ResolvedCredential {
+            credential_id: 0,
+            username: mirror
+                .username
+                .clone()
+                .unwrap_or_else(|| DEFAULT_BASIC_USERNAME.to_string()),
+            token: plain.clone(),
+            scheme: credential_service::AuthScheme::Basic,
+        };
+        return Ok(MirrorAuth {
+            env: credential_service::git_auth_env(&mirror.url, &cred)?,
+            credential_id: None,
+            reencrypt: legacy.then_some(plain),
+        });
+    }
+
+    let repo = repository::Entity::find_by_id(mirror.repo_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| CoreError::not_found("repository not found"))?;
+    let scope = credential_service::Scope::for_repository(&repo);
+    match credential_service::resolve(db, scope, &mirror.url, enc_key).await? {
+        Some(cred) => {
+            let credential_id = cred.credential_id;
+            Ok(MirrorAuth {
+                env: credential_service::git_auth_env(&mirror.url, &cred)?,
+                credential_id: Some(credential_id),
+                reencrypt: None,
+            })
+        }
+        None => Ok(MirrorAuth {
+            env: Vec::new(),
+            credential_id: None,
+            reencrypt: None,
+        }),
+    }
+}
+
+/// Read a stored mirror password, tolerating the pre-encryption rows.
+///
+/// Returns `(plaintext, was_plaintext_row)`.
+fn decode_mirror_password(stored: &str, enc_key: &[u8; 32]) -> CoreResult<(String, bool)> {
+    match decrypt(stored, enc_key) {
+        Ok(plain) => Ok((plain, false)),
+        Err(e) => {
+            // Rows written before encryption was wired up hold plaintext in a
+            // column named `password_encrypted`. Telling the two apart is not
+            // cosmetic: reading ciphertext as plaintext sends garbage to the
+            // remote, and reading a working plaintext as ciphertext disables a
+            // mirror that used to work.
+            if looks_like_ciphertext(stored) {
+                return Err(CoreError::internal(format!(
+                    "stored mirror password cannot be decrypted (instance secret changed?): {e}"
+                )));
+            }
+            Ok((stored.to_string(), true))
+        }
+    }
+}
+
+/// Is this value shaped like `encrypt` output (base64url of nonce + ciphertext)?
+fn looks_like_ciphertext(value: &str) -> bool {
+    use base64::Engine as _;
+    match base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(value) {
+        // 12-byte nonce plus the 16-byte GCM tag is the floor for a real
+        // ciphertext; anything shorter decodes but cannot be one.
+        Ok(bytes) => bytes.len() >= 28,
+        Err(_) => false,
+    }
+}
+
 /// Sync a single mirror: clone (first time) or fetch (subsequent).
 ///
-/// Returns Ok(true) if synced successfully, Ok(false) if mirror is inactive.
+/// Returns Ok(true) if this call moved the mirror forward, Ok(false) if the
+/// mirror is inactive or its configuration is unusable (in which case the row
+/// is marked `error` so the scheduler stops retrying it every tick).
 pub async fn sync_mirror(
     db: &DatabaseConnection,
     mirror: &Mirror,
     repo_root: &Path,
+    enc_key: &[u8; 32],
 ) -> Result<bool> {
     if mirror.status != "active" {
         return Ok(false);
@@ -163,12 +296,42 @@ pub async fn sync_mirror(
 
     let repo_path = repo_root.join(format!("{}.mirror", mirror.repo_id));
 
+    // Credentials are resolved *before* the git call, and an unusable row fails
+    // the sync instead of falling back to anonymous: retrying without a token
+    // against a private upstream produces a 401 that points at the wrong
+    // problem.
+    let auth = match mirror_auth(db, mirror, enc_key).await {
+        Ok(auth) => auth,
+        Err(e) => {
+            tracing::error!(
+                repo_id = mirror.repo_id,
+                error = %e,
+                "mirror credentials unusable; sync skipped"
+            );
+            let mut model: ActiveModel = mirror.clone().into();
+            model.last_sync_error = Set(Some(format!("credentials unusable: {e}")));
+            model.status = Set("error".to_string());
+            model.updated_at = Set(Utc::now());
+            rg_db::ops::mirror_ops::update(db, model).await?;
+            return Ok(false);
+        }
+    };
+
+    let mut env = auth.env.clone();
+    // A server-side git must never block waiting for a username on a tty that
+    // does not exist.
+    env.push(("GIT_TERMINAL_PROMPT".to_string(), "0".to_string()));
+    let env_refs: Vec<(&str, &str)> = env
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect();
+
     let result = if repo_path.join("HEAD").exists() {
         // Existing mirror: git remote update
-        run_git_remote_update(&repo_path)
+        fetch_with(&repo_path, &GIT_TRANSPORT_LOCKDOWN, &env_refs)
     } else {
         // First time: git clone --mirror
-        run_git_clone_mirror(&mirror.url, &repo_path)
+        clone_mirror_with(&mirror.url, &repo_path, &GIT_TRANSPORT_LOCKDOWN, &env_refs)
     };
 
     let now = Utc::now();
@@ -183,6 +346,24 @@ pub async fn sync_mirror(
         Ok(()) => {
             model.last_sync_error = Set(None);
             model.status = Set("active".to_string());
+            // Upgrade a legacy plaintext row on the first sync that used it. A
+            // backfill migration cannot do this: it has no instance secret.
+            if let Some(plain) = &auth.reencrypt {
+                model.password_encrypted = Set(Some(encrypt(plain, enc_key)?));
+            }
+            if let Some(credential_id) = auth.credential_id {
+                // Bookkeeping only: failing to record the use must not fail a
+                // sync that already moved the refs.
+                if let Err(e) =
+                    rg_db::ops::remote_credential_ops::touch_last_used(db, credential_id, now).await
+                {
+                    tracing::warn!(
+                        credential_id,
+                        error = %e,
+                        "could not record remote credential use"
+                    );
+                }
+            }
         }
         Err(e) => {
             model.last_sync_error = Set(Some(format!("{e}")));
@@ -200,13 +381,14 @@ pub async fn sync_due_mirrors(
     db: &DatabaseConnection,
     repo_root: &Path,
     limit: u64,
+    enc_key: &[u8; 32],
 ) -> Result<usize> {
     let mirrors = rg_db::ops::mirror_ops::list_due_sync(db, limit).await?;
     let mut count = 0;
     for mirror in &mirrors {
-        match sync_mirror(db, mirror, repo_root).await {
+        match sync_mirror(db, mirror, repo_root, enc_key).await {
             Ok(true) => count += 1,
-            Ok(false) => { /* inactive, skip */ }
+            Ok(false) => { /* inactive or misconfigured, skip */ }
             Err(e) => tracing::error!("Mirror sync error: {e}"),
         }
     }
@@ -218,11 +400,12 @@ pub async fn trigger_sync(
     db: &DatabaseConnection,
     repo_id: i64,
     repo_root: &Path,
+    enc_key: &[u8; 32],
 ) -> CoreResult<()> {
     let mirror = rg_db::ops::mirror_ops::find_by_repo_id(db, repo_id)
         .await?
         .ok_or_else(|| CoreError::not_found("mirror not found"))?;
-    sync_mirror(db, &mirror, repo_root).await?;
+    sync_mirror(db, &mirror, repo_root, enc_key).await?;
     Ok(())
 }
 
@@ -241,20 +424,20 @@ const GIT_TRANSPORT_LOCKDOWN: [&str; 6] = [
     "protocol.ssh.allow=never",
 ];
 
-fn run_git_clone_mirror(url: &str, path: &Path) -> Result<()> {
-    clone_mirror_with(url, path, &GIT_TRANSPORT_LOCKDOWN)
-}
-
-fn run_git_remote_update(path: &Path) -> Result<()> {
-    fetch_with(path, &GIT_TRANSPORT_LOCKDOWN)
-}
-
 /// `git clone --mirror`, then narrow the mirror to branches and tags.
 ///
 /// The lockdown is a parameter so the tests can drive the same code with the
 /// local `file` transport allowed (production always passes
 /// [`GIT_TRANSPORT_LOCKDOWN`]; the guard itself is tested in `net_guard`).
-fn clone_mirror_with(url: &str, path: &Path, lockdown: &[&str]) -> Result<()> {
+/// `env` carries the credential (`GIT_CONFIG_*`, see
+/// [`crate::remote_credential::service::git_auth_env`]) and is empty for a
+/// public upstream.
+fn clone_mirror_with(
+    url: &str,
+    path: &Path,
+    lockdown: &[&str],
+    env: &[(&str, &str)],
+) -> Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("invalid path: no parent directory"))?;
@@ -266,7 +449,10 @@ fn clone_mirror_with(url: &str, path: &Path, lockdown: &[&str]) -> Result<()> {
     let path_str = path.to_string_lossy();
     let mut args: Vec<&str> = lockdown.to_vec();
     args.extend(["clone", "--mirror", url, &path_str]);
-    git.run_or_bail(&args, None).context("git clone --mirror")?;
+    git.run_with_env(&args, None, env)
+        .context("git clone --mirror")?
+        .ensure_success()
+        .context("git clone --mirror")?;
     adopt_heads_and_tags(path, lockdown)
 }
 
@@ -324,14 +510,16 @@ fn adopt_heads_and_tags(path: &Path, lockdown: &[&str]) -> Result<()> {
 }
 
 /// The `git fetch` a sync runs: branches and tags, pruned, and nothing else.
-fn fetch_with(path: &Path, lockdown: &[&str]) -> Result<()> {
+fn fetch_with(path: &Path, lockdown: &[&str], env: &[(&str, &str)]) -> Result<()> {
     let git = global_gateway()
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
     let mut args: Vec<&str> = lockdown.to_vec();
     args.extend(["fetch", "--prune", "origin"]);
     args.extend(MIRROR_REFSPECS);
-    git.run_or_bail(&args, Some(path))
+    git.run_with_env(&args, Some(path), env)
+        .context("git fetch --prune origin (branches and tags)")?
+        .ensure_success()
         .context("git fetch --prune origin (branches and tags)")
 }
 
@@ -391,7 +579,7 @@ mod tests {
         let upstream = tmp.path().join("upstream.git");
         init_upstream(&upstream);
         let mirror = tmp.path().join("mirror.git");
-        clone_mirror_with(&upstream.to_string_lossy(), &mirror, &[]).expect("clone");
+        clone_mirror_with(&upstream.to_string_lossy(), &mirror, &[], &[]).expect("clone");
 
         // This instance writes refs/pull/<n>/head here (publish_head_ref).
         let head = git(&["rev-parse", "refs/heads/main"], &mirror);
@@ -406,7 +594,7 @@ mod tests {
         git(&["tag", "v2", &tip], &upstream);
         git(&["tag", "-d", "v1"], &upstream);
 
-        fetch_with(&mirror, &[]).expect("sync");
+        fetch_with(&mirror, &[], &[]).expect("sync");
 
         let after = refs(&mirror);
         assert_eq!(
@@ -431,7 +619,7 @@ mod tests {
         git(&["update-ref", "refs/pull/9/head", &head], &upstream);
 
         let mirror = tmp.path().join("mirror.git");
-        clone_mirror_with(&upstream.to_string_lossy(), &mirror, &[]).expect("clone");
+        clone_mirror_with(&upstream.to_string_lossy(), &mirror, &[], &[]).expect("clone");
 
         assert!(
             !refs(&mirror).iter().any(|r| r.starts_with("refs/pull/")),
@@ -439,7 +627,7 @@ mod tests {
             refs(&mirror)
         );
         // ... and they must not come back on the next sync either.
-        fetch_with(&mirror, &[]).expect("sync");
+        fetch_with(&mirror, &[], &[]).expect("sync");
         assert!(!refs(&mirror).iter().any(|r| r.starts_with("refs/pull/")));
     }
 }

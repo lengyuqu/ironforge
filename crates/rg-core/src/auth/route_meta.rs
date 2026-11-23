@@ -373,6 +373,11 @@ pub const ROUTES: &[RouteMeta] = &[
         .idem(),
     repo("/repos/{owner}/{name}/mirror"),
     repo("/repos/{owner}/{name}/mirror/sync"),
+    // Remote credentials: tokens for other Git hosts. Not `.open()` — a token
+    // that is branch-limited has no business configuring a credential that can
+    // reach an entirely different platform.
+    repo("/orgs/{name}/remote-credentials"),
+    repo("/orgs/{name}/remote-credentials/{id}"),
     repo("/imports"),
     repo("/imports/{id}"),
     repo("/repos/{owner}/{name}/boards"),
@@ -411,6 +416,8 @@ pub const ROUTES: &[RouteMeta] = &[
     user("/notifications/{id}"),
     // Notification preferences (#19 step 5): the caller's own settings.
     user("/user/notification-preferences"),
+    user("/user/remote-credentials"),
+    user("/user/remote-credentials/{id}"),
     repo("/repos/{owner}/{name}/star"),
     repo("/repos/{owner}/{name}/starred"),
     repo("/repos/{owner}/{name}/stargazers"),

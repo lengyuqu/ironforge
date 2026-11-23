@@ -98,6 +98,7 @@ pub async fn create_mirror(
         Err(e) => return AppError::from(e).into_response(),
     }
 
+    let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
     match rg_core::mirror::service::create_mirror(
         &state.db,
         repo.id,
@@ -105,6 +106,7 @@ pub async fn create_mirror(
         body.username,
         body.password,
         body.sync_interval_seconds,
+        &enc_key,
     )
     .await
     {
@@ -190,6 +192,7 @@ pub async fn update_mirror(
         Err(e) => return AppError::from(e).into_response(),
     }
 
+    let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
     match rg_core::mirror::service::update_mirror(
         &state.db,
         repo.id,
@@ -198,6 +201,7 @@ pub async fn update_mirror(
         body.password,
         body.sync_interval_seconds,
         body.status,
+        &enc_key,
     )
     .await
     {
@@ -298,7 +302,10 @@ pub async fn trigger_mirror_sync(
         Err(e) => return AppError::from(e).into_response(),
     }
 
-    match rg_core::mirror::service::trigger_sync(&state.db, repo.id, &state.repo_root).await {
+    let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
+    match rg_core::mirror::service::trigger_sync(&state.db, repo.id, &state.repo_root, &enc_key)
+        .await
+    {
         Ok(()) => (
             StatusCode::OK,
             Json(serde_json::json!({"status": "sync_triggered"})),

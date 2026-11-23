@@ -139,12 +139,13 @@ Phase 1~21 全部完成。核心能力：
 | Package Registry | `rg-core/src/package_registry/` | 10 种适配器 + OCI Distribution Spec v1.0 |
 | 审计日志 | `rg-http/src/api/audit.rs`（写入）+ `rg-core/src/audit/`（归档） | 审计记录 + 默认 90 天归档（NDJSON.zst） |
 | Mirror | `rg-core/src/mirror/` | 仓库镜像同步（git CLI 经网关执行，transport lockdown + net_guard URL 校验；唯一生产 CLI 例外） |
+| Remote Credentials | `rg-core/src/remote_credential/` + `rg-db/entities/remote_credential.rs` | 外部 Git 主机令牌字典：`(owner_kind, owner_id, host)` 唯一，AES-256-GCM 存密文；按远端 URL 的 host 自动匹配，一处配置供所有镜像/推送复用。注入走 `GIT_CONFIG_COUNT` 环境变量（作用域钉死 `scheme://host/`），**不进 URL、不进 `ps`**；org 仓库用 org 凭据、个人仓库用个人凭据，双向不 fallback |
 | Board | `rg-core/src/board/` | 看板管理（Board/Column/Card） |
 | Time Tracking | `rg-core/src/time_tracking/` | 工时追踪 |
 | 数据导入 | `rg-core/src/import/` | GitHub/GitLab 导入 |
 | 搜索 | `rg-core/src/search/` | FTS5 全文搜索（repos/issues/wiki/code） |
 | 附件 | `rg-core/src/attachment.rs` | 四类归属、统一 BlobStorage、配额、IDOR 防护 |
-| 多数据库后端 | `rg-db::connect_with_pool` | SQLite/PostgreSQL/MySQL，backend-aware 迁移；`crates/rg-db/src/migrations/mod.rs::Migrator::migrations()` 现有 **107** 条，`Migrator::down` 从最后一条起可回滚 **33** 步（`rg-db/src/lib.rs` 的迁移回滚测试按这个窗口断言，加迁移要同步 +1） |
+| 多数据库后端 | `rg-db::connect_with_pool` | SQLite/PostgreSQL/MySQL，backend-aware 迁移；`crates/rg-db/src/migrations/mod.rs::Migrator::migrations()` 现有 **108** 条，`Migrator::down` 从最后一条起可回滚 **34** 步（`rg-db/src/lib.rs` 的迁移回滚测试按这个窗口断言，加迁移要同步 +1） |
 | TLS/HTTPS | `rg-http/src/lib.rs` | axum-server + rustls |
 | TOML 配置 | `rg-cli/src/main.rs` | CLI > config > defaults |
 | API 分页 | `rg-http/src/pagination.rs` | PaginationParams + PaginatedResponse\<T\> |
@@ -456,6 +457,28 @@ MySQL 的协作时间戳列是秒精度，同一秒创建的两条记录 `create
 - 测试里只想要「分支真的动了、但不触发钩子」时，直接调 service：`rg_core::repo::service::create_or_update_file_with`（HTTP handler 在 `announce_branch_move` 之前调的就是它），见 T25 的 `World::commit_without_push_hooks`
 - 不要用 `sleep` 或重试掩盖：那只是把窗口调大，不是消除
 - 需要验证钩子本身时，断言应落在「最终状态」或用可观察的完成信号，不要依赖「提交返回时钩子已经跑完」
+
+### 27. 给 git 传令牌：只能走 `GIT_CONFIG_COUNT` 环境变量 ⚠️
+
+拉/推外部私有仓库时，令牌有三种塞法，只有一种不泄漏：
+
+| 做法 | 后果 |
+|---|---|
+| `https://user:token@host/repo.git` | 写进 `.git/config` 的 `remote.origin.url`，**永久明文残留**，任何 clone 该镜像的人都拿到 |
+| `git -c http.extraheader="Authorization: ..."` | 出现在进程参数表里，同机任何用户 `ps` 可见 |
+| `GIT_CONFIG_COUNT=1` + `GIT_CONFIG_KEY_0=http.<scheme>://<host>/.extraheader` + `GIT_CONFIG_VALUE_0=Authorization: ...` | 只存在于该进程环境，不落盘、不进 `ps`（git 2.31+） |
+
+- config key 里的 `<scheme>://<host>/` **不能省**：省掉就是全进程生效，重定向到别的 host 时令牌跟着跑过去。实现见 `rg-core/src/remote_credential/service.rs::git_auth_env`
+- host 用 `net_guard::url_host_key` 归一（小写 + 丢 80/443/9418），**不要自己拼**：归一逻辑必须与 SSRF 校验共用同一个解析器，否则「允许连的 host」和「取哪个令牌」会漂移
+- 服务器端跑 git 必须同时设 `GIT_TERMINAL_PROMPT=0`，否则无 tty 时会卡在用户名提示上，镜像同步表现为「卡住」而不是报错
+- `git://` 是匿名协议，塞 header 无效；`git_auth_env` 对这种 scheme 返回空 vec，不要假装成功
+
+### 28. 凭据表的主键不能用两个可空列 ⚠️
+
+`(owner_user_id, owner_org_id)` 二选一的建模，在 SQL 里 `UNIQUE(owner_user_id, host)` 对 NULL 不生效（NULL ≠ NULL），于是同一个 org 可以插两行同 host；而 SQLite/PostgreSQL 的部分唯一索引（`WHERE ... IS NOT NULL`）**MySQL 不支持**，跨后端迁移会挂。
+
+- 正解：判别列 + 单列组 —— `owner_kind TEXT` + `owner_id BIGINT` + `UNIQUE(owner_kind, owner_id, host)`，语义在每个后端都一样（同 `usage_counters.subject_kind`）
+- 代价是没有外键可用（`owner_id` 多态），删除 owner 时要显式清理：`remote_credential_ops::delete_all_for_owner`
 
 ## 依赖版本速查
 
