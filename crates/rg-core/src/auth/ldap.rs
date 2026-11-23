@@ -28,6 +28,15 @@ pub struct LdapUser {
     pub uid: Option<String>,
 }
 
+/// A group as the directory reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LdapGroup {
+    /// `cn`. Compared against a team name exactly (no case folding).
+    pub name: String,
+    /// Member DNs.
+    pub member_dns: Vec<String>,
+}
+
 /// Escape a value embedded in an LDAP search filter (RFC 4515).
 fn escape_filter_value(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
@@ -55,6 +64,29 @@ fn connection_settings(config: &LdapConfig) -> LdapConnSettings {
     } else {
         settings
     }
+}
+
+/// Connect and bind with the service account.
+///
+/// Every read-only operation starts the same way; keeping it in one place means
+/// the timeout and TLS handling cannot drift between them.
+async fn bind_service(config: &LdapConfig) -> CoreResult<ldap3::Ldap> {
+    let url = if config.use_tls {
+        format!("ldaps://{}:{}", config.host, config.port)
+    } else {
+        format!("ldap://{}:{}", config.host, config.port)
+    };
+    let settings = connection_settings(config);
+    let (conn, mut ldap) = LdapConnAsync::with_settings(settings, &url)
+        .await
+        .context("failed to connect to LDAP")?;
+    ldap3::drive!(conn);
+    ldap.simple_bind(&config.bind_dn, &config.bind_password)
+        .await
+        .map_err(|e| CoreError::internal(format!("LDAP service bind failed: {}", e)))?
+        .success()
+        .map_err(|e| CoreError::internal(format!("LDAP service bind rejected: {:?}", e)))?;
+    Ok(ldap)
 }
 
 pub async fn authenticate(
@@ -190,23 +222,7 @@ pub async fn list_users(config: &LdapConfig) -> CoreResult<Vec<LdapUser>> {
             "LDAP user filter must contain '{username}' to be enumerable".into(),
         ));
     }
-    let url = if config.use_tls {
-        format!("ldaps://{}:{}", config.host, config.port)
-    } else {
-        format!("ldap://{}:{}", config.host, config.port)
-    };
-
-    let settings = connection_settings(config);
-    let (conn, mut ldap) = LdapConnAsync::with_settings(settings, &url)
-        .await
-        .context("failed to connect to LDAP")?;
-    ldap3::drive!(conn);
-
-    ldap.simple_bind(&config.bind_dn, &config.bind_password)
-        .await
-        .map_err(|e| CoreError::internal(format!("LDAP service bind failed: {}", e)))?
-        .success()
-        .map_err(|e| CoreError::internal(format!("LDAP service bind rejected: {:?}", e)))?;
+    let mut ldap = bind_service(config).await?;
 
     // `*` is the LDAP wildcard; it matches every entry the filter admits.
     let filter = config.user_filter.replace("{username}", "*");
@@ -267,26 +283,88 @@ pub async fn list_users(config: &LdapConfig) -> CoreResult<Vec<LdapUser>> {
         .collect())
 }
 
-pub async fn test_connection(config: &LdapConfig) -> CoreResult<()> {
-    let url = if config.use_tls {
-        format!("ldaps://{}:{}", config.host, config.port)
+/// Members from `member`, falling back to `uniqueMember`.
+///
+/// The fallback looks at *emptiness*, not at presence: a group with an empty
+/// `member` and a populated `uniqueMember` still has members.
+fn group_member_dns(member: Vec<String>, unique_member: Vec<String>) -> Vec<String> {
+    let chosen = if member.is_empty() {
+        unique_member
     } else {
-        format!("ldap://{}:{}", config.host, config.port)
+        member
     };
+    chosen
+        .into_iter()
+        .map(|dn| dn.trim().to_string())
+        .filter(|dn| !dn.is_empty())
+        .collect()
+}
 
-    let settings = connection_settings(config);
-    let (conn, mut ldap) = LdapConnAsync::with_settings(settings, &url)
+/// List the groups under `group_base_dn` matching `group_filter`.
+///
+/// Members come from `member` (the `groupOfNames` / `groupOfUniqueNames`
+/// convention). `uniqueMember` is accepted as a fallback because Active
+/// Directory and several OpenLDAP deployments use it, and a group whose members
+/// cannot be read is worse than one read from the other attribute.
+///
+/// Same rule as [`list_users`]: a non-zero LDAP result — `sizeLimitExceeded`
+/// included — is an error, never a partial list. A truncated group listing
+/// would read as "these people are not in the group", and the caller's plan
+/// would then be built on a lie.
+pub async fn list_groups(
+    config: &LdapConfig,
+    group_base_dn: &str,
+    group_filter: &str,
+) -> CoreResult<Vec<LdapGroup>> {
+    if group_base_dn.trim().is_empty() || group_filter.trim().is_empty() {
+        return Err(CoreError::InvalidInput(
+            "group sync needs a base DN and a filter".into(),
+        ));
+    }
+    let mut ldap = bind_service(config).await?;
+
+    let (results, _) = ldap
+        .search(
+            group_base_dn,
+            Scope::Subtree,
+            group_filter,
+            vec!["cn", "member", "uniqueMember"],
+        )
         .await
-        .context("failed to connect to LDAP")?;
-
-    ldap3::drive!(conn);
-
-    ldap.simple_bind(&config.bind_dn, &config.bind_password)
-        .await
-        .map_err(|e| CoreError::internal(format!("LDAP bind failed: {}", e)))?
+        .map_err(|e| CoreError::internal(format!("LDAP group search failed: {}", e)))?
         .success()
-        .map_err(|e| CoreError::internal(format!("LDAP bind rejected: {:?}", e)))?;
+        .map_err(|e| {
+            CoreError::internal(format!(
+                "LDAP group enumeration was refused or truncated ({:?}); refusing to sync against a partial listing",
+                e
+            ))
+        })?;
 
+    ldap.unbind().await.ok();
+
+    Ok(results
+        .into_iter()
+        .filter_map(|entry| {
+            let entry = SearchEntry::construct(entry);
+            let name = entry
+                .attrs
+                .get("cn")
+                .and_then(|values| values.first())
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())?;
+            Some(LdapGroup {
+                name,
+                member_dns: group_member_dns(
+                    entry.attrs.get("member").cloned().unwrap_or_default(),
+                    entry.attrs.get("uniqueMember").cloned().unwrap_or_default(),
+                ),
+            })
+        })
+        .collect())
+}
+
+pub async fn test_connection(config: &LdapConfig) -> CoreResult<()> {
+    let mut ldap = bind_service(config).await?;
     ldap.unbind().await.ok();
     Ok(())
 }
@@ -322,6 +400,35 @@ mod tests {
 
         assert!(cfg.use_tls);
         assert!(cfg.insecure_skip_tls_verify);
+    }
+
+    /// The attribute-precedence rule, as a plain function so it is testable
+    /// without a directory.
+    #[test]
+    fn group_member_attribute_prefers_member_and_falls_back_to_unique_member() {
+        use super::{group_member_dns as pick, LdapGroup};
+
+        fn v(values: &[&str]) -> Vec<String> {
+            values.iter().map(|value| (*value).to_string()).collect()
+        }
+
+        assert_eq!(pick(v(&["a"]), v(&["b"])), vec!["a".to_string()]);
+        assert_eq!(pick(Vec::new(), v(&["b"])), vec!["b".to_string()]);
+        // An empty `member` does not mean "no members" when `uniqueMember` has
+        // some: the fallback looks at emptiness, not at presence.
+        assert_eq!(pick(Vec::new(), v(&["b"])), vec!["b".to_string()]);
+        assert!(pick(Vec::new(), Vec::new()).is_empty());
+        // Blanks are dropped rather than becoming a member with an empty DN.
+        assert_eq!(
+            pick(v(&["  ", " uid=a,dc=x "]), Vec::new()),
+            vec!["uid=a,dc=x".to_string()]
+        );
+
+        let group = LdapGroup {
+            name: "backend".into(),
+            member_dns: v(&["uid=alice,dc=x"]),
+        };
+        assert_eq!(group.name, "backend");
     }
 
     #[test]
