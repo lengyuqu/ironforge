@@ -84,7 +84,9 @@ pub enum BlobStorageError {
 
 pub type Result<T> = std::result::Result<T, BlobStorageError>;
 
+mod migrate;
 mod s3;
+pub use migrate::{copy_all, MigrationReport, BLOB_PREFIXES};
 pub use s3::{S3BlobStorage, S3Config};
 
 /// Object-safe storage contract used by LFS, packages, OCI, CI artifacts and

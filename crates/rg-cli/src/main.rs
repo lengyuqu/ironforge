@@ -173,6 +173,20 @@ enum Commands {
         db_url: String,
     },
 
+    /// Copy local blob storage into the configured S3-compatible bucket
+    ///
+    /// Reads `IRONFORGE_S3_*` (the same variables the server uses) and walks the
+    /// blob namespaces under `--repo-root`. Existing objects in the bucket are
+    /// skipped, so an interrupted run is restarted by running it again.
+    StorageMigrate {
+        /// Root directory holding git repositories and blob storage
+        #[arg(long, default_value = "./repos")]
+        repo_root: String,
+        /// Report what would be copied without writing anything
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+    },
+
     /// Rebuild or refresh full-text search indexes from main tables
     RebuildFts {
         /// Database URL (sqlite://, postgres://, or mysql://)
@@ -1508,6 +1522,42 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("Running database migrations...");
             rg_db::run_migrations(&db).await?;
             tracing::info!("Migrations complete ✅");
+        }
+
+        Commands::StorageMigrate { repo_root, dry_run } => {
+            let s3 = resolve_s3_storage()?.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "IRONFORGE_S3_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY must be set: this command copies into that bucket"
+                )
+            })?;
+            let source = rg_core::blob_storage::LocalBlobStorage::new(&repo_root);
+            let target = rg_core::blob_storage::S3BlobStorage::new(&s3)
+                .map_err(|e| anyhow::anyhow!("invalid S3 configuration: {e}"))?;
+
+            println!(
+                "Copying blobs from {repo_root} to {} (bucket {}){}",
+                s3.endpoint,
+                s3.bucket,
+                if dry_run { " [dry run]" } else { "" }
+            );
+            let report = rg_core::blob_storage::copy_all(&source, &target, dry_run).await;
+
+            println!(
+                "scanned {} object(s): copied {} ({} bytes), skipped {} already present",
+                report.scanned, report.copied, report.bytes_copied, report.skipped
+            );
+            if !report.is_complete() {
+                eprintln!("{} object(s) failed:", report.failed.len());
+                for (key, reason) in &report.failed {
+                    eprintln!("  {key}: {reason}");
+                }
+                anyhow::bail!(
+                    "migration incomplete; fix the failures above and run it again (existing objects are skipped)"
+                );
+            }
+            if dry_run {
+                println!("dry run: nothing was written");
+            }
         }
 
         Commands::RebuildFts { db_url } => {
