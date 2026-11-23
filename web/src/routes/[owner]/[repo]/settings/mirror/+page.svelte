@@ -7,6 +7,7 @@
   import { mirrors, type RepositoryMirror } from '$lib/api/client.svelte';
   import MirrorForm from '$lib/components/settings/MirrorForm.svelte';
   import MirrorStatusPanel from '$lib/components/settings/MirrorStatusPanel.svelte';
+  import PushMirrorPanel from '$lib/components/settings/PushMirrorPanel.svelte';
   import { createT } from '$lib/i18n';
 
   const t = createT();
@@ -60,6 +61,8 @@
     {:else}
       <EmptyState title={t('settings.mirror.empty')} />
     {/if}
+
+    <PushMirrorPanel {owner} {repo} onChanged={loadMirror} />
   {/if}
 </div>
 

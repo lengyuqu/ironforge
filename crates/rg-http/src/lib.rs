@@ -176,6 +176,9 @@ pub struct HttpServerConfig {
     pub smtp_config: Option<rg_core::email::SmtpConfig>,
     /// OCI container registry storage path. None = use {repo_root}/oci.
     pub oci_storage_path: Option<PathBuf>,
+    /// S3-compatible object storage for LFS/packages/artifacts/attachments.
+    /// `None` keeps the local directory backend under `repo_root`.
+    pub s3_storage: Option<rg_core::blob_storage::S3Config>,
     /// TLS configuration: (cert_path, key_path). None = HTTP only.
     pub tls_config: Option<(PathBuf, PathBuf)>,
     /// External-facing base URL (e.g., "https://git.example.com").
@@ -203,9 +206,29 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
         tracing::warn!("metrics init failed: {e}");
     }
 
-    let blob_storage: Arc<dyn rg_core::blob_storage::BlobStorage> = Arc::new(
-        rg_core::blob_storage::LocalBlobStorage::new(config.repo_root.clone()),
-    );
+    // Object storage: S3 when configured, a directory otherwise. Failing to
+    // construct the S3 backend is fatal rather than a silent fallback — writing
+    // half the blobs to a local disk nobody will back up is worse than not
+    // starting.
+    let blob_storage: Arc<dyn rg_core::blob_storage::BlobStorage> = match config.s3_storage.as_ref()
+    {
+        Some(s3) => {
+            let storage = rg_core::blob_storage::S3BlobStorage::new(s3)
+                .map_err(|e| anyhow::anyhow!("S3 blob storage is misconfigured: {e}"))?;
+            tracing::info!(
+                endpoint = %s3.endpoint,
+                bucket = %s3.bucket,
+                "blob storage: s3"
+            );
+            Arc::new(storage)
+        }
+        None => {
+            tracing::info!(root = %config.repo_root.display(), "blob storage: local");
+            Arc::new(rg_core::blob_storage::LocalBlobStorage::new(
+                config.repo_root.clone(),
+            ))
+        }
+    };
     let oci_storage = if let Some(path) = config.oci_storage_path.as_ref() {
         tracing::warn!(
             path = %path.display(),
@@ -1469,6 +1492,20 @@ fn build_routes(
         .route(
             "/repos/{owner}/{name}/mirror/sync",
             post(api::mirrors::trigger_mirror_sync),
+        )
+        // Push mirror: forward this repository's refs to an external host after
+        // every push. A separate table from `mirror` (pull), so both directions
+        // can be configured on the same repository.
+        .route(
+            "/repos/{owner}/{name}/push-mirror",
+            get(api::push_mirrors::get_push_mirror)
+                .post(api::push_mirrors::create_push_mirror)
+                .patch(api::push_mirrors::update_push_mirror)
+                .delete(api::push_mirrors::delete_push_mirror),
+        )
+        .route(
+            "/repos/{owner}/{name}/push-mirror/sync",
+            post(api::push_mirrors::trigger_push_sync),
         )
         // Imports (GitHub/GitLab migration)
         .route(
@@ -3594,13 +3631,15 @@ async fn post_push_hooks(
     // Find repo_id from DB
     let repo_model = find_repo_by_name(db, owner, repo_name).await;
 
-    let (repo_id, repo_owner_id) = match repo_model {
-        Ok(Some(r)) => (r.id, r.owner_id),
+    let repo_model = match repo_model {
+        Ok(Some(r)) => r,
         _ => {
             tracing::warn!(owner = %owner, repo = %repo_name, "Post-push: repo not found in DB, skipping hooks");
             return;
         }
     };
+    let repo_id = repo_model.id;
+    let repo_owner_id = repo_model.owner_id;
 
     // Secret-scan audit trail for the push that just moved these refs (T04's
     // scanner reported it through a sink because `rg-git` has no database).
@@ -3948,6 +3987,26 @@ async fn post_push_hooks(
                     "ref": update.refname,
                     "commit": update.new_sha,
                 }),
+            );
+        }
+    }
+
+    // Push mirror: forward the refs that just moved to the configured external
+    // remote. Last, so a slow or failing external push cannot delay webhooks,
+    // CI or notifications. Best-effort by contract — the push this responds to
+    // has already been acknowledged, and a mirror failure must not undo it.
+    let accepted = ref_updates.iter().any(|update| update.status == "ok");
+    if accepted {
+        let enc_key = rg_core::auth::encryption::derive_key(jwt_secret);
+        if let Err(e) =
+            rg_core::mirror::push_service::push_after_receive(db, &repo_model, repo_path, &enc_key)
+                .await
+        {
+            tracing::warn!(
+                owner = %owner,
+                repo = %repo_name,
+                error = %e,
+                "push mirror failed after receive-pack"
             );
         }
     }
