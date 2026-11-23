@@ -120,6 +120,22 @@ pub trait BlobStorage: Send + Sync {
     fn local_path(&self, _key: &BlobKey) -> Option<PathBuf> {
         None
     }
+
+    /// A URL the client can fetch directly, so the bytes never pass through
+    /// this process.
+    ///
+    /// `None` means the backend cannot offer one; the caller must then stream
+    /// the object itself. That fallback is the point of the default: a
+    /// redirect that does not happen costs bandwidth, a redirect to a broken
+    /// URL costs correctness.
+    ///
+    /// Only safe for objects stored byte-for-byte. Compressed-at-rest payloads
+    /// (LFS objects are zstd'd before they reach storage) must not use it —
+    /// the client would receive compressed bytes and believe them to be the
+    /// file.
+    fn presigned_url(&self, _key: &BlobKey, _ttl: std::time::Duration) -> Option<String> {
+        None
+    }
 }
 
 /// Atomic filesystem implementation used by the current single-node runtime.
