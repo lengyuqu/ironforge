@@ -768,6 +768,7 @@ mod matrix_tests {
 
     fn config(matrix: BTreeMap<String, Vec<String>>) -> config::JobConfig {
         config::JobConfig {
+            steps: None,
             stage: Some("test".into()),
             script: vec!["echo ok".into()],
             image: None,

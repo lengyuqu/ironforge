@@ -134,6 +134,12 @@ pub struct GiteaJob {
 
     /// Matrix expansion compatible with `strategy.matrix`.
     pub strategy: Option<GiteaStrategy>,
+
+    /// Job outputs: `name` → expression (usually `steps.<id>.outputs.<name>`),
+    /// evaluated when the job finishes. Parsed but not yet consumed — see
+    /// `docs/plans/CI-202-203-step-outputs.md` stage C.
+    #[serde(default)]
+    pub outputs: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -145,6 +151,10 @@ pub struct GiteaStrategy {
 /// A step within a Gitea Actions job.
 #[derive(Debug, Clone, Deserialize)]
 pub struct GiteaStep {
+    /// Step identifier, the `id` a later step refers to as
+    /// `steps.<id>.outputs.*`.
+    pub id: Option<String>,
+
     /// Step name (optional).
     pub name: Option<String>,
 
@@ -383,6 +393,22 @@ impl GiteaWorkflow {
 
         // Convert each job
         for (name, job) in &self.jobs {
+            // The declared step list, kept alongside the flattened `script`.
+            // Nothing reads it yet (stage A of CI-202 is parsing only), but it
+            // is the shape stage B executes.
+            let declared_steps: Vec<crate::config::StepConfig> = job
+                .steps
+                .iter()
+                .map(|step| crate::config::StepConfig {
+                    id: step.id.clone(),
+                    name: step.name.clone(),
+                    run: step.run.clone(),
+                    uses: step.uses.clone(),
+                    condition: step.condition.clone(),
+                    env: step.env.clone(),
+                    with: step.with.clone(),
+                })
+                .collect();
             // GitHub's default bash invocation is fail-fast; preserving this
             // prevents a later successful step from masking an earlier failure.
             let mut script: Vec<String> = vec!["set -e".into()];
@@ -501,6 +527,7 @@ impl GiteaWorkflow {
             job_configs.insert(
                 name.clone(),
                 JobConfig {
+                    steps: (!declared_steps.is_empty()).then(|| declared_steps.clone()),
                     stage: Some(stage_name),
                     script,
                     image: job.container.as_ref().map(|c| c.image.clone()),
@@ -1262,6 +1289,90 @@ jobs:
         let cc = ci.concurrency.as_ref().unwrap();
         assert_eq!(cc.group, "deploy-group");
         assert!(cc.cancel_in_progress);
+    }
+
+    /// Stage A of CI-202: the declaration is parsed and carried, and the
+    /// flattened `script` is byte-identical to what it was before — nothing
+    /// executes differently yet.
+    #[test]
+    fn step_ids_and_job_outputs_are_parsed_and_step_list_is_kept() {
+        let yml = r#"
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.pack.outputs.digest }}
+    steps:
+      - id: version
+        run: echo "v=1.2.3" >> "$GITHUB_OUTPUT"
+      - id: pack
+        run: tar czf app.tgz .
+      - name: unnamed step
+        run: echo done
+"#;
+        let wf = GiteaWorkflow::parse(yml).unwrap();
+        let job = wf.jobs.get("build").expect("job parsed");
+        assert_eq!(job.steps[0].id.as_deref(), Some("version"));
+        assert_eq!(job.steps[1].id.as_deref(), Some("pack"));
+        assert_eq!(job.steps[2].id, None);
+        assert_eq!(
+            job.outputs.get("digest").map(String::as_str),
+            Some("${{ steps.pack.outputs.digest }}"),
+            "the output declaration must survive parsing verbatim"
+        );
+
+        let ci = wf.to_ci_config(&WorkflowContext {
+            ref_name: "refs/heads/main".into(),
+            sha: "abc".into(),
+            event: "push".into(),
+            repo_owner: "o".into(),
+            repo_name: "r".into(),
+        });
+        let config = ci.jobs.get("build").expect("job converted");
+        let steps = config.steps.as_ref().expect("declared steps are kept");
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps[0].id.as_deref(), Some("version"));
+        assert!(steps[0].run.as_deref().unwrap().contains("GITHUB_OUTPUT"));
+
+        // The flattened script is unchanged: same three commands, same order,
+        // still prefixed with `set -e`. Stage A must not alter behaviour.
+        // The flattened script is unchanged: the same commands, in the same
+        // order, still prefixed with the fail-fast setup. A checkout step may be
+        // inserted ahead of them, so only the relative order is asserted.
+        let joined = config.script.join("\n");
+        assert!(joined.contains("set -e"), "script: {joined}");
+        let version = joined.find("GITHUB_OUTPUT").expect("first step");
+        let pack = joined.find("tar czf app.tgz").expect("second step");
+        let done = joined.find("echo done").expect("third step");
+        assert!(
+            version < pack && pack < done,
+            "step order must be preserved: {joined}"
+        );
+    }
+
+    /// A hand-written config has no `steps`; the field must stay absent so the
+    /// serialized shape does not change for existing users.
+    #[test]
+    fn a_job_without_steps_serializes_without_the_field() {
+        let config = crate::config::JobConfig {
+            steps: None,
+            stage: Some("stage-0".into()),
+            script: vec!["set -e".into()],
+            image: None,
+            only: None,
+            variables: None,
+            when: None,
+            condition: None,
+            environment: None,
+            allow_failure: None,
+            timeout_seconds: None,
+            tags: None,
+            matrix: None,
+            cache: None,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(!json.contains("steps"), "unexpected steps field: {json}");
     }
 
     #[test]
