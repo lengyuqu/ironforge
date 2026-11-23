@@ -536,6 +536,40 @@ pub async fn update_agent<C: ConnectionTrait>(
         .ok_or_else(|| anyhow::anyhow!("agent {} not found", agent_id))
 }
 
+/// Local accounts that log in through one LDAP provider.
+///
+/// `kind = 'user'` excludes agents: an agent has no directory entry and must
+/// never be swept up by a sync that deactivates the missing.
+pub async fn list_by_ldap_provider<C: ConnectionTrait>(
+    db: &C,
+    provider_id: i64,
+) -> Result<Vec<User>> {
+    UserEntity::find()
+        .filter(user::Column::AuthProvider.eq("ldap"))
+        .filter(user::Column::LdapProviderId.eq(provider_id))
+        .filter(user::Column::Kind.eq("user"))
+        .order_by_asc(user::Column::Id)
+        .all(db)
+        .await
+        .context("db: list users by LDAP provider")
+}
+
+/// Flip `is_active` on one regular account.
+///
+/// Deliberately touches no other column: a directory sync that deactivates
+/// someone must not rewrite their profile as a side effect.
+pub async fn set_active<C: ConnectionTrait>(db: &C, user_id: i64, is_active: bool) -> Result<u64> {
+    let result = UserEntity::update_many()
+        .col_expr(user::Column::IsActive, Expr::value(is_active))
+        .col_expr(user::Column::UpdatedAt, Expr::value(chrono::Utc::now()))
+        .filter(user::Column::Id.eq(user_id))
+        .filter(user::Column::Kind.eq("user"))
+        .exec(db)
+        .await
+        .context("db: set user active flag")?;
+    Ok(result.rows_affected)
+}
+
 /// Users by id, in one query per 500 ids (no N+1 for a page of rows). Ids that
 /// do not exist are simply absent from the result.
 pub async fn find_by_ids<C: ConnectionTrait>(db: &C, ids: &[i64]) -> Result<Vec<User>> {

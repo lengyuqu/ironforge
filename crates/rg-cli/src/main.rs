@@ -187,6 +187,29 @@ enum Commands {
         dry_run: bool,
     },
 
+    /// Deactivate LDAP accounts the directory no longer has, and restore the
+    /// ones that came back
+    ///
+    /// Content is never deleted: accounts are disabled, so someone returning to
+    /// the directory gets their account back on the next run. Directory entries
+    /// with no local account are reported, never created.
+    LdapSync {
+        /// Database URL (sqlite://, postgres://, or mysql://)
+        #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
+        db_url: String,
+        /// Only sync this provider id (default: every enabled LDAP provider)
+        #[arg(long)]
+        provider_id: Option<i64>,
+        /// Print what would change without writing
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+        /// Proceed even when the run would disable half or more of the active
+        /// accounts. That pattern almost always means the directory
+        /// configuration is wrong, not that everyone left.
+        #[arg(long, default_value_t = false)]
+        allow_mass_deactivation: bool,
+    },
+
     /// Rebuild or refresh full-text search indexes from main tables
     RebuildFts {
         /// Database URL (sqlite://, postgres://, or mysql://)
@@ -1557,6 +1580,113 @@ async fn main() -> anyhow::Result<()> {
             }
             if dry_run {
                 println!("dry run: nothing was written");
+            }
+        }
+
+        Commands::LdapSync {
+            db_url,
+            provider_id,
+            dry_run,
+            allow_mass_deactivation,
+        } => {
+            let jwt_secret = std::env::var("IRONFORGE_JWT_SECRET").map_err(|_| {
+                anyhow::anyhow!(
+                    "IRONFORGE_JWT_SECRET must be set: the provider's bind password is encrypted with it"
+                )
+            })?;
+            let db = rg_db::connect(&db_url).await?;
+
+            let providers: Vec<_> = match provider_id {
+                Some(id) => rg_db::ops::sso_provider_ops::find_by_id(&db, id)
+                    .await?
+                    .into_iter()
+                    .collect(),
+                None => rg_db::ops::sso_provider_ops::list_enabled(&db)
+                    .await?
+                    .into_iter()
+                    .filter(|provider| provider.provider_type == "ldap")
+                    .collect(),
+            };
+            if providers.is_empty() {
+                anyhow::bail!("no LDAP provider to sync");
+            }
+
+            let mut failed = false;
+            for provider in providers {
+                if provider.provider_type != "ldap" {
+                    anyhow::bail!("provider {} is not LDAP", provider.id);
+                }
+                println!(
+                    "provider {} ({}){}",
+                    provider.id,
+                    provider.name,
+                    if dry_run { " [dry run]" } else { "" }
+                );
+
+                let plan = match rg_core::auth::ldap_sync::plan_provider(
+                    &db,
+                    &provider,
+                    &jwt_secret,
+                )
+                .await
+                {
+                    Ok(plan) => plan,
+                    Err(error) => {
+                        // A single provider that cannot be read must not stop
+                        // the others, and must not be treated as "everyone
+                        // left".
+                        eprintln!("  cannot sync: {error}");
+                        failed = true;
+                        continue;
+                    }
+                };
+                println!("  {}", plan.summary());
+
+                if plan.is_noop() {
+                    continue;
+                }
+
+                // Guard rail: disabling most of the active accounts is what a
+                // wrong base DN looks like, not what a real offboarding wave
+                // looks like.
+                let active_before = plan.unchanged + plan.deactivate.len();
+                let mass = plan.deactivate.len() >= 5 && plan.deactivate.len() * 2 >= active_before;
+                if mass && !allow_mass_deactivation && !dry_run {
+                    eprintln!(
+                        "  refusing to deactivate {} of {} active accounts; re-run with --allow-mass-deactivation if that is really what you want",
+                        plan.deactivate.len(),
+                        active_before
+                    );
+                    failed = true;
+                    continue;
+                }
+
+                for account in &plan.deactivate {
+                    println!("  - deactivate {} (id {})", account.username, account.id);
+                }
+                for account in &plan.reactivate {
+                    println!("  + reactivate {} (id {})", account.username, account.id);
+                }
+                for name in &plan.unknown_in_directory {
+                    println!("  ? in directory, no local account: {name}");
+                }
+
+                if dry_run {
+                    continue;
+                }
+                match rg_core::auth::ldap_sync::apply(&db, &plan).await {
+                    Ok((changed, rows)) => {
+                        println!("  applied: {changed} account(s), {rows} row(s) updated")
+                    }
+                    Err(error) => {
+                        eprintln!("  apply failed: {error}");
+                        failed = true;
+                    }
+                }
+            }
+
+            if failed {
+                anyhow::bail!("one or more providers could not be synced");
             }
         }
 

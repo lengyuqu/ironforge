@@ -171,6 +171,102 @@ pub async fn authenticate(
     })
 }
 
+/// Every account the directory would accept at login.
+///
+/// The configured filter is the *per-login* form (`(uid={username})`); the
+/// enumeration form is the same filter with the placeholder replaced by `*`,
+/// which is what makes the sync see exactly the set that can log in.
+///
+/// # Why a truncated listing is an error
+///
+/// A sync deactivates local accounts that are absent from this listing. If the
+/// directory answers with `sizeLimitExceeded` (or any other non-zero result)
+/// the listing is *incomplete*, and treating it as complete would deactivate
+/// everyone past the limit. `.success()` rejects every non-zero result code, so
+/// the partial answer can never be mistaken for a full one.
+pub async fn list_users(config: &LdapConfig) -> CoreResult<Vec<LdapUser>> {
+    if !config.user_filter.contains("{username}") {
+        return Err(CoreError::InvalidInput(
+            "LDAP user filter must contain '{username}' to be enumerable".into(),
+        ));
+    }
+    let url = if config.use_tls {
+        format!("ldaps://{}:{}", config.host, config.port)
+    } else {
+        format!("ldap://{}:{}", config.host, config.port)
+    };
+
+    let settings = connection_settings(config);
+    let (conn, mut ldap) = LdapConnAsync::with_settings(settings, &url)
+        .await
+        .context("failed to connect to LDAP")?;
+    ldap3::drive!(conn);
+
+    ldap.simple_bind(&config.bind_dn, &config.bind_password)
+        .await
+        .map_err(|e| CoreError::internal(format!("LDAP service bind failed: {}", e)))?
+        .success()
+        .map_err(|e| CoreError::internal(format!("LDAP service bind rejected: {:?}", e)))?;
+
+    // `*` is the LDAP wildcard; it matches every entry the filter admits.
+    let filter = config.user_filter.replace("{username}", "*");
+    let (results, _) = ldap
+        .search(
+            &config.base_dn,
+            Scope::Subtree,
+            &filter,
+            vec!["uid", "mail", "displayName", "cn", "givenName", "sn"],
+        )
+        .await
+        .map_err(|e| CoreError::internal(format!("LDAP search failed: {}", e)))?
+        .success()
+        .map_err(|e| {
+            CoreError::internal(format!(
+                "LDAP enumeration was refused or truncated ({:?}); refusing to sync against a partial listing",
+                e
+            ))
+        })?;
+
+    ldap.unbind().await.ok();
+
+    Ok(results
+        .into_iter()
+        .map(|entry| {
+            let entry = SearchEntry::construct(entry);
+            let email = entry.attrs.get("mail").and_then(|v| v.first()).cloned();
+            let uid = entry.attrs.get("uid").and_then(|v| v.first()).cloned();
+            let display_name = entry
+                .attrs
+                .get("displayName")
+                .and_then(|v| v.first())
+                .cloned()
+                .or_else(|| {
+                    let first = entry.attrs.get("givenName").and_then(|v| v.first());
+                    let last = entry.attrs.get("sn").and_then(|v| v.first());
+                    match (first, last) {
+                        (Some(f), Some(l)) => Some(format!("{} {}", f, l)),
+                        (Some(n), None) | (None, Some(n)) => Some(n.clone()),
+                        _ => None,
+                    }
+                });
+            // Same name resolution the login path uses, so the sync compares
+            // like with like.
+            let username = uid
+                .clone()
+                .or_else(|| entry.attrs.get("cn").and_then(|v| v.first()).cloned())
+                .unwrap_or_default();
+            LdapUser {
+                username,
+                email,
+                display_name,
+                dn: entry.dn.clone(),
+                uid,
+            }
+        })
+        .filter(|user| !user.username.trim().is_empty())
+        .collect())
+}
+
 pub async fn test_connection(config: &LdapConfig) -> CoreResult<()> {
     let url = if config.use_tls {
         format!("ldaps://{}:{}", config.host, config.port)

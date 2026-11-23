@@ -441,7 +441,7 @@ async fn login_via_ldap(
     Err(CoreError::forbidden(INVALID_CREDENTIALS))
 }
 
-fn ldap_config_from_provider(
+pub(crate) fn ldap_config_from_provider(
     provider: &rg_db::entities::sso_provider::Model,
     jwt_secret: &str,
 ) -> CoreResult<crate::auth::ldap::LdapConfig> {
