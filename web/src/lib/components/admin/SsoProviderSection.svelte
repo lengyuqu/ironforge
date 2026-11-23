@@ -9,10 +9,16 @@
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import {
+    emptyLdapGroupSyncForm,
     emptySsoProviderForm,
     formFromProvider,
+    isLdapGroupSyncConfigured,
+    ldapGroupSyncFormFromProvider,
+    ldapGroupSyncPayloadFromForm,
     ssoPayloadFromForm,
     togglePayload,
+    validateLdapGroupSyncForm,
+    type LdapGroupSyncForm,
   } from '$lib/components/admin/ssoForm';
 
   const t = createT();
@@ -29,6 +35,7 @@
   let ssoTestResult = $state<{ ok: boolean; message: string } | null>(null);
   let editingSsoId = $state<number | null>(null);
   let ssoForm = $state<SsoProviderPayload>(emptySsoProviderForm());
+  let groupSyncForm = $state<LdapGroupSyncForm>(emptyLdapGroupSyncForm());
 
   // Snapshot the initial list (component mounts once per page load).
   providers = initialProviders;
@@ -40,11 +47,13 @@
   function editSsoProvider(provider: AdminSsoProvider) {
     editingSsoId = provider.id;
     ssoForm = formFromProvider(provider);
+    groupSyncForm = ldapGroupSyncFormFromProvider(provider);
   }
 
   function resetSsoForm() {
     editingSsoId = null;
     ssoForm = emptySsoProviderForm();
+    groupSyncForm = emptyLdapGroupSyncForm();
   }
 
   async function saveSsoProvider() {
@@ -53,16 +62,45 @@
       return;
     }
 
+    // Validated before the provider write so a half-filled group block cannot
+    // leave the provider saved and the group sync silently unconfigured.
+    if (ssoForm.provider_type === 'ldap') {
+      const groupError = validateLdapGroupSyncForm(groupSyncForm);
+      if (groupError) {
+        const key =
+          groupError === 'base_dn'
+            ? 'admin.sso.group_sync.group_sync_err_base_dn'
+            : groupError === 'filter'
+              ? 'admin.sso.group_sync.group_sync_err_filter'
+              : 'admin.sso.group_sync.group_sync_err_org';
+        toast.error(t(key));
+        return;
+      }
+    }
+
     try {
       ssoSaving = true;
       const payload = ssoPayloadFromForm(ssoForm);
+      let savedId = editingSsoId;
       if (editingSsoId) {
         await admin.updateSsoProvider(editingSsoId, payload);
         toast.success(t('admin.sso.updated'));
       } else {
-        await admin.createSsoProvider(payload);
+        // The group endpoint needs an id, so a new provider is created first.
+        const created = await admin.createSsoProvider(payload);
+        savedId = created.id;
         toast.success(t('admin.sso.created'));
       }
+
+      if (savedId && ssoForm.provider_type === 'ldap') {
+        // Editing always writes (all-empty switches the sync off); a brand new
+        // provider only writes when something was filled in.
+        const shouldWrite = editingSsoId !== null || isLdapGroupSyncConfigured(groupSyncForm);
+        if (shouldWrite) {
+          await admin.setLdapGroupSync(savedId, ldapGroupSyncPayloadFromForm(groupSyncForm));
+        }
+      }
+
       await reloadProviders();
       resetSsoForm();
     } catch (e: unknown) {
@@ -120,6 +158,7 @@
 
   <SsoProviderForm
     bind:form={ssoForm}
+    bind:groupSyncForm
     editing={editingSsoId !== null}
     saving={ssoSaving}
     onSave={saveSsoProvider}

@@ -1462,7 +1462,18 @@
       "created": "SSO 提供方已创建",
       "ldap_test_failed": "LDAP 连接测试失败",
       "status_enabled": "已启用",
-      "status_disabled": "已禁用"
+      "status_disabled": "已禁用",
+      "group_sync": {
+        "group_sync_title": "LDAP 组 → 团队同步",
+        "group_sync_hint": "把组成员加入同一组织下同名的团队。只增员，从不移除。",
+        "group_sync_save_first": "先保存 provider，再配置组同步。",
+        "group_sync_base_dn": "组搜索基点 DN",
+        "group_sync_filter": "组过滤器",
+        "group_sync_org": "目标组织 ID",
+        "group_sync_err_base_dn": "组同步需要填写组搜索基点 DN。",
+        "group_sync_err_filter": "组同步需要填写组过滤器。",
+        "group_sync_err_org": "组同步需要一个正整数组织 ID。"
+      }
     }
   },
   "profile": {

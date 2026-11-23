@@ -1462,7 +1462,18 @@
       "created": "SSO provider created",
       "ldap_test_failed": "LDAP connection test failed",
       "status_enabled": "Enabled",
-      "status_disabled": "Disabled"
+      "status_disabled": "Disabled",
+      "group_sync": {
+        "group_sync_title": "LDAP group → team sync",
+        "group_sync_hint": "Adds group members to teams of the same name in one organization. Members are only added, never removed.",
+        "group_sync_save_first": "Save the provider first, then configure group sync.",
+        "group_sync_base_dn": "Group base DN",
+        "group_sync_filter": "Group filter",
+        "group_sync_org": "Target organization ID",
+        "group_sync_err_base_dn": "Group sync needs a base DN.",
+        "group_sync_err_filter": "Group sync needs a group filter.",
+        "group_sync_err_org": "Group sync needs a positive organization ID."
+      }
     }
   },
   "profile": {
