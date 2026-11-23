@@ -90,17 +90,46 @@ EOF
 
 **不采用**：自己的简化语义（比如"有 always 就跑"）。真实 workflow 里 `if: failure() && steps.x.outcome == 'success'` 这类组合很常见，简化语义会让它们静默出错。
 
+### 6. outputs 怎么从 runner 回到服务端（**第一版设计漏了这一条**）
+
+补这条之前我假设「执行器改一下就行」。读代码发现不是：
+
+| 事实 | 位置 |
+|---|---|
+| `script` 被 join 成**一个字符串**下发 | `rg-cli` 内联：`rg-ci/src/lib.rs:250`、`runner.rs:268`；独立进程：`rg-runner/src/main.rs:969` |
+| `FinishJobRequest` 只有 `status` + `exit_code` | `rg-http/src/api/runners.rs:955` |
+| 服务端与 runner 之间没有任何 step 粒度的往返 | — |
+
+也就是说：**执行可能发生在一个独立进程里**，outputs 要跨进程回到服务端才能给下游 job 用。
+
+**采用**：`FinishJobRequest` 增加可选 `outputs: HashMap<String, String>`，job 结束时与 `status` 一起上报。
+
+理由：
+- 一次往返，不新增端点
+- **失败时也能带回已产出的 outputs**（独立端点会在崩溃时丢掉它们，而"失败步骤之后的清理 job 需要前序输出"正是 `always()` 场景的核心）
+- 向后兼容：字段可选，旧 runner 不上报时按空处理
+
+**不采用**：
+- 独立 `POST /jobs/{id}/outputs` 端点 —— 多一次往返，且与 `finish` 的竞态需要额外处理
+- 只在本地内联 runner 支持 —— 那等于让 outputs 在自托管 runner 上静默失效，比不支持更糟
+
+服务端把上报的 map 写进 `pipeline_jobs.outputs_json`（与阶段 C 的迁移是同一列），下游 job 通过 `needs.<job>.outputs.*` 读。
+
 ## 分阶段交付
 
 | 阶段 | 内容 | 风险 |
 |---|---|---|
-| **A** | `GiteaStep.id` + `GiteaJob.outputs` 解析；`StepConfig` 类型；`to_ci_config` 保留 step 列表（但仍拍平执行） | 低（只是解析，行为不变） |
-| **B** | 执行器改为逐 step 执行（`steps` 有值时）；`$GITHUB_OUTPUT` 文件注入与解析；`steps.<id>.outputs.*` 在运行时条件与 `env` 里可引用 | **中高**：执行顺序变化 |
-| **C** | `jobs.<job>.outputs` 求值 + `pipeline_jobs.outputs_json` 持久化 + `needs.*.outputs.*` | 中：涉及迁移与跨 job 传递 |
-| **D** | `always()/failure()/cancelled()` + step 级 `if` 从转换期挪到运行时 | **高**：语义变更，所有现有 workflow 的 `if` 走新路径 |
-| **E** | 真 workflow 回归（用一个含 outputs 与 `always()` 的 `.gitea/workflows/` 跑真实 pipeline） | — |
+| **A** ✅ | `GiteaStep.id` + `GiteaJob.outputs` 解析；`StepConfig` 类型；`to_ci_config` 保留 step 列表（但仍拍平执行） | 低（已合并 #33） |
+| **B1** | runner 端逐 step 执行（`steps` 有值时）+ `$GITHUB_OUTPUT` 注入与解析 | **中高**：执行顺序变化 |
+| **B2** | `FinishJobRequest.outputs` + `pipeline_jobs.outputs_json` 迁移 + 服务端写入 | 中：协议 + 迁移 |
+| **B3** | `steps.<id>.outputs.*` 在同一 job 的后续 step 的 `env` / `if` 里可引用 | 中 |
+| **C** | `jobs.<job>.outputs` 求值 + `needs.<job>.outputs.*` 跨 job | 中 |
+| **D** | `always()/failure()/cancelled()` + step 级 `if` 从转换期挪到运行时 | **高**：语义变更 |
+| **E** | 真 workflow 回归（含 outputs 与 `always()`） | — |
 
-A 和 B 是 CI-202；C 是 CI-202 的另一半；D 是 CI-203；E 是验收。
+A 已合并。B1~B3 + C 是 CI-202；D 是 CI-203；E 是验收。
+
+**B 拆成三步的原因**：B1 改执行顺序、B2 改协议与 schema、B3 改条件求值。三者任一出错都会表现为"outputs 是空的"，合在一起无法归因 —— 与第 4 条决策同一个理由。
 
 ## 回归策略
 
