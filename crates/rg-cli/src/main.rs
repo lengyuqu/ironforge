@@ -1646,16 +1646,17 @@ async fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                // Guard rail: disabling most of the active accounts is what a
-                // wrong base DN looks like, not what a real offboarding wave
-                // looks like.
-                let active_before = plan.unchanged + plan.deactivate.len();
-                let mass = plan.deactivate.len() >= 5 && plan.deactivate.len() * 2 >= active_before;
-                if mass && !allow_mass_deactivation && !dry_run {
+                // Guard rail shared with the scheduled run: disabling most of
+                // the active accounts is what a wrong base DN looks like, not
+                // what a real offboarding wave looks like.
+                if rg_core::auth::ldap_sync::looks_like_mass_deactivation(&plan)
+                    && !allow_mass_deactivation
+                    && !dry_run
+                {
                     eprintln!(
                         "  refusing to deactivate {} of {} active accounts; re-run with --allow-mass-deactivation if that is really what you want",
                         plan.deactivate.len(),
-                        active_before
+                        plan.unchanged + plan.deactivate.len()
                     );
                     failed = true;
                     continue;

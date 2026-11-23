@@ -4139,6 +4139,57 @@ fn spawn_background_job_worker(state: AppState) {
         })
     });
 
+    // Periodic: LDAP directory sync. Six hours is a compromise — often enough
+    // that a departure is noticed the same working day, rare enough that a
+    // directory hiccup does not turn into a stream of writes.
+    let ldap_db = state.db.clone();
+    let ldap_jwt_secret = state.jwt_secret.clone();
+    let ldap_first_tick = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let ldap_task: PeriodicTask = Arc::new(move || {
+        let db = ldap_db.clone();
+        let secret = ldap_jwt_secret.clone();
+        let first = ldap_first_tick.clone();
+        Box::pin(async move {
+            // `tokio::time::interval` fires immediately; skip that one. An
+            // instance that just booted should not start disabling accounts
+            // before anyone has looked at the plan.
+            if first.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                return Ok(());
+            }
+            // `sync_all_enabled` refuses a mass deactivation on its own; the
+            // scheduled path deliberately has no way to override that.
+            let outcomes = rg_core::auth::ldap_sync::sync_all_enabled(&db, &secret).await;
+            for outcome in outcomes {
+                match outcome {
+                    rg_core::auth::ldap_sync::ProviderOutcome::Unchanged { provider_id } => {
+                        tracing::debug!(provider_id, "LDAP sync: nothing to do");
+                    }
+                    rg_core::auth::ldap_sync::ProviderOutcome::Applied {
+                        provider_id,
+                        changed,
+                        ..
+                    } => {
+                        tracing::info!(provider_id, changed, "LDAP sync: applied");
+                    }
+                    rg_core::auth::ldap_sync::ProviderOutcome::RefusedMassDeactivation {
+                        provider_id,
+                        plan,
+                    } => {
+                        tracing::warn!(
+                            provider_id,
+                            deactivate = plan.deactivate.len(),
+                            "LDAP sync: refused a mass deactivation; run `ironforge ldap-sync` to review"
+                        );
+                    }
+                    rg_core::auth::ldap_sync::ProviderOutcome::Failed { provider_id, error } => {
+                        tracing::error!(provider_id, %error, "LDAP sync: provider failed");
+                    }
+                }
+            }
+            Ok(())
+        })
+    });
+
     // Periodic: remove the git data of repositories whose retention expired.
     let purge_db = state.db.clone();
     let purge_repo_root = state.repo_root.clone();
@@ -4175,6 +4226,11 @@ fn spawn_background_job_worker(state: AppState) {
             "repo.purge_deleted",
             std::time::Duration::from_secs(3600),
             purge_task,
+        )
+        .register_periodic(
+            "auth.ldap_sync",
+            std::time::Duration::from_secs(6 * 3600),
+            ldap_task,
         );
     // Dropping the JoinHandles keeps the tasks running (tokio semantics).
     drop(worker.spawn());
