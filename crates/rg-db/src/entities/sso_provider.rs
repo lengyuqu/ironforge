@@ -33,6 +33,13 @@ pub struct Model {
     pub ldap_base_dn: Option<String>,
     /// LDAP user filter template, e.g. "(uid={username})"
     pub ldap_user_filter: Option<String>,
+    /// Group search base. Group sync is enabled only when this, the filter and
+    /// the target org are all set (see `m20261123_000003_add_ldap_group_sync`).
+    pub ldap_group_base_dn: Option<String>,
+    /// Group filter, e.g. `(objectClass=groupOfNames)`.
+    pub ldap_group_filter: Option<String>,
+    /// Organization whose teams the group names refer to.
+    pub ldap_group_team_org_id: Option<i64>,
     pub enabled: bool,
     /// Icon URL for login button (optional)
     pub icon_url: Option<String>,

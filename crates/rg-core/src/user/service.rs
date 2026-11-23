@@ -865,6 +865,10 @@ mod tests {
             ),
             ldap_base_dn: Some("dc=example,dc=com".into()),
             ldap_user_filter: Some("(uid={username})".into()),
+            // Group -> team sync is not configured for this fixture.
+            ldap_group_base_dn: None,
+            ldap_group_filter: None,
+            ldap_group_team_org_id: None,
             enabled: true,
             icon_url: None,
             created_at: now,
