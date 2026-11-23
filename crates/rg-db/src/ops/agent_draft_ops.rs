@@ -235,6 +235,8 @@ mod tests {
             updated_at: Set(Utc::now()),
             deleted_at: Set(None),
             origin_repo_id: Set(None),
+
+            is_template: sea_orm::ActiveValue::Set(false),
         }
         .insert(db)
         .await

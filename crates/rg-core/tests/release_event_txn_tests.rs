@@ -99,6 +99,8 @@ async fn test_db() -> Fixture {
             updated_at: sea_orm::Set(now),
             deleted_at: sea_orm::Set(None),
             origin_repo_id: sea_orm::Set(None),
+
+            is_template: sea_orm::ActiveValue::Set(false),
         },
     )
     .await

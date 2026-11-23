@@ -93,6 +93,8 @@ async fn test_db() -> (DatabaseConnection, tempfile::TempDir, i64, i64) {
             updated_at: Set(now),
             deleted_at: Set(None),
             origin_repo_id: Set(None),
+
+            is_template: sea_orm::ActiveValue::Set(false),
         },
     )
     .await

@@ -3176,6 +3176,8 @@ mod backup_verify_tests {
                 updated_at: Set(now),
                 deleted_at: Set(None),
                 origin_repo_id: Set(None),
+
+                is_template: rg_db::sea_orm::ActiveValue::Set(false),
             },
         )
         .await

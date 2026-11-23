@@ -591,6 +591,7 @@ mod tests {
             updated_at: Utc::now(),
             deleted_at: None,
             origin_repo_id: None,
+            is_template: false,
         };
         assert_eq!(Scope::for_repository(&repo), Scope::Org(7));
         repo.org_id = None;
