@@ -117,12 +117,18 @@ async fn resolve_source_auth(
     }
 
     let scope = crate::remote_credential::service::Scope::User(task.user_id);
-    match crate::remote_credential::service::resolve(db, scope, &task.source_url, enc_key).await? {
-        Some(credential) => Ok(Some(SourceAuth {
+    match crate::remote_credential::service::resolve(db, scope, &task.source_url, enc_key).await {
+        Ok(Some(credential)) => Ok(Some(SourceAuth {
             username: credential.username,
             token: credential.token,
         })),
-        None => Ok(None),
+        Ok(None) => Ok(None),
+        // An unparsable URL means no credential can exist for it — not that the
+        // import failed. The platform importer reports the bad URL where the
+        // error is actionable; failing here would replace a precise message
+        // ("invalid GitHub URL") with a generic one about hosts.
+        Err(CoreError::InvalidInput(_)) => Ok(None),
+        Err(error) => Err(error),
     }
 }
 
