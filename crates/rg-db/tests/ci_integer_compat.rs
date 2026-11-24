@@ -250,6 +250,7 @@ async fn job_create() {
         Some(60),
         Some("on_success"),
         Some("branch == main"),
+        None,
     )
     .await
     .unwrap_or_else(|e| panic!("job create: {e:#}"));
@@ -365,6 +366,7 @@ async fn manual_job_can_be_released_once_and_read_back() {
         false,
         None,
         Some("manual"),
+        None,
         None,
     )
     .await
@@ -497,6 +499,7 @@ async fn rerun_and_cancel_restore_then_transition_the_whole_chain() {
         None,
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -594,6 +597,7 @@ async fn disconnected_runner_fails_job_and_cascades_to_stage_and_pipeline() {
         None,
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -667,7 +671,8 @@ async fn legacy_integer_overflow_does_not_insert_partial_stage_or_job() {
         false,
         None,
         None,
-        None
+        None,
+        None,
     )
     .await
     .is_err());

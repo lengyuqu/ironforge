@@ -1041,11 +1041,11 @@ mod soft_delete_tests {
         // constraint; re-applying must then succeed again.
         //
         // The count covers the `m20261015_000002` partial-unique-index anchor
-        // itself plus every migration after it (37 today: this test starts at
-        // 74, the upgrade above applies all 111, the rollback must land back on
+        // itself plus every migration after it (38 today: this test starts at
+        // 74, the upgrade above applies all 112, the rollback must land back on
         // 74); add 1 whenever one is appended, or this assertion silently stops
         // testing that window. Do not "fix" the `before` index above instead.
-        migrations::Migrator::down(&db, Some(37))
+        migrations::Migrator::down(&db, Some(38))
             .await
             .expect("downgrade");
         assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repo_stars").await, 1);

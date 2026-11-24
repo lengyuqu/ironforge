@@ -1007,6 +1007,7 @@ async fn pending_job(app: &App, repo_id: i64, ref_name: &str) -> i64 {
         .unwrap();
     rg_db::ops::pipeline_ops::create_job(
         &app.db, stage.id, "probe", "true", None, None, None, None, None, false, None, None, None,
+        None,
     )
     .await
     .unwrap()

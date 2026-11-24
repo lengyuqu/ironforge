@@ -3295,6 +3295,8 @@ mod backup_verify_tests {
                 timeout_seconds: Set(None),
                 when_condition: Set("on_success".into()),
                 if_condition: Set(None),
+                steps_json: Set(None),
+                outputs_json: Set(None),
                 environment_id: Set(None),
                 environment_name: Set(None),
                 status: Set(pstatus.into()),

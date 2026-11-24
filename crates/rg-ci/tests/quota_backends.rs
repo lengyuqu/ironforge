@@ -129,7 +129,7 @@ async fn finished_pipeline(
         .await
         .expect("create stage");
     let job = rg_db::ops::pipeline_ops::create_job(
-        db, stage.id, "build", "true", None, None, None, None, None, false, None, None, None,
+        db, stage.id, "build", "true", None, None, None, None, None, false, None, None, None, None,
     )
     .await
     .expect("create job");

@@ -49,7 +49,7 @@ async fn seed(db: &DatabaseConnection, repo_id: i64, layout: &[&[&str]]) -> Seed
         for name in *names {
             let job = ops::create_job(
                 db, stage.id, name, "echo hi", None, None, None, None, None, false, None, None,
-                None,
+                None, None,
             )
             .await
             .unwrap();
@@ -525,6 +525,7 @@ async fn reopened_downstream_jobs_keep_their_gates() {
         async move {
             ops::create_job(
                 &db, stage, name, "echo", None, None, None, None, None, false, None, when, cond,
+                None,
             )
             .await
             .unwrap()

@@ -433,7 +433,7 @@ impl GiteaWorkflow {
 
             // Process steps
             let mut has_checkout = false;
-            for step in &job.steps {
+            for (step_index, step) in job.steps.iter().enumerate() {
                 if let Some(condition) = step.condition.as_deref() {
                     let mut condition_variables = job_vars.clone();
                     for (name, value) in &step.env {
@@ -491,6 +491,25 @@ impl GiteaWorkflow {
 
                     // Substitute expressions in the command
                     let expanded_cmd = substitute_expr(run_cmd, name, &self.env, &job_vars);
+                    // A step with an `id` may produce outputs; give it a file to
+                    // write them into. The path is index-based so the runner can
+                    // read it back without knowing the id, and the index is the
+                    // step's position in the *workflow*, not in this script —
+                    // steps skipped by their `if` still occupy their index,
+                    // which keeps server and runner in agreement.
+                    //
+                    // Steps without an id get nothing: nothing can reference
+                    // them, and adding the export would change the flattened
+                    // script of every existing workflow for no benefit.
+                    if step.id.is_some() {
+                        // A workspace-relative path: the runner mounts the
+                        // workspace into the container at `/workspace`, so the
+                        // same relative path resolves on the host afterwards
+                        // and the file survives without a `docker cp`.
+                        script.push(format!(
+                            "export GITHUB_OUTPUT=\".ironforge-outputs/step-{step_index}.outputs\"; mkdir -p .ironforge-outputs; rm -f \"$GITHUB_OUTPUT\""
+                        ));
+                    }
                     script.push(expanded_cmd);
                 }
             }
@@ -1348,6 +1367,43 @@ jobs:
         assert!(
             version < pack && pack < done,
             "step order must be preserved: {joined}"
+        );
+    }
+
+    /// Only a step with an `id` gets an output file: nothing can reference a
+    /// nameless step, and adding the export everywhere would rewrite the
+    /// flattened script of every existing workflow for no benefit.
+    #[test]
+    fn only_steps_with_ids_get_an_output_file() {
+        let yml = r#"
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo nameless
+      - id: version
+        run: echo "v=1" >> "$GITHUB_OUTPUT"
+"#;
+        let wf = GiteaWorkflow::parse(yml).unwrap();
+        let ci = wf.to_ci_config(&WorkflowContext {
+            ref_name: "refs/heads/main".into(),
+            sha: "abc".into(),
+            event: "push".into(),
+            repo_owner: "o".into(),
+            repo_name: "r".into(),
+        });
+        let joined = ci.jobs["build"].script.join("\n");
+        assert_eq!(
+            joined.matches("export GITHUB_OUTPUT=").count(),
+            1,
+            "exactly one step has an id: {joined}"
+        );
+        // The index is the workflow position, not the position within the
+        // generated script.
+        assert!(
+            joined.contains(".ironforge-outputs/step-1.outputs"),
+            "the id-bearing step is second in the workflow: {joined}"
         );
     }
 

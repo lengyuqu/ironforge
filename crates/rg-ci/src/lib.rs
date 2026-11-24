@@ -244,6 +244,13 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
                 .as_ref()
                 .map(|cache| serde_json::to_string(&cache.paths))
                 .transpose()?;
+            // The declared steps travel with the job: the runner needs them to
+            // execute per step and to know which step an output came from.
+            let steps_json = job_config
+                .steps
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?;
             let job = rg_db::ops::pipeline_ops::create_job(
                 db,
                 stage_id,
@@ -258,6 +265,7 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
                 job_config.timeout_seconds.map(|seconds| seconds as i64),
                 job_config.when.as_deref(),
                 job_config.condition.as_deref(),
+                steps_json.as_deref(),
             )
             .await?;
             let should_run = if let Some(condition) = job_config.condition.as_deref() {
