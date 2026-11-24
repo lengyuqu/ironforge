@@ -136,7 +136,7 @@
 # Automatic: only the cheap `lint` gate (rustfmt + clippy) on push and PR.
 # The full gate set is MANUAL: it takes ~20 minutes and should be started on
 # purpose, e.g. before merging a PR:
-#   cnb build start-build --repo zdzso/ironforge --branch <branch> --event api_trigger
+#   cnb build start-build --repo lengyuqu/ironforge --branch <branch> --event api_trigger
 # or from the repository page (custom button / web_trigger).
 main:
   push:

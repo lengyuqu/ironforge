@@ -10,7 +10,7 @@
 | Project | IronForge（Rust Git 托管平台，workspace 多 crate） |
 | Goal | 按 issue 清单并行推进 agent 友好化路线图（T/R 系列）与高危缺陷修复 |
 | Human coordinator | 余曲（别问 / cnb.biewen） |
-| Remote | `cnb`（`https://cnb.cool/zdzso/ironforge.git`）—— **唯一推送目标** |
+| Remote | `cnb`（`https://cnb.cool/lengyuqu/ironforge.git`）—— **唯一推送目标** |
 | Base branch | `main` |
 | Baseline SHA | `0523bb2` |
 
