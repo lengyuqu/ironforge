@@ -26,9 +26,11 @@ use rg_db::ops::{
 };
 
 use crate::error::{CoreError, CoreResult};
-use crate::import::cnb_client::{parse_cnb_url, CnbClient, CnbComment, CnbIssue, CnbUser};
+use crate::import::cnb_client::{
+    parse_cnb_url, CnbClient, CnbComment, CnbIssue, CnbPull, CnbPullRef, CnbUser,
+};
 use crate::import::github_client::{
-    GitHubClient, GitHubComment, GitHubIssue, GitHubLabel, GitHubMilestone, GitHubPR,
+    GitHubClient, GitHubComment, GitHubIssue, GitHubLabel, GitHubMilestone, GitHubPR, GitHubRef,
     GitHubRelease, GitHubReview, GitHubUser,
 };
 use crate::import::gitlab_client::{
@@ -1285,12 +1287,11 @@ async fn import_github_releases(
 /// same code that the Gitea and GitHub paths use — there is one place where a
 /// migration can get those wrong, not three.
 ///
-/// **Pull requests are not imported**: the CNB repository available to test
-/// against had none, so the field names are unknown. Writing a converter from
-/// guesswork would produce pull requests that look imported and are wrong,
-/// which is the failure mode this module has already been bitten by twice.
-/// `pulls` is a separate change once there is a live sample to write it
-/// against.
+/// CNB pulls carry merge state outside `state` (`state: closed` plus
+/// `is_merged`), call a draft "wip", and send full refs — all translated in
+/// [`cnb_pull_to_github`]. Reviews are not imported: CNB exposes a
+/// `review_count` but has no review-list endpoint, so a review would be a
+/// guess.
 async fn run_cnb_import(
     db: &DatabaseConnection,
     task: &ImportTask,
@@ -1400,9 +1401,46 @@ async fn run_cnb_import(
         }
     }
 
-    // Pull requests are deliberately not fetched; see the function comment.
+    // Step 3: pull requests
     if task.import_pull_requests {
-        tracing::info!("CNB: pull request import is not implemented; skipping");
+        update_stage(db, task.id, "importing", 82, "Fetching pull requests...").await?;
+        let pulls = client.list_pulls(&source).await?;
+        let total = pulls.len();
+        for (index, pull) in pulls.iter().enumerate() {
+            update_stage(
+                db,
+                task.id,
+                "importing",
+                (82 + ((index + 1) * 15 / total.max(1)) as i32).min(97),
+                &format!("Importing PRs ({}/{})", index + 1, total),
+            )
+            .await?;
+
+            let comments = client
+                .list_pull_comments(&source, &pull.number)
+                .await
+                .unwrap_or_default();
+            let converted_comments: Vec<GitHubComment> =
+                comments.iter().map(cnb_comment_to_github).collect();
+            let converted = cnb_pull_to_github(pull);
+            let empty_user_map = HashMap::new();
+            let empty_milestone_map = HashMap::new();
+            if let Err(error) = import_github_pr(
+                db,
+                repo_id,
+                &converted,
+                &converted_comments,
+                &[],
+                &empty_user_map,
+                &empty_milestone_map,
+            )
+            .await
+            {
+                tracing::warn!(number = %pull.number, %error, "CNB: failed to import pull request");
+            } else {
+                stats.prs_imported += 1;
+            }
+        }
     }
 
     Ok(())
@@ -1447,6 +1485,58 @@ fn cnb_issue_to_github(issue: &CnbIssue) -> GitHubIssue {
         // CNB sends an empty string for an open issue's closed_at.
         closed_at: (!issue.closed_at.is_empty()).then(|| issue.closed_at.clone()),
         pull_request: None,
+    }
+}
+
+/// Map a CNB pull request onto the shared shape.
+///
+/// CNB keeps merging out of `state` (`state: closed` + `is_merged: true`), calls
+/// a draft "wip", and sends full refs. Each of those is translated here so the
+/// shared importer sees what it expects.
+fn cnb_pull_to_github(pull: &CnbPull) -> GitHubPR {
+    GitHubPR {
+        number: pull.number_as_i64(),
+        title: pull.title.clone(),
+        body: pull.body.clone().filter(|body| !body.is_empty()),
+        state: pull.state.clone(),
+        merged: Some(pull.is_merged),
+        merged_at: None,
+        draft: pull.is_wip,
+        user: cnb_user(pull.author.as_ref()),
+        head: cnb_ref(pull.head.as_ref()),
+        base: cnb_ref(pull.base.as_ref()),
+        labels: pull
+            .label_names()
+            .into_iter()
+            .map(|name| GitHubLabel {
+                id: 0,
+                name,
+                color: "ededed".to_string(),
+                description: None,
+            })
+            .collect(),
+        milestone: None,
+        created_at: pull.created_at.clone(),
+        updated_at: pull.updated_at.clone(),
+        closed_at: (!pull.closed_at.is_empty()).then(|| pull.closed_at.clone()),
+    }
+}
+
+/// CNB sends `refs/heads/main`; the importer stores and displays short names.
+fn cnb_ref(reference: Option<&CnbPullRef>) -> GitHubRef {
+    let empty = CnbPullRef {
+        r#ref: String::new(),
+        sha: String::new(),
+    };
+    let reference = reference.unwrap_or(&empty);
+    GitHubRef {
+        ref_name: reference
+            .r#ref
+            .trim_start_matches("refs/heads/")
+            .to_string(),
+        sha: reference.sha.clone(),
+        label: None,
+        repo: None,
     }
 }
 
