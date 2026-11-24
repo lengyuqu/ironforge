@@ -39,6 +39,11 @@ while true; do
     "$@"
   fi
   status=$?
+  # Success leaves immediately. Without this the loop falls through to the
+  # "failed after N attempts" branch even when the command worked, and GitHub
+  # reads the `::error::` annotation as a job failure — which is exactly what
+  # happened to a Clippy job whose apt step had succeeded.
+  [ "$status" -eq 0 ] && exit 0
   if [ "$n" -ge "$attempts" ]; then
     echo "::error::'$*' failed after ${n} attempts (last exit status ${status})" >&2
     exit "$status"
