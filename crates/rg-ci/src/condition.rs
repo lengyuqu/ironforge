@@ -294,7 +294,12 @@ impl<'a, F: Fn(&str) -> Option<String>> Parser<'a, F> {
     fn parse_function(&mut self, name: &str) -> Result<Value> {
         self.take();
         let lower = name.to_ascii_lowercase();
-        if lower == "success" {
+        // Both resolve to "run" here: this evaluator runs when the pipeline is
+        // created, where nothing has failed yet. `always()` differs from
+        // `success()` not here but in the scheduling rules — a job that asks
+        // for `always()` is allowed to start after a failed stage, which is
+        // what makes cleanup and notification jobs possible.
+        if matches!(lower.as_str(), "success" | "always") {
             if self.take() != Token::RParen {
                 bail!("{name}() does not accept arguments");
             }
@@ -367,6 +372,22 @@ mod tests {
         .unwrap());
     }
 
+    /// `always()` is accepted and evaluates to "run": at creation time nothing
+    /// has failed, and the difference from `success()` lives in the scheduling
+    /// rules, not here.
+    #[test]
+    fn always_is_accepted_and_means_run() {
+        assert!(validate_condition("always()").is_ok());
+        assert!(evaluate_condition("always()", &HashMap::new()).unwrap());
+        // Combined with a real context entry, as the pipeline provides it.
+        let context = HashMap::from([("github.ref".to_string(), "refs/heads/main".to_string())]);
+        assert!(evaluate_condition("always() && github.ref != ''", &context).unwrap());
+        // Still not a general escape hatch: the other runtime functions are
+        // refused until their scheduling semantics exist.
+        assert!(validate_condition("cancelled()").is_err());
+        assert!(validate_condition("always").is_err());
+    }
+
     /// Shape-checked, not prefix-checked: `steps.pack` is not a context this
     /// engine provides, and treating a typo as "empty" would hide the mistake.
     #[test]
@@ -380,7 +401,6 @@ mod tests {
     fn rejects_unknown_context_functions_and_syntax() {
         assert!(validate_condition("secrets.TOKEN == 'x'").is_err());
         assert!(validate_condition("hashFiles('**')").is_err());
-        assert!(validate_condition("always()").is_err());
         assert!(validate_condition("failure()").is_err());
         assert!(validate_condition("github.ref ==").is_err());
     }
