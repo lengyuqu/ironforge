@@ -143,9 +143,26 @@ pub async fn run_import(
     let auth = resolve_source_auth(db, task, enc_key).await?;
 
     match task.platform.as_str() {
-        "github" => run_github_import(db, task, repo_root, auth.as_ref(), &mut stats).await?,
+        "github" => run_github_import(db, task, repo_root, auth.as_ref(), &mut stats, None).await?,
         "gitlab" => run_gitlab_import(db, task, repo_root, auth.as_ref(), &mut stats).await?,
-        "gitea" | "git" => run_git_import(db, task, repo_root, auth.as_ref(), &mut stats).await?,
+        // Gitea's API deliberately mirrors GitHub's paths
+        // (`/repos/{owner}/{repo}/issues`, `/labels`, ...), so the GitHub client
+        // does the work once it is pointed at `<host>/api/v1`. Falling back to a
+        // plain git clone threw away issues, labels, milestones and releases
+        // that the source was perfectly willing to hand over.
+        "gitea" => {
+            let api_base = gitea_api_base(&task.source_url)?;
+            run_github_import(
+                db,
+                task,
+                repo_root,
+                auth.as_ref(),
+                &mut stats,
+                Some(api_base),
+            )
+            .await?
+        }
+        "git" => run_git_import(db, task, repo_root, auth.as_ref(), &mut stats).await?,
         other => {
             return Err(CoreError::invalid_input(format!("unsupported platform: {other}")).into())
         }
@@ -204,9 +221,10 @@ async fn run_github_import(
     repo_root: &Path,
     auth: Option<&SourceAuth>,
     stats: &mut ImportStats,
+    api_base: Option<String>,
 ) -> Result<()> {
     let token = auth.map(|auth| auth.token.as_str()).unwrap_or("");
-    let client = GitHubClient::new(token.to_string(), None);
+    let client = GitHubClient::new(token.to_string(), api_base);
 
     // Parse owner/repo from source URL (https://github.com/owner/repo)
     let (gh_owner, gh_repo) = parse_github_url(&task.source_url)?;
@@ -680,6 +698,23 @@ fn parse_github_url(url: &str) -> Result<(String, String)> {
     let repo = parts[parts.len() - 1].to_string();
     let owner = parts[parts.len() - 2].to_string();
     Ok((owner, repo))
+}
+
+/// Gitea serves its API on a path of the same host as the web UI.
+///
+/// Derived from the repository URL rather than asked for separately: the URL is
+/// what the user pastes, and asking for the API base as well would be a second
+/// chance to get it wrong.
+fn gitea_api_base(source_url: &str) -> Result<String> {
+    let url = source_url.trim_end_matches('/');
+    let (scheme, rest) = url
+        .split_once("://")
+        .ok_or_else(|| CoreError::invalid_input(format!("invalid Gitea URL: {url}")))?;
+    let host = rest.split('/').next().unwrap_or("");
+    if host.is_empty() {
+        return Err(CoreError::invalid_input(format!("invalid Gitea URL: {url}")).into());
+    }
+    Ok(format!("{scheme}://{host}/api/v1"))
 }
 
 fn parse_gitlab_url(url: &str) -> Result<String> {
@@ -1521,7 +1556,8 @@ pub async fn start_import(
     enc_key: &[u8; 32],
 ) -> CoreResult<ImportTask> {
     let now = Utc::now();
-    let supports_metadata = matches!(platform.as_str(), "github" | "gitlab");
+    // Gitea goes through the GitHub importer, so it supports metadata too.
+    let supports_metadata = matches!(platform.as_str(), "github" | "gitlab" | "gitea");
     // The column has always been called `auth_token_encrypted`; until now the
     // caller's string went straight in.
     let auth_token = match auth_token {
@@ -1605,6 +1641,55 @@ fn user_visible_failure(error: &anyhow::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The API base comes from the repository URL the user pasted. Ports and
+    /// nested paths must survive: self-hosted Gitea is often on one or both.
+    #[test]
+    fn gitea_api_base_is_derived_from_the_repository_url() {
+        assert_eq!(
+            gitea_api_base("https://gitea.example.com/alice/project").unwrap(),
+            "https://gitea.example.com/api/v1"
+        );
+        assert_eq!(
+            gitea_api_base("https://git.example.com:3000/alice/project/").unwrap(),
+            "https://git.example.com:3000/api/v1"
+        );
+        assert_eq!(
+            gitea_api_base("http://localhost:8080/alice/project.git").unwrap(),
+            "http://localhost:8080/api/v1"
+        );
+        assert!(gitea_api_base("not-a-url").is_err());
+    }
+
+    /// Gitea answers with the GitHub-shaped payload. If this stops parsing, the
+    /// import silently loses issues — so the shape is pinned here rather than
+    /// discovered per migration.
+    #[test]
+    fn a_gitea_issue_payload_parses_with_the_github_client_types() {
+        let payload = r#"{
+            "id": 12,
+            "number": 3,
+            "title": "Something broke",
+            "body": "steps to reproduce",
+            "state": "closed",
+            "labels": [{"id": 1, "name": "bug", "color": "e11d21", "description": null}],
+            "milestone": null,
+            "user": {"id": 7, "login": "alice", "avatar_url": "https://example/avatar.png"},
+            "assignees": [],
+            "comments": 4,
+            "created_at": "2026-01-02T03:04:05Z",
+            "updated_at": "2026-01-03T03:04:05Z",
+            "closed_at": "2026-01-03T03:04:05Z"
+        }"#;
+        let issue: crate::import::github_client::GitHubIssue =
+            serde_json::from_str(payload).expect("Gitea payload must parse");
+        assert_eq!(issue.number, 3);
+        assert_eq!(issue.state, "closed");
+        assert_eq!(issue.labels.len(), 1);
+        assert_eq!(issue.labels[0].name, "bug");
+        assert_eq!(issue.user.as_ref().map(|u| u.login.as_str()), Some("alice"));
+        assert!(issue.pull_request.is_none());
+    }
 
     /// The exact header gix sends. These platforms compare
     /// `base64(user:token)` literally, so the bytes matter.
