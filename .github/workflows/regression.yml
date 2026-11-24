@@ -144,6 +144,10 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install system dependencies
+        # Belt and braces: the script bounds each attempt at 5 minutes, this
+        # bounds the step. A step that hangs cannot save a cache, so it must
+        # fail fast enough for the next attempt to start warm.
+        timeout-minutes: 10
         run: scripts/ci-apt-install.sh pkg-config libssl-dev libsqlite3-dev git
 
       # The action downloads from static.rust-lang.org, which the git233 runners
@@ -185,6 +189,10 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install system dependencies
+        # Belt and braces: the script bounds each attempt at 5 minutes, this
+        # bounds the step. A step that hangs cannot save a cache, so it must
+        # fail fast enough for the next attempt to start warm.
+        timeout-minutes: 10
         run: scripts/ci-apt-install.sh pkg-config libssl-dev libsqlite3-dev git
 
       - name: Install Rust
@@ -283,6 +291,10 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install system dependencies
+        # Belt and braces: the script bounds each attempt at 5 minutes, this
+        # bounds the step. A step that hangs cannot save a cache, so it must
+        # fail fast enough for the next attempt to start warm.
+        timeout-minutes: 10
         run: scripts/ci-apt-install.sh pkg-config libssl-dev libsqlite3-dev git openssh-client curl python3
 
       - name: Install Rust
