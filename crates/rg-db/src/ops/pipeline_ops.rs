@@ -839,9 +839,11 @@ async fn skip_downstream_stages<C: ConnectionTrait>(db: &C, failed_stage_id: i64
             continue;
         }
         for job in jobs {
-            if condition_wants_always_run(job.if_condition.as_deref()) {
-                // It asked to run whatever happens upstream; it will be picked
-                // up once this stage settles.
+            // `always()` runs regardless; `failure()` is exactly what this
+            // failure just enabled. Both stay pending — the scheduler decides.
+            if condition_wants_always_run(job.if_condition.as_deref())
+                || condition_wants_failure(job.if_condition.as_deref())
+            {
                 continue;
             }
             if !is_terminal_job_status(job.status.as_str()) {
@@ -881,10 +883,46 @@ async fn check_pipeline_stages_on<C: ConnectionTrait>(
 }
 
 /// After a stage finishes, update pipeline status if all stages are done.
+/// Settle `failure()` jobs that will never get a failure to react to.
+///
+/// They start pending so they *can* run after a failed stage. When every
+/// earlier stage has finished successfully, nothing will fail for them and
+/// leaving them pending would keep the pipeline from ever completing.
+async fn settle_unsatisfied_failure_jobs_on<C: ConnectionTrait>(
+    db: &C,
+    pipeline_id: i64,
+) -> Result<()> {
+    let stages = list_stages_by_pipeline_on(db, pipeline_id).await?;
+    let now = Some(chrono::Utc::now().naive_utc());
+    for stage in &stages {
+        let earlier: Vec<_> = stages
+            .iter()
+            .filter(|candidate| candidate.stage_order < stage.stage_order)
+            .collect();
+        if earlier.is_empty()
+            || !earlier
+                .iter()
+                .all(|candidate| is_terminal_job_status(&candidate.status))
+            || earlier.iter().any(|candidate| {
+                matches!(candidate.status.as_str(), "failure" | "failed" | "error")
+            })
+        {
+            continue;
+        }
+        for job in list_jobs_by_stage_on(db, stage.id).await? {
+            if job.status == "pending" && condition_wants_failure(job.if_condition.as_deref()) {
+                update_job_result_on(db, job.id, "skipped", None, None, None, now).await?;
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn try_update_pipeline_on<C: ConnectionTrait>(
     db: &C,
     pipeline_id: i64,
 ) -> Result<Option<String>> {
+    settle_unsatisfied_failure_jobs_on(db, pipeline_id).await?;
     let (all_done, any_failure) = check_pipeline_stages_on(db, pipeline_id).await?;
     if !all_done {
         return Ok(None);
@@ -967,16 +1005,34 @@ pub async fn find_pending_job_matching_labels<C: ConnectionTrait>(
 /// non-identifier character, so an output or variable that merely contains the
 /// word does not count.
 fn condition_wants_always_run(condition: Option<&str>) -> bool {
+    condition_mentions_function(condition, "always")
+}
+
+/// Does the job's condition call `failure()`?
+///
+/// A `failure()` job is the mirror image of an `always()` one: it starts
+/// pending *because* it may need to run after a failed stage, and is settled to
+/// `skipped` when the earlier stages all succeeded.
+fn condition_wants_failure(condition: Option<&str>) -> bool {
+    condition_mentions_function(condition, "failure")
+}
+
+/// Scan for `<name>(` with `name` not being part of a longer identifier.
+///
+/// A scan rather than a parse: this crate cannot depend on the CI engine, and
+/// only grammar that engine accepts is ever stored here. The boundary checks
+/// are what stop `my_always()` or a string argument from counting.
+fn condition_mentions_function(condition: Option<&str>, name: &str) -> bool {
     let Some(condition) = condition else {
         return false;
     };
     let mut rest = condition;
-    while let Some(position) = rest.find("always") {
+    while let Some(position) = rest.find(name) {
         let before_ok = rest[..position]
             .chars()
             .last()
             .is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '_');
-        let after = &rest[position + "always".len()..];
+        let after = &rest[position + name.len()..];
         if before_ok && after.trim_start().starts_with('(') {
             return true;
         }
@@ -1014,13 +1070,27 @@ async fn job_is_schedulable<C: ConnectionTrait>(db: &C, job: &pipeline_job::Mode
     // *finished*, successful or not. It still waits: "always" means "despite a
     // failure", not "before the thing it depends on has run".
     let wants_always = condition_wants_always_run(job.if_condition.as_deref());
-    Ok(stages
+    let wants_failure = condition_wants_failure(job.if_condition.as_deref());
+    let earlier: Vec<_> = stages
         .iter()
         .filter(|candidate| candidate.stage_order < stage.stage_order)
-        .all(|candidate| {
-            candidate.status == "success"
-                || (wants_always && is_terminal_job_status(&candidate.status))
-        }))
+        .collect();
+    // `failure()` is the mirror of `always()`: it must see a finished earlier
+    // stage, and at least one of them has to have failed. If none failed it is
+    // settled to `skipped` by `settle_unsatisfied_failure_jobs_on` instead of
+    // waiting forever.
+    if wants_failure {
+        let all_settled = earlier
+            .iter()
+            .all(|candidate| is_terminal_job_status(&candidate.status));
+        let any_failed = earlier
+            .iter()
+            .any(|candidate| matches!(candidate.status.as_str(), "failure" | "failed" | "error"));
+        return Ok(all_settled && any_failed);
+    }
+    Ok(earlier.iter().all(|candidate| {
+        candidate.status == "success" || (wants_always && is_terminal_job_status(&candidate.status))
+    }))
 }
 
 /// Find stuck jobs: "assigned"/"running" but not updated within timeout.
@@ -1558,7 +1628,7 @@ pub async fn mark_job_timeout<C: ConnectionTrait>(db: &C, job_id: i64) -> Result
 
 #[cfg(test)]
 mod scheduling_tests {
-    use super::{condition_wants_always_run, is_terminal_job_status};
+    use super::{condition_wants_always_run, condition_wants_failure, is_terminal_job_status};
 
     /// The scan must find the function call and nothing that merely looks like
     /// one — a false positive would let a job jump ahead of a failed stage.
@@ -1581,6 +1651,21 @@ mod scheduling_tests {
         assert!(!condition_wants_always_run(Some("env.always == 'x'")));
         assert!(!condition_wants_always_run(Some("success()")));
         assert!(!condition_wants_always_run(None));
+    }
+
+    /// The mirror of `always()`: same boundary rules, different function.
+    #[test]
+    fn failure_is_detected_only_as_a_function_call() {
+        assert!(condition_wants_failure(Some("failure()")));
+        assert!(condition_wants_failure(Some("${{ failure() }}")));
+        assert!(condition_wants_failure(Some("success() || failure()")));
+
+        assert!(!condition_wants_failure(Some("my_failure()")));
+        assert!(!condition_wants_failure(Some(
+            "contains(env.NOTE, 'failure')"
+        )));
+        assert!(!condition_wants_failure(Some("always()")));
+        assert!(!condition_wants_failure(None));
     }
 
     #[test]
