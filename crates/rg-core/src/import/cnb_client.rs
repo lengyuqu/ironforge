@@ -118,12 +118,33 @@ pub struct CnbComment {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+pub struct CnbPullRef {
+    /// A full ref (`refs/heads/main`), unlike GitHub's short branch name.
+    #[serde(default)]
+    pub r#ref: String,
+    #[serde(default)]
+    pub sha: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct CnbPull {
     pub number: String,
     pub title: String,
     #[serde(default)]
     pub body: Option<String>,
     pub state: String,
+    /// CNB reports merging separately; `state` stays `closed`.
+    #[serde(default)]
+    pub is_merged: bool,
+    /// CNB calls a draft a "wip".
+    #[serde(default)]
+    pub is_wip: bool,
+    #[serde(default)]
+    pub head: Option<CnbPullRef>,
+    #[serde(default)]
+    pub base: Option<CnbPullRef>,
+    #[serde(default)]
+    pub labels: Vec<serde_json::Value>,
     #[serde(default)]
     pub author: Option<CnbUser>,
     #[serde(default)]
@@ -138,6 +159,25 @@ impl CnbPull {
     pub fn number_as_i64(&self) -> i64 {
         self.number.trim().parse().unwrap_or(0)
     }
+
+    pub fn label_names(&self) -> Vec<String> {
+        label_names_from(&self.labels)
+    }
+}
+
+/// Accept both `{"name": "bug"}` and `"bug"`; a client that only handles one
+/// shape drops every label silently.
+fn label_names_from(labels: &[serde_json::Value]) -> Vec<String> {
+    labels
+        .iter()
+        .filter_map(|value| match value {
+            serde_json::Value::String(name) => Some(name.clone()),
+            serde_json::Value::Object(map) => {
+                map.get("name").and_then(|v| v.as_str()).map(str::to_string)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 pub struct CnbClient {
@@ -231,8 +271,10 @@ impl CnbClient {
         Ok(all)
     }
 
+    /// Every issue, whatever its state (same default-open trap as pulls).
     pub async fn list_issues(&self, repo: &CnbRepo) -> Result<Vec<CnbIssue>> {
-        self.paginate(&format!("/{}/-/issues", repo.path())).await
+        self.paginate(&format!("/{}/-/issues?state=all", repo.path()))
+            .await
     }
 
     /// Fetch one issue, which is where its `body` lives.
@@ -250,8 +292,16 @@ impl CnbClient {
             .await
     }
 
+    /// Every pull request, whatever its state.
+    ///
+    /// CNB's default is **open only**, and a merged pull is `closed` — so a
+    /// repository whose pull requests are all merged reports **zero** without
+    /// `state=all`. The same trap exists on this project's own API; here it was
+    /// found by asking the live endpoint for a count and getting 0 while the
+    /// web UI showed 34.
     pub async fn list_pulls(&self, repo: &CnbRepo) -> Result<Vec<CnbPull>> {
-        self.paginate(&format!("/{}/-/pulls", repo.path())).await
+        self.paginate(&format!("/{}/-/pulls?state=all", repo.path()))
+            .await
     }
 
     pub async fn list_pull_comments(
