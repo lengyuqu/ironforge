@@ -38,6 +38,24 @@ enum Token {
     End,
 }
 
+/// Does the condition call `<name>(`?
+///
+/// Token-based rather than a substring scan: `contains(env.NOTE, 'failure')`
+/// mentions the word inside a string literal, and treating that as a call would
+/// change how the job is scheduled.
+pub fn mentions_function(input: &str, name: &str) -> bool {
+    let Ok(expression) = unwrap_expression(input) else {
+        return false;
+    };
+    let Ok(tokens) = tokenize(expression) else {
+        return false;
+    };
+    tokens.windows(2).any(|pair| {
+        matches!(&pair[0], Token::Ident(identifier) if identifier.eq_ignore_ascii_case(name))
+            && pair[1] == Token::LParen
+    })
+}
+
 pub fn validate_condition(input: &str) -> Result<()> {
     evaluate_with(input, |name| {
         if matches!(
@@ -305,6 +323,16 @@ impl<'a, F: Fn(&str) -> Option<String>> Parser<'a, F> {
             }
             return Ok(Value::Bool(true));
         }
+        if lower == "failure" {
+            if self.take() != Token::RParen {
+                bail!("{name}() does not accept arguments");
+            }
+            // False here because this evaluation happens when the pipeline is
+            // created, where nothing has failed yet. The job is **not** skipped
+            // on that basis: the scheduler keeps a `failure()` job pending and
+            // decides once the earlier stages have settled.
+            return Ok(Value::Bool(false));
+        }
         if !matches!(lower.as_str(), "startswith" | "endswith" | "contains") {
             bail!("unsupported condition function '{name}'");
         }
@@ -388,6 +416,40 @@ mod tests {
         assert!(validate_condition("always").is_err());
     }
 
+    /// `failure()` is valid and evaluates to false at creation time — nothing
+    /// has failed yet. The job is kept pending by the scheduler, not skipped.
+    #[test]
+    fn failure_is_accepted_and_false_at_creation() {
+        assert!(validate_condition("failure()").is_ok());
+        assert!(!evaluate_condition("failure()", &HashMap::new()).unwrap());
+        let context = HashMap::from([("github.ref".to_string(), "refs/heads/main".to_string())]);
+        assert!(!evaluate_condition("failure() && github.ref != ''", &context).unwrap());
+        // `cancelled()` still has no meaning in this engine: cancelling stops
+        // everything, so there is no moment in which such a job could start.
+        assert!(validate_condition("cancelled()").is_err());
+    }
+
+    /// The scan behind the scheduling decision must not be fooled by a string
+    /// literal or a longer identifier.
+    #[test]
+    fn mentions_function_looks_at_calls_not_words() {
+        assert!(mentions_function("failure()", "failure"));
+        assert!(mentions_function("${{ failure() }}", "failure"));
+        assert!(mentions_function("success() || failure()", "failure"));
+        assert!(
+            mentions_function("Failure()", "failure"),
+            "case-insensitive"
+        );
+
+        assert!(!mentions_function(
+            "contains(env.NOTE, 'failure')",
+            "failure"
+        ));
+        assert!(!mentions_function("env.failure == 'x'", "failure"));
+        assert!(!mentions_function("failure_status()", "failure"));
+        assert!(!mentions_function("success()", "failure"));
+    }
+
     /// Shape-checked, not prefix-checked: `steps.pack` is not a context this
     /// engine provides, and treating a typo as "empty" would hide the mistake.
     #[test]
@@ -401,7 +463,6 @@ mod tests {
     fn rejects_unknown_context_functions_and_syntax() {
         assert!(validate_condition("secrets.TOKEN == 'x'").is_err());
         assert!(validate_condition("hashFiles('**')").is_err());
-        assert!(validate_condition("failure()").is_err());
         assert!(validate_condition("github.ref ==").is_err());
     }
 }

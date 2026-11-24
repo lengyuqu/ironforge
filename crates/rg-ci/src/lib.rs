@@ -282,7 +282,14 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
             } else {
                 true
             };
-            if !should_run {
+            // A `failure()` job evaluates to false at creation time by
+            // definition; skipping it here would make it unreachable. The
+            // scheduler keeps it pending and settles it later.
+            let wants_failure = job_config
+                .condition
+                .as_deref()
+                .is_some_and(|condition| condition::mentions_function(condition, "failure"));
+            if !should_run && !wants_failure {
                 let now = chrono::Utc::now().naive_utc();
                 rg_db::ops::pipeline_ops::update_job_result(
                     db,
