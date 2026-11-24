@@ -61,7 +61,7 @@ fn default_true() -> bool {
 
 /// POST /api/v1/imports
 ///
-/// Start a new import from GitHub, GitLab, Gitea, or a generic Git remote.
+/// Start a new import from GitHub, GitLab, Gitea, CNB, or a generic Git remote.
 #[utoipa::path(
     post,
     path = "/imports",
@@ -90,10 +90,12 @@ pub async fn start_import(
     // Validate platform
     if !matches!(
         body.platform.as_str(),
-        "github" | "gitlab" | "gitea" | "git"
+        "github" | "gitlab" | "gitea" | "cnb" | "git"
     ) {
-        return AppError::bad_request("platform must be 'github', 'gitlab', 'gitea', or 'git'")
-            .into_response();
+        return AppError::bad_request(
+            "platform must be 'github', 'gitlab', 'gitea', 'cnb', or 'git'",
+        )
+        .into_response();
     }
 
     // Resolve target name
