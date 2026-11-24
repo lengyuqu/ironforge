@@ -19,9 +19,9 @@
 查询与判据：
 
 ```bash
-cnb issues list-issues --repo zdzso/ironforge --state open --page-size 30
+cnb issues list-issues --repo lengyuqu/ironforge --state open --page-size 30
 # 分组：标题含 [opt-round] → BATCH；其余 → MANUAL
-cnb issues list-issue-comments --repo zdzso/ironforge --number <N> --sort "-created" --page-size 1
+cnb issues list-issue-comments --repo lengyuqu/ironforge --number <N> --sort "-created" --page-size 1
 # 最新评论首行是 `## 本轮收尾` 且没有更新的人工/NPC 回复 → 跳过（防重复消费）
 ```
 
@@ -34,7 +34,7 @@ cnb issues list-issue-comments --repo zdzso/ironforge --number <N> --sort "-crea
 5. 本机做不了的靶子（Windows 实机、真实崩溃注入、需外部服务的）→ 跳过，并在结束语写明原因；
 6. **每条 issue 每小时最多一轮**，一条做完就进第二段，不连清两条。
 
-> **插队与豁免**（2026-11-11 20:55 补）：想让自己的 issue 先被清，设 `priority: P0`（`cnb issues update-issue --repo zdzso/ironforge --number <N> --priority P0`）；当前 `#13` 是 P1，其余 `#14–#19` 无 priority，所以默认顺序是 `#13 → #14 → … → #19`。不想被自动消费，标题加 `[hold]`，或在正文首行写「仅讨论，勿改动」并由人工在下一轮前加 `[hold]`。
+> **插队与豁免**（2026-11-11 20:55 补）：想让自己的 issue 先被清，设 `priority: P0`（`cnb issues update-issue --repo lengyuqu/ironforge --number <N> --priority P0`）；当前 `#13` 是 P1，其余 `#14–#19` 无 priority，所以默认顺序是 `#13 → #14 → … → #19`。不想被自动消费，标题加 `[hold]`，或在正文首行写「仅讨论，勿改动」并由人工在下一轮前加 `[hold]`。
 
 ## 3. 没有 NPC 分析时（`comment_count = 0`）
 
