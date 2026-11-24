@@ -632,6 +632,18 @@ fn source_open_options(auth: Option<&SourceAuth>, source_url: &str) -> gix::open
 /// `auth` reaches the remote as an `http.extraHeader` config override, never in
 /// the URL — the URL is persisted as `remote.origin.url` in the new repository's
 /// config, where a token would remain readable.
+/// Does this bare repository contain at least one ref?
+///
+/// Written against the filesystem because the question is asked about a
+/// directory that may be a freshly created empty shell: opening it as a
+/// repository succeeds either way, so it answers nothing.
+fn repository_has_refs(target_dir: &Path) -> bool {
+    std::fs::read_dir(target_dir.join("refs").join("heads"))
+        .map(|mut entries| entries.next().is_some())
+        .unwrap_or(false)
+        || target_dir.join("packed-refs").exists()
+}
+
 fn clone_repo(
     source_url: &str,
     repo_root: &Path,
@@ -640,7 +652,11 @@ fn clone_repo(
     auth: Option<&SourceAuth>,
 ) -> Result<()> {
     let target_dir = repo_root.join(format!("{}/{}.git", owner, name));
-    if target_dir.join("HEAD").exists() {
+    // "Has a HEAD file" is not the same as "has been cloned": creating the
+    // target repository writes HEAD before anything is fetched, so using its
+    // presence to skip the clone meant a second attempt never fetched at all —
+    // and the first attempt reported success with an empty repository.
+    if repository_has_refs(&target_dir) {
         tracing::info!(
             path = %target_dir.display(),
             "Repository already exists, skipping clone"
@@ -677,6 +693,22 @@ fn clone_repo(
         tracing::warn!(error = %format!("{error:#}"), "import: bare clone failed");
         return Err(CoreError::invalid_input(
             "failed to clone the source repository; check that the URL is reachable and any credentials are valid",
+        )
+        .into());
+    }
+
+    // A fetch that reached nothing still leaves a valid *empty* bare repository,
+    // so `fetch_only` returning Ok proves nothing. A private source without
+    // credentials answers "Repository Not Found", which lands here as an empty
+    // success — the task would report `repo_cloned: true` and the target would
+    // have no commits. That is the one failure shape a migration must never
+    // have, so the result is checked rather than assumed.
+    if !repository_has_refs(&target_dir) {
+        // Leave nothing behind: an empty repository would make the next attempt
+        // take the "already exists" branch above and skip the clone entirely.
+        let _ = std::fs::remove_dir_all(&target_dir);
+        return Err(CoreError::invalid_input(
+            "the source repository answered but contained no commits; check the URL and that the credentials can read it",
         )
         .into());
     }
@@ -1816,6 +1848,20 @@ mod tests {
     /// a bare repository that Git itself accepts, with the source branches and
     /// tags intact.
     #[test]
+    /// The target directory is created before anything is fetched, so a bare
+    /// repository that exists proves nothing. Asking about refs is what stops a
+    /// failed clone from being reported as a successful, empty migration.
+    #[test]
+    fn a_bare_repository_without_refs_is_not_a_finished_clone() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("never-created");
+        assert!(!repository_has_refs(&missing));
+
+        let empty = temp.path().join("empty.git");
+        gix::init_bare(&empty).unwrap();
+        assert!(!repository_has_refs(&empty), "HEAD alone is not a clone");
+    }
+
     fn clone_repo_builds_a_bare_repository_git_can_read() {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("source");
