@@ -47,6 +47,7 @@ pub mod collab_work_packages;
 pub mod collaborators;
 pub mod deploy_keys;
 pub mod drafts;
+pub mod gitea_compat;
 pub mod imports;
 pub mod issues;
 pub mod labels;
