@@ -45,6 +45,12 @@ pub fn validate_condition(input: &str) -> Result<()> {
             "github.ref" | "github.ref_name" | "github.event_name" | "github.sha"
         ) || name.strip_prefix("env.").is_some_and(valid_context_key)
             || name.strip_prefix("matrix.").is_some_and(valid_context_key)
+            // `steps.<id>.outputs.<name>` and `needs.<job>.outputs.<name>` are
+            // accepted here even though this evaluator cannot resolve them
+            // yet: a workflow that *uses* the syntax is valid, and rejecting it
+            // outright made every such workflow fail to parse. The values
+            // resolve at runtime (or to empty, per GitHub's semantics).
+            || is_step_or_need_output(name)
         {
             Some(String::new())
         } else {
@@ -54,12 +60,43 @@ pub fn validate_condition(input: &str) -> Result<()> {
     .map(|_| ())
 }
 
+/// `steps.<id>.outputs.<name>` or `needs.<job>.outputs.<name>`.
+///
+/// Shape-checked rather than prefix-checked: `steps.anything` is not a context
+/// this engine will ever provide, and silently accepting a typo would turn a
+/// mistake into an always-empty value.
+fn is_step_or_need_output(name: &str) -> bool {
+    let Some(rest) = name
+        .strip_prefix("steps.")
+        .or_else(|| name.strip_prefix("needs."))
+    else {
+        return false;
+    };
+    let mut parts = rest.split('.');
+    let Some(handle) = parts.next() else {
+        return false;
+    };
+    if handle.is_empty() || !valid_context_key(handle) {
+        return false;
+    }
+    parts.next() == Some("outputs") && parts.next().is_some_and(valid_context_key)
+}
+
 pub fn evaluate_condition(input: &str, context: &HashMap<String, String>) -> Result<bool> {
     evaluate_with(input, |name| {
-        context
-            .get(name)
-            .cloned()
-            .or_else(|| (name.starts_with("env.") || name.starts_with("matrix.")).then(String::new))
+        context.get(name).cloned().or_else(|| {
+            if name.starts_with("env.") || name.starts_with("matrix.") {
+                return Some(String::new());
+            }
+            // GitHub's semantics: an output that does not exist is empty, not
+            // an error. `needs.x.outputs.y == ''` is therefore true when x has
+            // not produced y — which is what a workflow branching on an
+            // optional value expects.
+            if is_step_or_need_output(name) {
+                return Some(String::new());
+            }
+            None
+        })
     })
 }
 
@@ -304,6 +341,41 @@ mod tests {
         .unwrap());
         assert!(!evaluate_condition("contains(github.ref, 'tags') || false", &context).unwrap());
     }
+    /// A workflow that branches on an output is valid, and an output that does
+    /// not exist reads as empty — GitHub's semantics, and the reason this had
+    /// to stop being an error: rejecting the syntax made every such workflow
+    /// fail to parse at all.
+    #[test]
+    fn step_and_job_outputs_are_accepted_and_default_to_empty() {
+        assert!(validate_condition("needs.build.outputs.digest != ''").is_ok());
+        assert!(validate_condition("steps.pack.outputs.sha == 'abc'").is_ok());
+
+        let empty = HashMap::new();
+        assert!(!evaluate_condition("needs.build.outputs.digest != ''", &empty).unwrap());
+        assert!(evaluate_condition("needs.build.outputs.digest == ''", &empty).unwrap());
+
+        let mut context = HashMap::new();
+        context.insert(
+            "needs.build.outputs.digest".to_string(),
+            "sha256:abc".to_string(),
+        );
+        assert!(evaluate_condition("needs.build.outputs.digest != ''", &context).unwrap());
+        assert!(evaluate_condition(
+            "steps.pack.outputs.sha == 'abc'",
+            &HashMap::from([("steps.pack.outputs.sha".to_string(), "abc".to_string())])
+        )
+        .unwrap());
+    }
+
+    /// Shape-checked, not prefix-checked: `steps.pack` is not a context this
+    /// engine provides, and treating a typo as "empty" would hide the mistake.
+    #[test]
+    fn a_bare_step_or_need_reference_is_still_rejected() {
+        assert!(validate_condition("steps.pack == 'x'").is_err());
+        assert!(validate_condition("needs.build.outputs == 'x'").is_err());
+        assert!(validate_condition("needs.build.inputs.x == 'x'").is_err());
+    }
+
     #[test]
     fn rejects_unknown_context_functions_and_syntax() {
         assert!(validate_condition("secrets.TOKEN == 'x'").is_err());
