@@ -764,6 +764,88 @@ fn docker_unavailable_message(image: &str) -> String {
 mod tests {
     use super::*;
 
+    /// The server writes `.ironforge-outputs/step-<workflow-index>.outputs` and
+    /// the runner reads the same path back. Nothing else ties the two together,
+    /// so this is the test that catches an index or directory mismatch — the
+    /// failure would otherwise be "outputs are silently empty in production".
+    #[tokio::test]
+    async fn step_outputs_are_read_from_the_path_the_server_writes() {
+        let workspace = tempfile::tempdir().unwrap();
+        let outputs_dir = workspace.path().join(".ironforge-outputs");
+        tokio::fs::create_dir_all(&outputs_dir).await.unwrap();
+        // Index 1 is the second step in the workflow, which carries the id.
+        tokio::fs::write(
+            outputs_dir.join("step-1.outputs"),
+            "version=1.2.3\nnotes<<EOF\nfirst\nsecond\nEOF\n",
+        )
+        .await
+        .unwrap();
+
+        let steps = vec![
+            StepPayload {
+                id: None,
+                run: Some("echo nameless".into()),
+            },
+            StepPayload {
+                id: Some("pack".into()),
+                run: Some("tar czf app.tgz .".into()),
+            },
+            StepPayload {
+                id: Some("never_ran".into()),
+                run: Some("false".into()),
+            },
+        ];
+
+        let values = collect_step_outputs(workspace.path(), Some(&steps), 1).await;
+        assert_eq!(
+            values.get("pack.version").map(String::as_str),
+            Some("1.2.3"),
+            "outputs are namespaced by step id: {values:?}"
+        );
+        assert_eq!(
+            values.get("pack.notes").map(String::as_str),
+            Some("first\nsecond"),
+            "heredoc bodies keep their newlines: {values:?}"
+        );
+        // A step with no file (skipped, or without an id) contributes nothing,
+        // and that is not an error.
+        assert!(!values.keys().any(|key| key.starts_with("never_ran.")));
+    }
+
+    /// A job without declared steps collects nothing at all rather than
+    /// scanning a directory that may hold stale files from an earlier run.
+    #[tokio::test]
+    async fn a_job_without_steps_collects_nothing() {
+        let workspace = tempfile::tempdir().unwrap();
+        let outputs_dir = workspace.path().join(".ironforge-outputs");
+        tokio::fs::create_dir_all(&outputs_dir).await.unwrap();
+        tokio::fs::write(outputs_dir.join("step-0.outputs"), "leftover=1\n")
+            .await
+            .unwrap();
+
+        let values = collect_step_outputs(workspace.path(), None, 1).await;
+        assert!(values.is_empty(), "unexpected values: {values:?}");
+    }
+
+    /// A malformed file must not fail the job: the job already has a result, and
+    /// a typo in an output file is not a build failure.
+    #[tokio::test]
+    async fn a_malformed_output_file_is_ignored_not_fatal() {
+        let workspace = tempfile::tempdir().unwrap();
+        let outputs_dir = workspace.path().join(".ironforge-outputs");
+        tokio::fs::create_dir_all(&outputs_dir).await.unwrap();
+        tokio::fs::write(outputs_dir.join("step-0.outputs"), "no-equals-sign\n")
+            .await
+            .unwrap();
+
+        let steps = vec![StepPayload {
+            id: Some("bad".into()),
+            run: Some("true".into()),
+        }];
+        let values = collect_step_outputs(workspace.path(), Some(&steps), 1).await;
+        assert!(values.is_empty(), "unexpected values: {values:?}");
+    }
+
     #[test]
     fn docker_unavailable_message_is_fail_closed() {
         let msg = docker_unavailable_message("alpine:3.20");

@@ -184,3 +184,29 @@ A 已合并（#33），`$GITHUB_OUTPUT` 解析器已合并（#35）。B + B3→C
 - [ ] `if: failure()` 只在有失败时执行
 - [ ] 依赖 job 失败时，`needs.<job>.outputs.*` 求值为空而不是报错
 - [ ] 不含 outputs 的现有 workflow 行为逐字节不变
+
+## 验证记录
+
+### 2026-11-24：容器内相对路径 → 宿主可读（实测）
+
+本地 docker 29.9.3 + `alpine:3.21`：
+
+```sh
+docker run --rm -v "$WS:/workspace" -w /workspace alpine:3.21 sh -c \
+  'export GITHUB_OUTPUT=".ironforge-outputs/step-1.outputs"; mkdir -p .ironforge-outputs; \
+   printf "version=1.2.3\nnotes<<EOF\nfirst\nsecond\nEOF\n" > "$GITHUB_OUTPUT"'
+```
+
+宿主 `$WS/.ironforge-outputs/step-1.outputs` 内容完整（42 字节，heredoc 未被截断）。
+
+**结论**：workspace 挂载 + 相对路径成立，不需要 `docker cp`。这是 #37 里唯一靠推断而非实测的一环，现在有实测了。
+
+### 单测覆盖
+
+`rg-runner`：
+
+- `step_outputs_are_read_from_the_path_the_server_writes` —— 服务端写的 `step-<workflow-index>` 与 runner 读的索引一致，heredoc 保留换行，缺文件不报错
+- `a_job_without_steps_collects_nothing` —— 没有声明 step 的 job 不去扫目录（避免读到上一次运行的残留）
+- `a_malformed_output_file_is_ignored_not_fatal` —— 畸形输出文件不影响 job 结果
+
+`rg-ci`：`only_steps_with_ids_get_an_output_file` —— 无 id 的 step 不注入，索引取 workflow 位置。
