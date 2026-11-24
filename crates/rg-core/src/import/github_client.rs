@@ -51,6 +51,7 @@ pub struct GitHubIssue {
     pub labels: Vec<GitHubLabel>,
     pub milestone: Option<GitHubMilestone>,
     pub user: Option<GitHubUser>,
+    #[serde(default, deserialize_with = "vec_or_null")]
     pub assignees: Vec<GitHubUser>,
     pub comments: i64,
     pub created_at: String,
@@ -102,6 +103,11 @@ pub struct GitHubLabel {
 /// Milestone from GitHub API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitHubMilestone {
+    /// GitHub numbers milestones; Gitea does not. Nothing here reads it — the
+    /// import maps milestones by title — but a required field made every Gitea
+    /// milestone fail to deserialize, which took the whole migration down at
+    /// the milestone stage. Found by running one against a real Gitea 1.22.
+    #[serde(default)]
     pub number: i64,
     pub title: String,
     pub description: Option<String>,
@@ -121,7 +127,11 @@ pub struct GitHubRelease {
     pub body: Option<String>,
     pub prerelease: bool,
     pub draft: bool,
-    pub created_at: String,
+    /// Gitea sends `null` (and only has `published_at`); GitHub always sends a
+    /// string. Nothing reads it, so an absent value is not worth defaulting to
+    /// a fake timestamp.
+    #[serde(default)]
+    pub created_at: Option<String>,
     pub published_at: Option<String>,
     #[serde(default)]
     pub assets: Vec<GitHubAsset>,
@@ -380,4 +390,18 @@ fn extract_next_link(link_header: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Deserialize a list that the source may send as `null`.
+///
+/// Gitea sends `"assignees": null` where GitHub sends `[]`. A plain `Vec` field
+/// rejects null, and the rejection surfaces as "invalid type: null, expected a
+/// sequence" from deep inside the response body — one real migration died there
+/// at the issues stage.
+fn vec_or_null<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Ok(Option::<Vec<T>>::deserialize(deserializer)?.unwrap_or_default())
 }

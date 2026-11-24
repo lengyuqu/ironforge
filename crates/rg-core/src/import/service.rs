@@ -952,7 +952,12 @@ async fn import_github_issue(
         .and_then(|m| milestone_map.get(&m.title))
         .copied();
 
-    let number = issue_ops::next_number(db, repo_id).await?;
+    // Preserve the source number. Renumbering breaks every cross-reference in
+    // bodies and commit messages ("fixes #3"), and a migration whose numbers do
+    // not match the source looks correct while being wrong — the worst shape a
+    // migration bug can take. The target repository is new, so the number
+    // cannot already be taken.
+    let number = issue.number;
     let created_at = parse_datetime_or_now(&issue.created_at);
     let closed_at = parse_opt_datetime(&issue.closed_at);
     let state = if issue.state == "closed" {
@@ -1049,7 +1054,9 @@ async fn import_github_pr(
         .and_then(|m| milestone_map.get(&m.title))
         .copied();
 
-    let number = pull_request_ops::next_number(db, repo_id).await?;
+    // Same reasoning as issues: a pull request's number is referenced from
+    // commit messages and issue bodies.
+    let number = pr.number;
     let state = if pr.merged.unwrap_or(false) {
         "merged"
     } else if pr.state == "closed" {
@@ -1327,7 +1334,9 @@ async fn import_gitlab_issue(
         .and_then(|m| milestone_map.get(&m.title))
         .copied();
 
-    let number = issue_ops::next_number(db, repo_id).await?;
+    // GitLab's `iid` is the per-project number a body refers to
+    // as `#12`; `id` is global and means nothing here.
+    let number = issue.iid;
     let state = if issue.state == "closed" {
         "closed"
     } else {
@@ -1409,7 +1418,8 @@ async fn import_gitlab_mr(
         .and_then(|m| milestone_map.get(&m.title))
         .copied();
 
-    let number = pull_request_ops::next_number(db, repo_id).await?;
+    // Same reasoning as issues: `iid` is what references point at.
+    let number = mr.iid;
     let state = if mr.merged_at.is_some() {
         "merged"
     } else if mr.state == "closed" {
@@ -1661,6 +1671,55 @@ mod tests {
         assert!(gitea_api_base("not-a-url").is_err());
     }
 
+    /// Gitea omits fields GitHub requires on two of the four payloads. Both
+    /// took a real migration down (milestone at 25 %, release would have been
+    /// next), so both shapes are pinned against what Gitea 1.22 actually sent.
+    #[test]
+    fn gitea_milestone_and_release_payloads_parse() {
+        // Copied from `GET /api/v1/repos/{owner}/{repo}/milestones` on Gitea
+        // 1.22.6 — note the absence of `number`.
+        let milestone = r#"{
+            "id": 1,
+            "title": "v1.0",
+            "description": "first release",
+            "state": "open",
+            "open_issues": 2,
+            "closed_issues": 0,
+            "created_at": "2026-11-24T15:15:46Z",
+            "updated_at": "2026-11-24T15:15:46Z",
+            "closed_at": null,
+            "due_on": null
+        }"#;
+        let parsed: crate::import::github_client::GitHubMilestone =
+            serde_json::from_str(milestone).expect("Gitea milestone must parse");
+        assert_eq!(parsed.title, "v1.0");
+        assert_eq!(parsed.number, 0, "absent number falls back to 0");
+
+        // `GET /repos/{owner}/{repo}/releases` — note the absence of
+        // `created_at`, which GitHub always sends.
+        let release = r#"{
+            "id": 1,
+            "tag_name": "v1.0.0",
+            "target_commitish": "main",
+            "name": "First",
+            "body": "release notes",
+            "url": "http://localhost:3300/api/v1/repos/alice/gitea-demo/releases/1",
+            "html_url": "http://localhost:3300/alice/gitea-demo/releases/tag/v1.0.0",
+            "tarball_url": "",
+            "zipball_url": "",
+            "draft": false,
+            "prerelease": false,
+            "created_at": null,
+            "published_at": "2026-11-24T15:15:46Z",
+            "author": {"id": 1, "login": "alice"},
+            "assets": []
+        }"#;
+        let parsed: crate::import::github_client::GitHubRelease =
+            serde_json::from_str(release).expect("Gitea release must parse");
+        assert_eq!(parsed.tag_name, "v1.0.0");
+        assert_eq!(parsed.name.as_deref(), Some("First"));
+    }
+
     /// Gitea answers with the GitHub-shaped payload. If this stops parsing, the
     /// import silently loses issues — so the shape is pinned here rather than
     /// discovered per migration.
@@ -1675,7 +1734,7 @@ mod tests {
             "labels": [{"id": 1, "name": "bug", "color": "e11d21", "description": null}],
             "milestone": null,
             "user": {"id": 7, "login": "alice", "avatar_url": "https://example/avatar.png"},
-            "assignees": [],
+            "assignees": null,
             "comments": 4,
             "created_at": "2026-01-02T03:04:05Z",
             "updated_at": "2026-01-03T03:04:05Z",
