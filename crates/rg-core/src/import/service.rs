@@ -398,7 +398,10 @@ async fn run_gitlab_import(
     stats: &mut ImportStats,
 ) -> Result<()> {
     let token = auth.map(|auth| auth.token.as_str()).unwrap_or("");
-    let client = GitLabClient::new(token.to_string(), None);
+    // Without a base URL the client talks to gitlab.com, so a self-hosted
+    // instance is queried at the wrong host entirely — the migration then fails
+    // with "project not found" for a project that plainly exists.
+    let client = GitLabClient::new(token.to_string(), Some(gitlab_api_base(&task.source_url)?));
 
     // Extract project path from source URL (https://gitlab.com/group/project)
     let project_path = parse_gitlab_url(&task.source_url)?;
@@ -416,12 +419,21 @@ async fn run_gitlab_import(
         // The token is *not* spliced into the URL any more: gix persists the
         // clone URL as `remote.origin.url`, so `oauth2:<token>@host` would stay
         // readable in the repository config forever. It goes in the header.
+        //
+        // The header's username matters: GitLab only accepts `oauth2` (or a real
+        // account name) with an OAuth token, and rejects the `x-access-token`
+        // default that the GitHub path uses with a bare 401 that says nothing
+        // about the cause.
+        let gitlab_auth = auth.map(|auth| SourceAuth {
+            username: "oauth2".to_string(),
+            token: auth.token.clone(),
+        });
         clone_repo(
             &project.http_url_to_repo,
             repo_root,
             &task.target_owner,
             &task.target_name,
-            auth,
+            gitlab_auth.as_ref(),
         )?;
         stats.repo_cloned = true;
         update_stage(db, task.id, "importing", 10, "Repository cloned").await?;
@@ -673,6 +685,20 @@ fn clone_repo(
         .ok_or_else(|| anyhow::anyhow!("invalid path: no parent directory"))?;
     std::fs::create_dir_all(parent)?;
 
+    // The target repository is created (with a `HEAD`) before this runs, so the
+    // directory is non-empty by now and `gix` refuses to initialise into it —
+    // "Refusing to initialize the non-empty directory". Clearing the shell is
+    // what makes the clone possible at all; refs are checked above, so anything
+    // still here is a leftover from a failed attempt, never imported content.
+    if target_dir.exists() {
+        std::fs::remove_dir_all(&target_dir).map_err(|error| {
+            anyhow::anyhow!(
+                "clearing the empty target repository {}: {error}",
+                target_dir.display()
+            )
+        })?;
+    }
+
     // `prepare_clone_bare` is the library form of `git clone --bare`: branches
     // land in `refs/heads/` and no default fetch refspec is written. The
     // `blocking-network-client` feature (implied by the curl transport) also
@@ -751,6 +777,22 @@ fn gitea_api_base(source_url: &str) -> Result<String> {
         return Err(CoreError::invalid_input(format!("invalid Gitea URL: {url}")).into());
     }
     Ok(format!("{scheme}://{host}/api/v1"))
+}
+
+/// GitLab serves its API under `/api/v4` on the same host as the web UI.
+///
+/// Same reasoning as [`gitea_api_base`]: derive it from the URL the user pasted
+/// rather than asking for it again.
+fn gitlab_api_base(source_url: &str) -> Result<String> {
+    let url = source_url.trim_end_matches('/');
+    let (scheme, rest) = url
+        .split_once("://")
+        .ok_or_else(|| CoreError::invalid_input(format!("invalid GitLab URL: {url}")))?;
+    let host = rest.split('/').next().unwrap_or("");
+    if host.is_empty() {
+        return Err(CoreError::invalid_input(format!("invalid GitLab URL: {url}")).into());
+    }
+    Ok(format!("{scheme}://{host}/api/v4"))
 }
 
 fn parse_gitlab_url(url: &str) -> Result<String> {
@@ -1814,16 +1856,23 @@ async fn import_gitlab_mr(
             .copied()
             .unwrap_or(author_id);
 
-        let cm = rg_db::entities::issue_comment::ActiveModel {
+        // A note on a merge request belongs to the merge request. Writing it
+        // into `issue_comments` with the pull-request id as `issue_id` produced
+        // rows that no query could reach — nothing in `issues` has that id — so
+        // the import counted them and the review showed none. Found by reading
+        // the migrated merge request back and finding its note missing.
+        let cm = rg_db::entities::pr_review::ActiveModel {
             id: sea_orm::NotSet,
-            issue_id: Set(saved.id),
-            author_id: Set(note_author),
-            body: Set(note.body.clone().unwrap_or_default()),
+            pr_id: Set(saved.id),
+            repo_id: Set(repo_id),
+            reviewer_id: Set(note_author),
+            action: Set("comment".to_string()),
+            body: Set(note.body.clone()),
+            commit_id: Set(None),
             created_at: Set(parse_datetime_or_now(&note.created_at)),
-            updated_at: Set(parse_datetime_or_now(&note.updated_at)),
         };
 
-        if let Err(e) = issue_comment_ops::create(db, cm).await {
+        if let Err(e) = rg_db::ops::pr_review_ops::create(db, cm).await {
             tracing::warn!("Failed to import MR note on !{}: {e}", mr.iid);
         }
     }
@@ -1998,6 +2047,21 @@ fn user_visible_failure(error: &anyhow::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Self-hosted GitLab is the common case; a client pointed at gitlab.com
+    /// reports "project not found" for a project that exists.
+    #[test]
+    fn gitlab_api_base_is_derived_from_the_repository_url() {
+        assert_eq!(
+            gitlab_api_base("https://gitlab.example.com/group/project").unwrap(),
+            "https://gitlab.example.com/api/v4"
+        );
+        assert_eq!(
+            gitlab_api_base("http://localhost:8929/group/sub/project.git").unwrap(),
+            "http://localhost:8929/api/v4"
+        );
+        assert!(gitlab_api_base("no-scheme/group/project").is_err());
+    }
 
     /// The API base comes from the repository URL the user pasted. Ports and
     /// nested paths must survive: self-hosted Gitea is often on one or both.
