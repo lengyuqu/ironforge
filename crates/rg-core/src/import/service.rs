@@ -1845,9 +1845,6 @@ mod tests {
     }
 
     /// `clone_repo` replaced `git clone --bare`, so the result still has to be
-    /// a bare repository that Git itself accepts, with the source branches and
-    /// tags intact.
-    #[test]
     /// The target directory is created before anything is fetched, so a bare
     /// repository that exists proves nothing. Asking about refs is what stops a
     /// failed clone from being reported as a successful, empty migration.
@@ -1862,6 +1859,9 @@ mod tests {
         assert!(!repository_has_refs(&empty), "HEAD alone is not a clone");
     }
 
+    /// a bare repository that Git itself accepts, with the source branches and
+    /// tags intact.
+    #[test]
     fn clone_repo_builds_a_bare_repository_git_can_read() {
         let temp = tempfile::tempdir().unwrap();
         let source = temp.path().join("source");
