@@ -26,9 +26,10 @@ use rg_db::ops::{
 };
 
 use crate::error::{CoreError, CoreResult};
+use crate::import::cnb_client::{parse_cnb_url, CnbClient, CnbComment, CnbIssue, CnbUser};
 use crate::import::github_client::{
     GitHubClient, GitHubComment, GitHubIssue, GitHubLabel, GitHubMilestone, GitHubPR,
-    GitHubRelease, GitHubReview,
+    GitHubRelease, GitHubReview, GitHubUser,
 };
 use crate::import::gitlab_client::{
     GitLabClient, GitLabIssue, GitLabLabel, GitLabMR, GitLabMilestone, GitLabNote, GitLabRelease,
@@ -162,6 +163,7 @@ pub async fn run_import(
             )
             .await?
         }
+        "cnb" => run_cnb_import(db, task, repo_root, auth.as_ref(), &mut stats).await?,
         "git" => run_git_import(db, task, repo_root, auth.as_ref(), &mut stats).await?,
         other => {
             return Err(CoreError::invalid_input(format!("unsupported platform: {other}")).into())
@@ -860,6 +862,36 @@ fn parse_datetime_or_now(s: &str) -> chrono::DateTime<Utc> {
 // Import helpers — GitHub
 // ═══════════════════════════════════════════════════════════════════════
 
+/// Create labels from bare names, for sources that have no label objects.
+async fn import_label_names(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    names: &[String],
+) -> Result<usize> {
+    let existing = label_ops::list_by_repo(db, repo_id).await?;
+    let now = Utc::now();
+    let mut count = 0;
+    for name in names {
+        if existing.iter().any(|label| &label.name == name) {
+            continue;
+        }
+        let model = rg_db::entities::label::ActiveModel {
+            id: sea_orm::NotSet,
+            repo_id: Set(repo_id),
+            name: Set(name.clone()),
+            color: Set("ededed".to_string()),
+            description: Set(None),
+            created_at: Set(now),
+            updated_at: Set(now),
+        };
+        match label_ops::create(db, model).await {
+            Ok(_) => count += 1,
+            Err(error) => tracing::warn!(%error, name = %name, "failed to create label"),
+        }
+    }
+    Ok(count)
+}
+
 async fn import_github_labels(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -1243,6 +1275,196 @@ async fn import_github_releases(
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// CNB import
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Import from CNB (cnb.cool).
+///
+/// CNB's shapes are converted into the GitHub ones and handed to the shared
+/// importers, so number preservation, label handling and comment import are the
+/// same code that the Gitea and GitHub paths use — there is one place where a
+/// migration can get those wrong, not three.
+///
+/// **Pull requests are not imported**: the CNB repository available to test
+/// against had none, so the field names are unknown. Writing a converter from
+/// guesswork would produce pull requests that look imported and are wrong,
+/// which is the failure mode this module has already been bitten by twice.
+/// `pulls` is a separate change once there is a live sample to write it
+/// against.
+async fn run_cnb_import(
+    db: &DatabaseConnection,
+    task: &ImportTask,
+    repo_root: &Path,
+    auth: Option<&SourceAuth>,
+    stats: &mut ImportStats,
+) -> Result<()> {
+    let token = auth.map(|auth| auth.token.as_str()).unwrap_or("");
+    if token.is_empty() {
+        return Err(CoreError::invalid_input(
+            "CNB requires an access token; pass one as auth_token",
+        )
+        .into());
+    }
+    let client = CnbClient::new(token.to_string());
+    let source = parse_cnb_url(&task.source_url)?;
+
+    let repo_id =
+        resolve_or_create_target_repo(db, &task.target_owner, &task.target_name, repo_root).await?;
+    let _ = import_task_ops::set_repo_id(db, task.id, repo_id).await;
+
+    // Step 1: clone
+    if task.import_repo {
+        update_stage(db, task.id, "cloning", 0, "Cloning repository...").await?;
+        // CNB serves git from the web host, not the API host.
+        let clone_url = format!("https://cnb.cool/{}/{}.git", source.owner, source.name);
+        clone_repo(
+            &clone_url,
+            repo_root,
+            &task.target_owner,
+            &task.target_name,
+            auth,
+        )?;
+        stats.repo_cloned = true;
+        update_stage(db, task.id, "importing", 20, "Repository cloned").await?;
+    }
+
+    // Step 2: issues (and the labels they carry — CNB has no repository-level
+    // label list endpoint; its `/issues/labels` answers 404)
+    if task.import_issues || task.import_labels {
+        update_stage(db, task.id, "importing", 30, "Fetching issues...").await?;
+        let issues = client.list_issues(&source).await?;
+
+        if task.import_labels {
+            let mut names: Vec<String> = issues
+                .iter()
+                .flat_map(|issue| issue.label_names())
+                .collect();
+            names.sort();
+            names.dedup();
+            stats.labels_imported = import_label_names(db, repo_id, &names).await?;
+        }
+
+        if task.import_issues {
+            let total = issues.len();
+            for (index, issue) in issues.iter().enumerate() {
+                let percent = 30 + ((index + 1) * 50 / total.max(1)) as i32;
+                update_stage(
+                    db,
+                    task.id,
+                    "importing",
+                    percent.min(80),
+                    &format!("Importing issues ({}/{})", index + 1, total),
+                )
+                .await?;
+
+                // The list endpoint omits `body`; the text only exists on the
+                // single-issue endpoint.
+                let detail = match issue.body {
+                    Some(_) => issue.clone(),
+                    None => match client.get_issue(&source, &issue.number).await {
+                        Ok(detail) => detail,
+                        Err(error) => {
+                            tracing::warn!(number = %issue.number, %error, "CNB: failed to fetch issue body");
+                            issue.clone()
+                        }
+                    },
+                };
+                let comments = client
+                    .list_issue_comments(&source, &issue.number)
+                    .await
+                    .unwrap_or_default();
+
+                let converted = cnb_issue_to_github(&detail);
+                let converted_comments: Vec<GitHubComment> =
+                    comments.iter().map(cnb_comment_to_github).collect();
+                let empty_user_map = HashMap::new();
+                let empty_milestone_map = HashMap::new();
+                if let Err(error) = import_github_issue(
+                    db,
+                    repo_id,
+                    &task.target_owner,
+                    &task.target_name,
+                    &converted,
+                    &converted_comments,
+                    &empty_user_map,
+                    &empty_milestone_map,
+                )
+                .await
+                {
+                    tracing::warn!(number = %issue.number, %error, "CNB: failed to import issue");
+                } else {
+                    stats.issues_imported += 1;
+                    stats.issue_comments_imported += converted_comments.len();
+                }
+            }
+        }
+    }
+
+    // Pull requests are deliberately not fetched; see the function comment.
+    if task.import_pull_requests {
+        tracing::info!("CNB: pull request import is not implemented; skipping");
+    }
+
+    Ok(())
+}
+
+fn cnb_user(user: Option<&CnbUser>) -> Option<GitHubUser> {
+    user.map(|user| GitHubUser {
+        id: 0,
+        login: user.username.clone(),
+        email: None,
+        avatar_url: None,
+        user_type: None,
+    })
+}
+
+/// Map a CNB issue onto the shared issue shape.
+///
+/// CNB has no milestone, so `milestone` stays `None`; labels are synthesised
+/// because only their names are available.
+fn cnb_issue_to_github(issue: &CnbIssue) -> GitHubIssue {
+    GitHubIssue {
+        number: issue.number_as_i64(),
+        title: issue.title.clone(),
+        body: issue.body.clone(),
+        state: issue.state.clone(),
+        labels: issue
+            .label_names()
+            .into_iter()
+            .map(|name| GitHubLabel {
+                id: 0,
+                name,
+                color: "ededed".to_string(),
+                description: None,
+            })
+            .collect(),
+        milestone: None,
+        user: cnb_user(issue.author.as_ref()),
+        assignees: Vec::new(),
+        comments: issue.comment_count,
+        created_at: issue.created_at.clone(),
+        updated_at: issue.updated_at.clone(),
+        // CNB sends an empty string for an open issue's closed_at.
+        closed_at: (!issue.closed_at.is_empty()).then(|| issue.closed_at.clone()),
+        pull_request: None,
+    }
+}
+
+fn cnb_comment_to_github(comment: &CnbComment) -> GitHubComment {
+    GitHubComment {
+        id: comment
+            .id
+            .as_deref()
+            .and_then(|id| id.parse().ok())
+            .unwrap_or(0),
+        body: comment.body.clone(),
+        user: cnb_user(comment.author.as_ref()),
+        created_at: comment.created_at.clone(),
+        updated_at: comment.created_at.clone(),
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Import helpers — GitLab
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -1599,7 +1821,10 @@ pub async fn start_import(
 ) -> CoreResult<ImportTask> {
     let now = Utc::now();
     // Gitea goes through the GitHub importer, so it supports metadata too.
-    let supports_metadata = matches!(platform.as_str(), "github" | "gitlab" | "gitea");
+    // CNB has issues and labels but no milestone concept, and its pull requests
+    // have not been verified against a live instance — so it is listed for the
+    // metadata it can actually deliver today.
+    let supports_metadata = matches!(platform.as_str(), "github" | "gitlab" | "gitea" | "cnb");
     // The column has always been called `auth_token_encrypted`; until now the
     // caller's string went straight in.
     let auth_token = match auth_token {
