@@ -79,3 +79,31 @@ pub mod user_ops;
 pub mod webhook_ops;
 pub mod wiki_page_ops;
 pub mod wiki_revision_ops;
+
+/// Does this `state` query value mean "no filter"?
+///
+/// The Gitea/GitHub API this project mirrors uses `state=all` for that, and
+/// every client built against it sends it — including this project's own `ifg`.
+/// Passing it through to `State.eq("all")` matched no row, so a correctly
+/// imported repository listed nothing. Found by reading a migration's result
+/// back through the API rather than trusting its own stats.
+pub(crate) fn state_means_every_state(state: &str) -> bool {
+    state.eq_ignore_ascii_case("all")
+}
+
+#[cfg(test)]
+mod state_filter_tests {
+    use super::state_means_every_state;
+
+    /// `all` is the documented way to ask for every state; anything else is a
+    /// real filter. A false negative here makes a repository look empty.
+    #[test]
+    fn all_means_no_state_filter() {
+        assert!(state_means_every_state("all"));
+        assert!(state_means_every_state("ALL"));
+        assert!(!state_means_every_state("open"));
+        assert!(!state_means_every_state("closed"));
+        assert!(!state_means_every_state(""));
+        assert!(!state_means_every_state("allx"));
+    }
+}

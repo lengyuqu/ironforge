@@ -36,7 +36,9 @@ pub async fn list_by_repo(
 ) -> Result<Vec<PullRequest>> {
     let mut query = PrEntity::find().filter(pull_request::Column::RepoId.eq(repo_id));
     if let Some(s) = state {
-        query = query.filter(pull_request::Column::State.eq(s));
+        if !super::state_means_every_state(s) {
+            query = query.filter(pull_request::Column::State.eq(s));
+        }
     }
     query
         .order_by_desc(pull_request::Column::CreatedAt)
@@ -55,7 +57,9 @@ pub async fn list_by_repo_paginated(
 ) -> Result<(Vec<PullRequest>, i64)> {
     let mut base = PrEntity::find().filter(pull_request::Column::RepoId.eq(repo_id));
     if let Some(s) = state {
-        base = base.filter(pull_request::Column::State.eq(s));
+        if !super::state_means_every_state(s) {
+            base = base.filter(pull_request::Column::State.eq(s));
+        }
     }
     let query = base.order_by_desc(pull_request::Column::CreatedAt);
 
