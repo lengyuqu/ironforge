@@ -1,5 +1,7 @@
 # 协作套件在 PostgreSQL / MySQL 上补验证（验证记录，2026-11-09）
 
+> **注（2026-11-24）**：文中"没在 git233 Actions 上跑"属于当时的验证边界。git233 已移除，CI 现在全部在 GitHub 托管 runner 上。
+
 > 基线 main `04433f8`。背景：`CLAUDE.md` 里有几处写着「仅 SQLite 实测，PG/MySQL 未验证」（跨仓协调组 X02、协作人类通知、协作 Web UI 依赖的后端）。本任务把整套协作/agent 写路径测试在真实 PostgreSQL 17 与 MySQL 8.4 上跑一遍，暴露问题就修。
 
 ## 一、做法

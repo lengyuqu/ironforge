@@ -1,5 +1,7 @@
 # MCP 远程传输（streamable HTTP）：设计取舍、实现与验证记录（2026-11-09）
 
+> **注（2026-11-24）**：文中"没在 git233 Actions 上跑"属于当时的验证边界。git233 已移除，CI 现在全部在 GitHub 托管 runner 上。
+
 > **状态**：已实现，待合并 ｜ **可信度**：实现与任务验证为「确认」，部署行为为「推测/待验证」（见第五节）｜ **来源**：本分支代码与本地测试输出
 >
 > 接 [agent-gaps-verification-2026-11.md](agent-gaps-verification-2026-11.md) 与 [harness 原生化设计](harness-native-design-2026-11.md) §4.3 的「传输层」。此前各文档里「SSE、streamable-HTTP 未做」的说法，对 streamable-HTTP 到此失效；**旧版 HTTP+SSE（`GET /sse` + `/messages`）仍然没做**。

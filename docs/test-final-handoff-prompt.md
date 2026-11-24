@@ -156,7 +156,7 @@ test(web): 分支保护列表与 MFA 组件单测，settings 目录全覆盖（�
 
 ## 约束
 
-- 远程 git233.phynews.com:18443 无凭证，**只 commit 不 push**，收官总结里列出待推送提交清单即可
+- ~~远程 git233.phynews.com:18443 无凭证，只 commit 不 push~~ —— **git233 已于 2026-11-24 移除**，该限制随之解除；推送目标改为 `github`（`cnb` 仍可用，见 CLAUDE.md）
 - 不重构、不删除、不改动与任务无关的代码；组件源码只在测试暴露真实 bug 时最小修复并在提交信息注明
 - 已提交的 197 例测试不许改坏；全量 vitest 必须全绿才算收官
 - **"全绿"的定义**：`Tests` 全 passed **且** `Errors` 为 0 **且** svelte-check `0 ERRORS`。三者缺一不可
