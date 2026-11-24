@@ -839,10 +839,12 @@ async fn skip_downstream_stages<C: ConnectionTrait>(db: &C, failed_stage_id: i64
             continue;
         }
         for job in jobs {
-            if !matches!(
-                job.status.as_str(),
-                "success" | "failure" | "failed" | "error" | "skipped" | "canceled"
-            ) {
+            if condition_wants_always_run(job.if_condition.as_deref()) {
+                // It asked to run whatever happens upstream; it will be picked
+                // up once this stage settles.
+                continue;
+            }
+            if !is_terminal_job_status(job.status.as_str()) {
                 update_job_result_on(db, job.id, "skipped", None, None, None, now).await?;
             }
         }
@@ -957,6 +959,40 @@ pub async fn find_pending_job_matching_labels<C: ConnectionTrait>(
     Ok(None)
 }
 
+/// Does this job's condition ask to run regardless of earlier failures?
+///
+/// A scan rather than a parse: `rg-db` cannot depend on the CI engine, and the
+/// string was produced by that engine, so it only contains grammar the
+/// evaluator accepts. `always` must be followed by `(` and preceded by a
+/// non-identifier character, so an output or variable that merely contains the
+/// word does not count.
+fn condition_wants_always_run(condition: Option<&str>) -> bool {
+    let Some(condition) = condition else {
+        return false;
+    };
+    let mut rest = condition;
+    while let Some(position) = rest.find("always") {
+        let before_ok = rest[..position]
+            .chars()
+            .last()
+            .is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '_');
+        let after = &rest[position + "always".len()..];
+        if before_ok && after.trim_start().starts_with('(') {
+            return true;
+        }
+        rest = after;
+    }
+    false
+}
+
+/// A status from which a stage will not change on its own.
+fn is_terminal_job_status(status: &str) -> bool {
+    matches!(
+        status,
+        "success" | "failure" | "failed" | "error" | "skipped" | "canceled"
+    )
+}
+
 async fn job_is_schedulable<C: ConnectionTrait>(db: &C, job: &pipeline_job::Model) -> Result<bool> {
     let Some(stage) = get_stage_by_id_on(db, job.stage_id).await? else {
         return Ok(false);
@@ -974,10 +1010,17 @@ async fn job_is_schedulable<C: ConnectionTrait>(db: &C, job: &pipeline_job::Mode
         return Ok(false);
     }
     let stages = list_stages_by_pipeline_on(db, stage.pipeline_id).await?;
+    // A job that opted into `always()` may start once the earlier stages have
+    // *finished*, successful or not. It still waits: "always" means "despite a
+    // failure", not "before the thing it depends on has run".
+    let wants_always = condition_wants_always_run(job.if_condition.as_deref());
     Ok(stages
         .iter()
         .filter(|candidate| candidate.stage_order < stage.stage_order)
-        .all(|candidate| candidate.status == "success"))
+        .all(|candidate| {
+            candidate.status == "success"
+                || (wants_always && is_terminal_job_status(&candidate.status))
+        }))
 }
 
 /// Find stuck jobs: "assigned"/"running" but not updated within timeout.
@@ -1511,4 +1554,44 @@ pub async fn try_update_pipeline<C: ConnectionTrait>(
 
 pub async fn mark_job_timeout<C: ConnectionTrait>(db: &C, job_id: i64) -> Result<()> {
     mark_job_timeout_on(db, job_id).await
+}
+
+#[cfg(test)]
+mod scheduling_tests {
+    use super::{condition_wants_always_run, is_terminal_job_status};
+
+    /// The scan must find the function call and nothing that merely looks like
+    /// one — a false positive would let a job jump ahead of a failed stage.
+    #[test]
+    fn always_is_detected_only_as_a_function_call() {
+        assert!(condition_wants_always_run(Some("always()")));
+        assert!(condition_wants_always_run(Some("${{ always() }}")));
+        assert!(condition_wants_always_run(Some(
+            "always() && github.ref != ''"
+        )));
+        assert!(condition_wants_always_run(Some("success() || always()")));
+
+        // A longer identifier is a different function.
+        assert!(!condition_wants_always_run(Some("my_always()")));
+        // The word inside a string argument is data, not a call.
+        assert!(!condition_wants_always_run(Some(
+            "contains(env.NOTE, 'always')"
+        )));
+        // A bare identifier is not a call.
+        assert!(!condition_wants_always_run(Some("env.always == 'x'")));
+        assert!(!condition_wants_always_run(Some("success()")));
+        assert!(!condition_wants_always_run(None));
+    }
+
+    #[test]
+    fn terminal_statuses_are_the_ones_that_do_not_change_on_their_own() {
+        for status in [
+            "success", "failure", "failed", "error", "skipped", "canceled",
+        ] {
+            assert!(is_terminal_job_status(status), "{status}");
+        }
+        for status in ["pending", "assigned", "running", "manual"] {
+            assert!(!is_terminal_job_status(status), "{status}");
+        }
+    }
 }
