@@ -23,7 +23,9 @@ pub async fn list_by_repo(
 ) -> Result<Vec<Milestone>> {
     let mut query = MilestoneEntity::find().filter(milestone::Column::RepoId.eq(repo_id));
     if let Some(s) = state {
-        query = query.filter(milestone::Column::State.eq(s));
+        if !super::state_means_every_state(s) {
+            query = query.filter(milestone::Column::State.eq(s));
+        }
     }
     query
         .order_by_asc(milestone::Column::CreatedAt)

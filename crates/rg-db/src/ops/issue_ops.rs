@@ -60,7 +60,9 @@ pub async fn list_by_repo(
 ) -> Result<Vec<Issue>> {
     let mut query = IssueEntity::find().filter(issue::Column::RepoId.eq(repo_id));
     if let Some(s) = state {
-        query = query.filter(issue::Column::State.eq(s));
+        if !super::state_means_every_state(s) {
+            query = query.filter(issue::Column::State.eq(s));
+        }
     }
     query
         .order_by_desc(issue::Column::CreatedAt)
@@ -81,11 +83,7 @@ pub async fn list_by_repo_paginated(
 ) -> Result<(Vec<Issue>, i64)> {
     let mut base = IssueEntity::find().filter(issue::Column::RepoId.eq(repo_id));
     if let Some(s) = state {
-        // `state=all` is how Gitea and GitHub clients (including this project's
-        // own `ifg`) ask for "no filter". Passing it through as a value matched
-        // no row, so a list that clearly had issues returned an empty page —
-        // found by running a migration and then reading the result back.
-        if !s.eq_ignore_ascii_case("all") {
+        if !super::state_means_every_state(s) {
             base = base.filter(issue::Column::State.eq(s));
         }
     }
