@@ -171,9 +171,13 @@ impl GitLabClient {
     pub fn new(token: String, base_url: Option<String>) -> Self {
         let base = base_url.unwrap_or_else(|| "https://gitlab.com/api/v4".to_string());
         let mut headers = header::HeaderMap::new();
+        // `PRIVATE-TOKEN` accepts a personal access token only. An OAuth token
+        // (what `POST /oauth/token` returns) is rejected by it with a bare 401,
+        // while `Authorization: Bearer` accepts both — so this uses the form
+        // that works with either kind of credential.
         headers.insert(
-            "PRIVATE-TOKEN",
-            header::HeaderValue::from_str(&token).expect("invalid token"),
+            header::AUTHORIZATION,
+            header::HeaderValue::from_str(&format!("Bearer {token}")).expect("invalid token"),
         );
 
         let client = Client::builder()
