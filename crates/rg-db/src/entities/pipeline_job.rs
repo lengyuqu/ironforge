@@ -33,6 +33,12 @@ pub struct Model {
     pub updated_at: Option<DateTime>,
     #[sea_orm(nullable)]
     pub tags: Option<String>, // JSON array of runner tag requirements
+    /// JSON array of declared steps (`StepConfig`). `None` for a hand-written
+    /// job whose only definition is `script`.
+    pub steps_json: Option<String>,
+    /// JSON object of values the job produced, reported by the runner when it
+    /// finishes. Read by downstream jobs via `needs.<job>.outputs.<name>`.
+    pub outputs_json: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

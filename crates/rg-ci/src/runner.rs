@@ -1511,6 +1511,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1525,6 +1526,7 @@ mod tests {
             None,
             None,
             true,
+            None,
             None,
             None,
             None,
@@ -1543,6 +1545,7 @@ mod tests {
             None,
             true,
             Some(1),
+            None,
             None,
             None,
         )
@@ -1625,6 +1628,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1641,6 +1645,7 @@ mod tests {
             false,
             None,
             Some("manual"),
+            None,
             None,
         )
         .await
@@ -1806,6 +1811,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1852,6 +1858,7 @@ mod tests {
             None,
             None,
             false,
+            None,
             None,
             None,
             None,
@@ -2056,6 +2063,7 @@ mod tests {
             None,
             None,
             false,
+            None,
             None,
             None,
             None,

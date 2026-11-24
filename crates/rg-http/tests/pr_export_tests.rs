@@ -277,6 +277,7 @@ async fn export_describes_the_pull_request_and_its_history() {
         None,
         None,
         None,
+        None,
     )
     .await
     .unwrap();

@@ -59,6 +59,15 @@ pub struct PollJobResponse {
     stage_id: i64,
     name: String,
     script: Vec<String>,
+    /// Declared steps, when the job came from a workflow that has them. A
+    /// runner that receives this executes per step (and can collect
+    /// `$GITHUB_OUTPUT`); absent means the flattened `script` is all there is.
+    ///
+    /// Passed through as raw JSON on purpose: `rg-http` does not depend on the
+    /// CI engine, and re-encoding through a local type would let an internal
+    /// rename silently change the wire format. The stored JSON is the contract.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    steps: Option<serde_json::Value>,
     image: Option<String>,
     variables: Option<serde_json::Value>,
     cache_key: Option<String>,
@@ -428,6 +437,10 @@ pub async fn poll_job(
                         stage_id: job.stage_id,
                         name: job.name,
                         script: job.script.lines().map(|s| s.to_string()).collect(),
+                        steps: job
+                            .steps_json
+                            .as_deref()
+                            .and_then(|json| serde_json::from_str(json).ok()),
                         image: job.image,
                         variables: Some(serde_json::Value::Object(variables)),
                         cache_key: job.cache_key,
@@ -890,6 +903,25 @@ pub async fn finish_job(
         return AppError::internal(e).into_response();
     }
 
+    // Outputs are stored whatever the status: a failed job's partial values are
+    // exactly what an `always()` cleanup job in a later stage needs.
+    if let Some(outputs) = req.outputs {
+        if !outputs.is_empty() {
+            match serde_json::to_string(&outputs) {
+                Ok(json) => {
+                    if let Err(e) =
+                        rg_db::ops::pipeline_ops::set_job_outputs(&state.db, job_id, &json).await
+                    {
+                        // Not fatal: the job itself is already recorded, and
+                        // losing outputs is a smaller harm than losing the result.
+                        tracing::error!(%e, job_id, "finish_job: storing outputs failed");
+                    }
+                }
+                Err(e) => tracing::error!(%e, job_id, "finish_job: serializing outputs failed"),
+            }
+        }
+    }
+
     // Mark runner as online (ready for next job)
     if let Err(e) = rg_db::ops::runner_ops::update_status(&state.db, runner_id, "online").await {
         tracing::error!(runner_id, error = %e, "Failed to mark runner as online");
@@ -955,6 +987,10 @@ pub async fn finish_job(
 pub struct FinishJobRequest {
     status: String, // success | failure | error
     exit_code: i32,
+    /// Values the job produced, keyed `<step_id>.<output_name>`. Optional: a
+    /// runner that does not support steps simply omits it.
+    #[serde(default)]
+    outputs: Option<std::collections::HashMap<String, String>>,
 }
 
 /// GET /api/v1/admin/runners

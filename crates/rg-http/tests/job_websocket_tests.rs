@@ -34,7 +34,7 @@ async fn create_private_job(
         .await
         .unwrap();
     rg_db::ops::pipeline_ops::create_job(
-        db, stage.id, "test", "true", None, None, None, None, None, false, None, None, None,
+        db, stage.id, "test", "true", None, None, None, None, None, false, None, None, None, None,
     )
     .await
     .unwrap()

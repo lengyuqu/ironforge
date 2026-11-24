@@ -74,6 +74,7 @@ async fn fixture(job_status: &str, exit_code: Option<i32>, log: Option<&str>) ->
         None,
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -242,7 +243,7 @@ async fn log_and_wait_enforce_repository_read_access() {
         .await
         .unwrap();
     let job = rg_db::ops::pipeline_ops::create_job(
-        &db, stage.id, "unit", "x", None, None, None, None, None, false, None, None, None,
+        &db, stage.id, "unit", "x", None, None, None, None, None, false, None, None, None, None,
     )
     .await
     .unwrap();

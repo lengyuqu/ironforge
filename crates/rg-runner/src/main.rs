@@ -216,11 +216,25 @@ async fn poll_job(
     }
 }
 
+/// One declared step, as the server sends it. The runner only needs to know
+/// which steps exist so it can read back the output files it told each one to
+/// write; it does not re-derive the commands (`script` already has them).
+#[derive(serde::Deserialize)]
+struct StepPayload {
+    #[allow(dead_code)]
+    id: Option<String>,
+    #[allow(dead_code)]
+    run: Option<String>,
+}
+
 #[derive(serde::Deserialize)]
 struct PollJobResponse {
     job_id: i64,
     name: String,
     script: Vec<String>,
+    /// Present when the job came from a workflow with declared steps.
+    #[serde(default)]
+    steps: Option<Vec<StepPayload>>,
     image: Option<String>,
     variables: Option<serde_json::Value>,
     cache_key: Option<String>,
@@ -443,6 +457,109 @@ async fn save_cache(
 }
 
 /// Report job completion.
+/// Read back the output files the steps wrote.
+///
+/// The server told each `id`-bearing step to write into
+/// `.ironforge-outputs/step-<index>.outputs` (workspace-relative, so it lands
+/// on the host whether the job ran in a container or directly). The index is
+/// the step's position in the workflow: a step skipped by its `if` has no file,
+/// which is why a missing file is not an error.
+///
+/// Parsing uses the same rules the server expects — `name=value` and
+/// `name<<DELIM` — but this binary cannot depend on the CI engine, so the rules
+/// live here too. A malformed file contributes nothing rather than failing the
+/// job: the job already succeeded or failed on its own merits, and turning a
+/// typo in an output file into a failed build would be a worse surprise.
+async fn collect_step_outputs(
+    workspace: &std::path::Path,
+    steps: Option<&[StepPayload]>,
+    job_id: i64,
+) -> std::collections::HashMap<String, String> {
+    let mut merged = std::collections::HashMap::new();
+    let Some(steps) = steps else {
+        return merged;
+    };
+    for (index, step) in steps.iter().enumerate() {
+        let Some(id) = step.id.as_deref() else {
+            continue;
+        };
+        let path = workspace
+            .join(".ironforge-outputs")
+            .join(format!("step-{index}.outputs"));
+        let Ok(content) = tokio::fs::read_to_string(&path).await else {
+            // No file: the step was skipped, or wrote nothing.
+            continue;
+        };
+        match parse_step_outputs(&content) {
+            Ok(values) => {
+                // Names are scoped by step id, which is exactly how a later
+                // step or job refers to them.
+                for (name, value) in values {
+                    merged.insert(format!("{id}.{name}"), value);
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    job_id,
+                    step_id = id,
+                    %error,
+                    "ignoring malformed step output file"
+                );
+            }
+        }
+    }
+    merged
+}
+
+/// Parse a `$GITHUB_OUTPUT` file: `name=value` lines and `name<<DELIM` blocks.
+///
+/// Kept deliberately small. Anything malformed is an error, so the caller can
+/// log once and move on instead of silently keeping half a value.
+fn parse_step_outputs(content: &str) -> Result<std::collections::HashMap<String, String>, String> {
+    let mut values = std::collections::HashMap::new();
+    let mut lines = content.split('\n').enumerate();
+    while let Some((index, raw)) = lines.next() {
+        let line = raw.strip_suffix('\r').unwrap_or(raw);
+        if line.is_empty() {
+            continue;
+        }
+        if let Some((name, delimiter)) = line.split_once("<<") {
+            let name = name.trim();
+            if name.is_empty() || delimiter.is_empty() {
+                return Err(format!("line {}: malformed heredoc header", index + 1));
+            }
+            let mut body = String::new();
+            let mut closed = false;
+            for (_, next_raw) in lines.by_ref() {
+                let next = next_raw.strip_suffix('\r').unwrap_or(next_raw);
+                if next == delimiter {
+                    closed = true;
+                    break;
+                }
+                if !body.is_empty() {
+                    body.push('\n');
+                }
+                body.push_str(next);
+            }
+            if !closed {
+                return Err(format!("line {}: heredoc not closed", index + 1));
+            }
+            values.insert(name.to_string(), body);
+            continue;
+        }
+        let Some((name, value)) = line.split_once('=') else {
+            return Err(format!("line {}: expected name=value", index + 1));
+        };
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(format!("line {}: empty name", index + 1));
+        }
+        values.insert(name.to_string(), value.to_string());
+    }
+    Ok(values)
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn finish_job(
     client: &reqwest::Client,
     server: &str,
@@ -451,14 +568,22 @@ async fn finish_job(
     token: &str,
     status: &str,
     exit_code: i32,
+    outputs: Option<&std::collections::HashMap<String, String>>,
 ) {
+    let mut body = serde_json::json!({"status": status, "exit_code": exit_code});
+    if let Some(outputs) = outputs {
+        // Sent with the finish call rather than in a second request so that a
+        // failure still delivers whatever the steps managed to produce — the
+        // case an `always()` cleanup job depends on.
+        body["outputs"] = serde_json::json!(outputs);
+    }
     let _ = client
         .post(format!(
             "{}/api/v1/runners/{}/jobs/{}/finish",
             server, runner_id, job_id
         ))
         .header("Authorization", format!("Bearer {}", token))
-        .json(&serde_json::json!({"status": status, "exit_code": exit_code}))
+        .json(&body)
         .send()
         .await;
 }
@@ -700,6 +825,7 @@ mod tests {
             job_id: 1,
             name: "cache".into(),
             script: vec![],
+            steps: None,
             image: None,
             variables: None,
             cache_key: Some("build-${CI_SHA}".into()),
@@ -959,6 +1085,7 @@ async fn main() -> Result<()> {
                                     &resolved_token,
                                     "failure",
                                     -1,
+                                    None,
                                 )
                                 .await;
                                 continue;
@@ -990,6 +1117,7 @@ async fn main() -> Result<()> {
                                     &resolved_token,
                                     "failure",
                                     -1,
+                                    None,
                                 )
                                 .await;
                                 let _ = tokio::fs::remove_dir_all(&workspace).await;
@@ -1054,6 +1182,14 @@ async fn main() -> Result<()> {
                             }
                         };
 
+                        // Read back what the steps wrote, before the workspace
+                        // is removed. Collected on failure too: an `always()`
+                        // cleanup job in a later stage may still want the values
+                        // the failing job managed to produce.
+                        let step_outputs =
+                            collect_step_outputs(&workspace, job.steps.as_deref(), job.job_id)
+                                .await;
+
                         if exit_code == 0 {
                             if let Some((key, paths)) = &cache {
                                 if let Err(error) = save_cache(
@@ -1086,6 +1222,7 @@ async fn main() -> Result<()> {
 
                         // Finish
                         let status = if exit_code == 0 { "success" } else { "failure" };
+                        let outputs = (!step_outputs.is_empty()).then_some(&step_outputs);
                         finish_job(
                             &client,
                             resolved_server,
@@ -1094,6 +1231,7 @@ async fn main() -> Result<()> {
                             &resolved_token,
                             status,
                             exit_code,
+                            outputs,
                         )
                         .await;
 

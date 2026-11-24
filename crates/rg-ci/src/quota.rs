@@ -563,6 +563,7 @@ mod tests {
             .expect("create stage");
         let job = rg_db::ops::pipeline_ops::create_job(
             db, stage.id, "build", "true", None, None, None, None, None, false, None, None, None,
+            None,
         )
         .await
         .expect("create job");

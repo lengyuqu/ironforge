@@ -69,7 +69,7 @@ fn job_query<C: ConnectionTrait>(db: &C) -> Select<pipeline_job::Entity> {
 }
 
 const PG_STAGE_COLUMNS: &str = "id::bigint AS id, pipeline_id::bigint AS pipeline_id, name, stage_order, status, started_at, finished_at";
-const PG_JOB_COLUMNS: &str = "id::bigint AS id, stage_id::bigint AS stage_id, runner_id::bigint AS runner_id, name, image, script, variables, cache_key, cache_paths, allow_failure, timeout_seconds::bigint AS timeout_seconds, when_condition, if_condition, environment_id::bigint AS environment_id, environment_name, status, exit_code, log, started_at, finished_at, updated_at AT TIME ZONE 'UTC' AS updated_at, tags";
+const PG_JOB_COLUMNS: &str = "id::bigint AS id, stage_id::bigint AS stage_id, runner_id::bigint AS runner_id, name, image, script, variables, cache_key, cache_paths, allow_failure, timeout_seconds::bigint AS timeout_seconds, when_condition, if_condition, environment_id::bigint AS environment_id, environment_name, status, exit_code, log, started_at, finished_at, updated_at AT TIME ZONE 'UTC' AS updated_at, tags, steps_json, outputs_json";
 
 // The entity represents updated_at as a UTC NaiveDateTime, while PostgreSQL
 // stores an instant. Bind UTC explicitly instead of using the session timezone.
@@ -378,6 +378,31 @@ async fn update_stage_status_on<C: ConnectionTrait>(
 
 /// Create a pipeline job.
 #[allow(clippy::too_many_arguments)]
+/// Record the values a job produced, as reported by its runner.
+///
+/// Separate from `update_job_result` because the two can arrive in either order
+/// in principle, and because a job's outputs are meaningless once the row is
+/// gone — this is a plain update, not an upsert.
+pub async fn set_job_outputs(
+    db: &DatabaseConnection,
+    job_id: i64,
+    outputs_json: &str,
+) -> Result<()> {
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+
+    pipeline_job::Entity::update_many()
+        .col_expr(
+            pipeline_job::Column::OutputsJson,
+            sea_orm::sea_query::Expr::value(Some(outputs_json.to_string())),
+        )
+        .filter(pipeline_job::Column::Id.eq(job_id))
+        .exec(db)
+        .await
+        .context("db: set job outputs")?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 pub async fn create_job(
     db: &DatabaseConnection,
     stage_id: i64,
@@ -392,6 +417,7 @@ pub async fn create_job(
     timeout_seconds: Option<i64>,
     when_condition: Option<&str>,
     if_condition: Option<&str>,
+    steps_json: Option<&str>,
 ) -> Result<pipeline_job::Model> {
     let when_condition = when_condition.unwrap_or("on_success");
     if db.get_database_backend() == DatabaseBackend::Postgres {
@@ -403,8 +429,8 @@ pub async fn create_job(
         };
         let job = pipeline_job::Model::find_by_statement(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            format!("INSERT INTO pipeline_jobs (stage_id, name, script, image, tags, variables, cache_key, cache_paths, allow_failure, timeout_seconds, when_condition, if_condition, environment_id, environment_name, status, exit_code, log, started_at, finished_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,NULL,$13,NULL,NULL,NULL,NULL) RETURNING {PG_JOB_COLUMNS}"),
-            [stage_id.into(), name.into(), script.into(), image.map(str::to_string).into(), tags.map(str::to_string).into(), variables.map(str::to_string).into(), cache_key.map(str::to_string).into(), cache_paths.map(str::to_string).into(), allow_failure.into(), timeout_seconds.into(), when_condition.into(), if_condition.map(str::to_string).into(), status.into()],
+            format!("INSERT INTO pipeline_jobs (stage_id, name, script, image, tags, variables, cache_key, cache_paths, allow_failure, timeout_seconds, when_condition, if_condition, environment_id, environment_name, status, exit_code, log, started_at, finished_at, steps_json, outputs_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,NULL,$13,NULL,NULL,NULL,NULL,$14,NULL) RETURNING {PG_JOB_COLUMNS}"),
+            [stage_id.into(), name.into(), script.into(), image.map(str::to_string).into(), tags.map(str::to_string).into(), variables.map(str::to_string).into(), cache_key.map(str::to_string).into(), cache_paths.map(str::to_string).into(), allow_failure.into(), timeout_seconds.into(), when_condition.into(), if_condition.map(str::to_string).into(), status.into(), steps_json.map(str::to_string).into()],
         )).one(&txn).await.context("db: create job")?.context("db: inserted job was not returned")?;
         txn.commit().await.context("db: commit create job")?;
         return Ok(job);
@@ -429,6 +455,8 @@ pub async fn create_job(
             "pending".to_string()
         }),
         tags: Set(tags.map(|s| s.to_string())),
+        steps_json: Set(steps_json.map(str::to_string)),
+        outputs_json: Set(None),
         exit_code: Set(None),
         log: Set(None),
         started_at: Set(None),

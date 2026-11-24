@@ -41,6 +41,7 @@ async fn create_assigned_job(
         .unwrap();
     let job = rg_db::ops::pipeline_ops::create_job(
         db, stage.id, "unit", "echo ok", None, None, None, None, None, false, None, None, None,
+        None,
     )
     .await
     .unwrap();

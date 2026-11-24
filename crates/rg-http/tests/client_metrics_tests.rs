@@ -120,6 +120,7 @@ async fn websocket_connections_are_counted() {
         .expect("stage");
     let job = rg_db::ops::pipeline_ops::create_job(
         &db, stage.id, "build", "echo hi", None, None, None, None, None, false, None, None, None,
+        None,
     )
     .await
     .expect("job");

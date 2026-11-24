@@ -63,6 +63,7 @@ async fn offline_runner_jobs_marked_failed_with_cascade() {
         .unwrap();
     let job = rg_db::ops::pipeline_ops::create_job(
         &db, stage.id, "compile", "echo hi", None, None, None, None, None, false, None, None, None,
+        None,
     )
     .await
     .unwrap();
@@ -174,6 +175,7 @@ async fn deregister_marks_active_jobs_failed() {
         None,
         None,
         false,
+        None,
         None,
         None,
         None,
