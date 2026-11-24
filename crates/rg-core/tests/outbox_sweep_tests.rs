@@ -158,6 +158,26 @@ async fn read_event(db: &DatabaseConnection, id: i64) -> repo_event::Model {
 }
 
 /// Age a row written by the service so the sweep window can see it.
+/// Wait until the webhook has `expected` delivery rows, or give up.
+///
+/// A sweep decides "already delivered" from the delivery row, not from the
+/// receiver having seen the request, so the two are not the same moment: the
+/// row is committed slightly after the receiver answers. Reading the count in
+/// between produced a test that passed locally and failed on CI.
+async fn wait_for_deliveries(db: &DatabaseConnection, hook: i64, expected: usize) {
+    for _ in 0..100 {
+        let count = webhook_ops::list_deliveries_by_webhook(db, hook)
+            .await
+            .unwrap()
+            .len();
+        if count >= expected {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("webhook {hook} never recorded {expected} deliveries");
+}
+
 async fn age_event(db: &DatabaseConnection, id: i64, created_at: chrono::DateTime<Utc>) {
     RepoEvents::update_many()
         .col_expr(repo_event::Column::CreatedAt, Expr::value(created_at))
@@ -554,6 +574,11 @@ async fn the_sweep_never_duplicates_a_delivery_it_did_not_make() {
         .first()
         .expect("a webhook is registered")
         .id;
+    // The sweep decides "already delivered" from the delivery row; the receiver
+    // answered slightly before that row was committed. Reading the count in
+    // between let the sweep see "not delivered" and redeliver — the assertion
+    // below then failed, on CI and not locally.
+    wait_for_deliveries(&db, hook, 1).await;
     let before = webhook_ops::list_deliveries_by_webhook(&db, hook)
         .await
         .unwrap()
