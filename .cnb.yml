@@ -58,7 +58,11 @@
       # disk. The lint answer for our code does not depend on them; the GitHub
       # `lint` job still runs `cargo clippy --workspace --all-targets -D
       # warnings` in full before a release.
-      script: cargo clippy --workspace --all-targets --locked --offline -- -D warnings
+      # Do NOT add `--offline` here: the cargo registry volumes are node-local
+      # copy-on-write caches (see .cnb.yml rust-setup), so a dependency update
+      # that introduces new crates (e.g. jsonwebtoken 10.x) cannot resolve on a
+      # node whose cache predates them. GitHub's lint job also runs online.
+      script: cargo clippy --workspace --all-targets --locked -- -D warnings
 
 .rust-tests: &rust-tests
   <<: *rust-setup
