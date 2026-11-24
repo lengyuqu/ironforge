@@ -219,6 +219,14 @@ pub const ROUTES: &[RouteMeta] = &[
     user("/auth/sso/{slug}/unlink"),
     repo("/repos").idem(),
     repo("/repos/templates/gitignores"),
+    // Gitea-client handshake endpoints. `/version` and `/settings/*` are read
+    // before a client has a credential, so their handlers must not require one;
+    // declaring them `user` here only means a personal-access token restricted
+    // to `user:read` is enough once one is presented.
+    user("/version"),
+    user("/settings/api"),
+    user("/settings/ui"),
+    user("/user"),
     repo("/repos/templates/licenses"),
     repo("/repos/templates/readmes"),
     repo("/repos/templates/labels"),

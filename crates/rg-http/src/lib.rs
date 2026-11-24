@@ -725,6 +725,11 @@ fn build_routes(
         .route("/users/logout", post(api::users::logout))
         .route("/users/me", get(api::users::me))
         .route("/users/{username}", get(api::users::get_user))
+        // Handshake endpoints a Gitea client calls before anything else.
+        .route("/version", get(api::gitea_compat::version))
+        .route("/settings/api", get(api::gitea_compat::api_settings))
+        .route("/settings/ui", get(api::gitea_compat::ui_settings))
+        .route("/user", get(api::users::me))
         // PAT
         .route(
             "/users/tokens",

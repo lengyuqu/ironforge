@@ -59,6 +59,11 @@ mod legacy {
             || path.starts_with("/notifications")
             || path.starts_with("/auth")
             || path == "/ws/notifications"
+            // Gitea-client handshake endpoints: readable with any credential.
+            || path == "/user"
+            || path == "/version"
+            || path == "/settings/api"
+            || path == "/settings/ui"
         {
             return Some("user");
         }

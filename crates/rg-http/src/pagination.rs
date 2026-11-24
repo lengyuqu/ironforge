@@ -9,7 +9,8 @@ use utoipa::ToSchema;
 /// Default number of items per page.
 const DEFAULT_PER_PAGE: u64 = 20;
 /// Maximum number of items per page.
-const MAX_PER_PAGE: u64 = 100;
+/// Exposed so `settings/api` reports the limit this module actually enforces.
+pub const MAX_PER_PAGE: u64 = 100;
 
 /// Query parameters for pagination.
 #[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
