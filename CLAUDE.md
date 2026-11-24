@@ -525,7 +525,7 @@ chrono          = "0.4"      # features: serde
 uuid            = "1"        # features: v4, serde
 # Auth / Crypto
 argon2          = "0.5"
-jsonwebtoken    = "9"
+jsonwebtoken    = { version = "=10.3.0", features = ["rust_crypto"] }
 password-hash   = "0.5"
 rand_core       = "0.6"
 aes-gcm         = "0.10"     # SSO/LDAP 敏感配置加密

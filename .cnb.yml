@@ -58,7 +58,11 @@
       # disk. The lint answer for our code does not depend on them; the GitHub
       # `lint` job still runs `cargo clippy --workspace --all-targets -D
       # warnings` in full before a release.
-      script: cargo clippy --workspace --all-targets --locked --offline -- -D warnings
+      # Do NOT add `--offline` here: the cargo registry volumes are node-local
+      # copy-on-write caches (see .cnb.yml rust-setup), so a dependency update
+      # that introduces new crates (e.g. jsonwebtoken 10.x) cannot resolve on a
+      # node whose cache predates them. GitHub's lint job also runs online.
+      script: cargo clippy --workspace --all-targets --locked -- -D warnings
 
 .rust-tests: &rust-tests
   <<: *rust-setup
@@ -136,7 +140,7 @@
 # Automatic: only the cheap `lint` gate (rustfmt + clippy) on push and PR.
 # The full gate set is MANUAL: it takes ~20 minutes and should be started on
 # purpose, e.g. before merging a PR:
-#   cnb build start-build --repo zdzso/ironforge --branch <branch> --event api_trigger
+#   cnb build start-build --repo lengyuqu/ironforge --branch <branch> --event api_trigger
 # or from the repository page (custom button / web_trigger).
 main:
   push:
