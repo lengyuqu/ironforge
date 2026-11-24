@@ -1,45 +1,45 @@
 {
-	"name": "web",
-	"private": true,
-	"version": "0.3.0",
-	"license": "MIT",
-	"type": "module",
-	"packageManager": "pnpm@11.24.0",
-	"engines": {
-		"node": ">=22"
-	},
-	"scripts": {
-		"dev": "vite dev",
-		"build": "vite build",
-		"preview": "vite preview",
-		"smoke:integration": "node ../scripts/frontend-backend-smoke.mjs",
-		"smoke:admin-browser": "node ../scripts/browser-admin-smoke.mjs",
-		"smoke:admin": "pnpm run smoke:integration && pnpm run smoke:admin-browser",
-		"smoke:markdown-sanitizer": "node scripts/markdown-sanitizer-smoke.mjs",
-		"prepare": "svelte-kit sync || echo ''",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"test": "vitest run",
-		"test:watch": "vitest",
-		"test:coverage": "vitest run --coverage"
-	},
-	"devDependencies": {
-		"@sveltejs/adapter-auto": "^7.0.1",
-		"@sveltejs/adapter-static": "^3.0.11",
-		"@sveltejs/kit": "^2.70.4",
-		"@sveltejs/vite-plugin-svelte": "^7.3.1",
-		"@testing-library/jest-dom": "^7.0.1",
-		"@testing-library/svelte": "^5.4.2",
-		"happy-dom": "^20.14.6",
-		"jsdom": "^30.1.3",
-		"svelte": "^5.57.3",
-		"svelte-check": "^4.7.8",
-		"typescript": "^6.0.3",
-		"vite": "^8.3.7",
-		"vitest": "^4.1.12"
-	},
-	"dependencies": {
-		"highlight.js": "^11.12.0",
-		"marked": "^18.2.0"
-	}
+  "name": "web",
+  "private": true,
+  "version": "0.4.0",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "smoke:integration": "node ../scripts/frontend-backend-smoke.mjs",
+    "smoke:admin-browser": "node ../scripts/browser-admin-smoke.mjs",
+    "smoke:admin": "pnpm run smoke:integration && pnpm run smoke:admin-browser",
+    "smoke:markdown-sanitizer": "node scripts/markdown-sanitizer-smoke.mjs",
+    "prepare": "svelte-kit sync || echo ''",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-auto": "^7.0.1",
+    "@sveltejs/adapter-static": "^3.0.11",
+    "@sveltejs/kit": "^2.70.4",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/svelte": "^5.4.2",
+    "happy-dom": "^20.14.6",
+    "jsdom": "^30.1.3",
+    "svelte": "^5.57.3",
+    "svelte-check": "^4.7.8",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.7",
+    "vitest": "^4.1.12"
+  },
+  "dependencies": {
+    "highlight.js": "^11.12.0",
+    "marked": "^18.2.0"
+  }
 }

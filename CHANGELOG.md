@@ -3,6 +3,42 @@
 本文件记录 IronForge 的版本演进。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)（0.x 阶段以 minor 为 breaking 粒度）。
 
+## [0.4.0] - 2026-11-25
+
+本版本的主线是 **仓库迁移**：把"从别的平台搬过来"从"能跑"变成"四个平台都拿真实实例验过"。
+新增 CNB 导入（issue / label / pull request），并把 Gitea、GitHub、GitLab、CNB 四条路各自跑了一次
+真机迁移，修掉 13 个缺陷——几乎全部属于同一类：**迁移报告成功，而数据是错的、或数据在却取不出来**。
+
+涵盖 119 个提交（feat 28 / fix 11 / docs 18 / test 4 / ci 2 / chore 1）。
+
+### Added
+
+- **CNB 导入**（`platform=cnb`）：issue、label、pull request。CNB 是自研 OpenAPI，与 Gitea/GitHub
+  形状不同——响应是裸数组、`number` 是字符串、列表接口不含正文、无 milestone 概念。适配器把
+  `CnbIssue` 转换成共享的内部形状，复用同一套入库逻辑，因此编号保留、标签、评论只有一处实现。
+  合并状态（`is_merged`）、草稿（`is_wip`）、完整 ref（`refs/heads/...`）都在转换层翻译。
+- **迁移结果的真机验证基线**：GitHub（51 PR）、Gitea（含 PR + review）、GitLab（含 MR + note）、
+  CNB（34 PR）四条路都有可复现的实例与验证记录。
+
+### Fixed（迁移层，13 个）
+
+- **迁移把 issue / PR 重新编号**：编号与源站不符会打断正文和提交信息里所有 `fixes #3` 类引用，
+  而迁移**报成功**。四条路径（GitHub/GitLab × issue/PR）改为保留源站编号（GitLab 用 `iid`）。
+- **`state=all` 返回空列表**（五处：issues ×2、PRs ×2、milestones ×1）：`all` 被当作字面值去匹配
+  状态列。所有 Gitea 风格的客户端都会传 `all`。
+- **失败的空克隆报成功**：目标仓库在克隆前就被创建（含 `HEAD`），"已存在则跳过"因此命中自己刚建
+  的空壳；而抓取到零个 ref 也是 `Ok`。改为按 ref 判断，并在失败时清掉目录。
+- **往预先创建的目标目录克隆必然失败**：`gix` 拒绝在非空目录初始化。
+- **GitLab 自托管实例被当作 gitlab.com 查询**、**OAuth token 用 `PRIVATE-TOKEN` 发送被拒**。
+- **MR note 写进 `issue_comments` 且 `issue_id` 指向 PR**：孤儿行，统计计数而查询永远取不到。
+- **Gitea 平台降级为纯 `git clone`**（issue / label / milestone / release 全部丢弃）。
+- **Gitea / CNB 的字段差异**：milestone 无 `number`、release 的 `created_at` 为 `null`、
+  `assignees` 为 `null`、CNB 的 `number` 是字符串。
+
+### Changed
+
+- 迁移的字段形状现在按**实际抓到的响应**写测试锁定，而不是按文档推断。
+
 ## [0.3.0] - 2026-11-19
 
 本版本的主线是 **面向 agent 的协作层**：把"多人 / 多个 AI 代理同一仓库"从口头约定变成平台上可查询、
