@@ -115,5 +115,5 @@ svelte-check 的 `ERRORS` 是**整个 web/ 工程**的计数，新测试里一�
 
 ## 6. 提交
 
-**只 commit，不 push**（远程 `git233.phynews.com:18443` 无凭证）。
+**只 commit，不 push**（原文写的 `git233.phynews.com:18443` 已于 2026-11-24 移除；如需推送请用 `github` 远端）。
 由主 agent 统一分批提交，子 agent **不要自己 commit**。

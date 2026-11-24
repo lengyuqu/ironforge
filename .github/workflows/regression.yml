@@ -3,14 +3,10 @@ name: Regression
 # Where this runs:
 #   * GitHub Actions is the CI of record (owner's decision, 2026-11-20): the
 #     repository is public, so the standard hosted runners cost nothing. Pull
-#     requests, pushes to main and the nightly schedule all land here.
-#   * Several workarounds below were written for git233 (Gitea Actions) when it
-#     was the CI: its runners reached crates.io and docker.gitea.com but not
-#     GitHub or Docker Hub, hence the vendored Swagger UI, `vars.POSTGRES_IMAGE`
-#     / `vars.MYSQL_IMAGE`, and the retry wrappers. They are harmless on GitHub
-#     (unset variables fall back to the stock images) and are left in place
-#     until they are removed on purpose. Comments that talk about git233 or
-#     CNB runners describe that old environment.
+#     requests, pushes to main and the nightly schedule all land here. The
+#     previous Gitea runner (`git233`) was removed on 2026-11-24.
+#   * `vars.POSTGRES_IMAGE` / `vars.MYSQL_IMAGE` override the service images;
+#     unset, the stock ones are used.
 #
 # How much runs:
 #   * Full runs: a push to main, the nightly schedule, and a manual
@@ -60,22 +56,11 @@ concurrency:
 # Debug info is cut to line tables: backtraces keep file and line, but compiling
 # and linking ~130 test binaries gets cheaper and the cache gets smaller.
 #
-# Timeouts assume a COLD run (see the `Cache Cargo` steps). git233 has two
-# runners (fnos/zos) and each keeps its own action cache, so a job that bounces
-# to the other runner compiles from scratch; a job that dies at its ceiling
-# never reaches the post-job save and the next run is cold again. On 2026-11-09
-# every red job in runs 1713/1714 died exactly at its `timeout-minutes`
-# (`context deadline exceeded`, e.g. clippy 10:51:50->11:21:53 and
-# 12:15:45->12:45:51 for a 30 minute limit) and none of them saved a cache.
-# Raising the ceilings is a stopgap: the real fix is one cache shared by both
-# runners, which lives on the runner machines, not here.
-#
-# Until then, the five Rust jobs that lean on a warm cache take their runner from
-# `vars.CI_HEAVY_RUNNER` and fall back to `ubuntu-24.04`: the two runners keep
-# separate caches (confirmed by the owner on 2026-11-09), so a job that bounces
-# between them misses half the time by construction. Set the variable to the
-# label of one machine once that machine has a label of its own and those jobs
-# stop bouncing; leave it unset and nothing changes from before.
+# Timeouts assume a COLD run (see the `Cache Cargo` steps). Hosted runners share
+# one cache namespace per branch, so a warm run is the normal case; the ceilings
+# are sized for the cold one, which is what a dependency bump or a cache
+# eviction looks like. A job that dies at its ceiling never reaches the
+# post-job save, so the next run is cold again — keep the ceilings generous.
 env:
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
@@ -137,7 +122,7 @@ jobs:
     name: Clippy (deny warnings)
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -150,10 +135,10 @@ jobs:
         timeout-minutes: 10
         run: scripts/ci-apt-install.sh pkg-config libssl-dev libsqlite3-dev git
 
-      # The action downloads from static.rust-lang.org, which the git233 runners
-      # reach only intermittently. When it fails, install again with retries; the
-      # `!= 'success'` condition also fires if a runner does not report the
-      # outcome, and the script is harmless when the toolchain is already there.
+      # The action downloads from static.rust-lang.org. When that fails, install
+      # again with retries; the `!= 'success'` condition also fires if a runner
+      # does not report the outcome, and the script is harmless when the
+      # toolchain is already there.
       - name: Install Rust
         id: rust
         continue-on-error: true
@@ -182,7 +167,7 @@ jobs:
     name: Rust tests and migration smoke
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - name: Checkout
@@ -267,8 +252,8 @@ jobs:
         shell: bash
         run: |
           # The advisory database lives on GitHub. A runner that cannot reach it
-          # (git233's) cannot audit: say so loudly instead of failing every run,
-          # but only off GitHub - on GitHub an unreachable database is a failure.
+          # cannot audit: say so loudly instead of failing every run, but only
+          # off GitHub - on GitHub an unreachable database is a failure.
           set +e
           cargo audit 2>&1 | tee audit.log
           status=${PIPESTATUS[0]}
@@ -284,7 +269,7 @@ jobs:
     name: Real Git client protocol matrix
     needs: changes
     if: needs.changes.outputs.git_protocol == 'true'
-    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -325,12 +310,12 @@ jobs:
     name: PostgreSQL migration, CRUD and FTS smoke
     needs: changes
     if: needs.changes.outputs.db_smoke == 'true'
-    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     services:
       postgres:
-        # Docker Hub is unreachable from git233's runners: set the repository
-        # variable POSTGRES_IMAGE to a mirror there; GitHub uses the default.
+        # Override with the repository variable POSTGRES_IMAGE to use a mirror;
+        # unset, the stock image is pulled.
         image: ${{ vars.POSTGRES_IMAGE || 'postgres:17' }}
         env:
           POSTGRES_USER: ironforge
@@ -380,7 +365,7 @@ jobs:
     name: MySQL migration, CRUD and FTS smoke
     needs: changes
     if: needs.changes.outputs.db_smoke == 'true'
-    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     services:
       mysql:

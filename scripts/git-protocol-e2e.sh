@@ -521,7 +521,7 @@ tls_curl() {
   # `--noproxy '*'`: the test host name is a made-up .invalid name that only
   # `--resolve` maps to 127.0.0.1. no_proxy matches names, not the resolved
   # address, so on a runner with https_proxy set curl would hand the name to the
-  # proxy, which cannot resolve it (git233's runners: connection reset).
+  # proxy, which cannot resolve it (the symptom is a connection reset).
   curl -fsS --noproxy '*' --max-time 5 --cacert "${TLS_FIXTURES}/ec.crt" \
     --resolve "${TLS_HOST}:${TLS_HTTP_PORT}:127.0.0.1" "$@"
 }

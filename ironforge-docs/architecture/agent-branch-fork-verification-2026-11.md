@@ -1,5 +1,7 @@
 # 删除分支、fork PR 的 `refs/pull`、PR 开时的 base 提交（验证记录，2026-11-09）
 
+> **注（2026-11-24）**：文中"没在 git233 Actions 上跑"属于当时的验证边界。git233 已移除，CI 现在全部在 GitHub 托管 runner 上。
+
 > 接 [agent-gaps-verification-2026-11.md](agent-gaps-verification-2026-11.md)。那一篇「未做」清单里的三项在这里补完：服务端删分支、fork PR 的 `refs/pull`、`base_sha_when_opened`。**邮件通知偏好按负责人安排暂不做。远程 MCP 传输在另一个分支，不在本文。**
 
 ## 一、做了什么

@@ -3,10 +3,9 @@
 #
 #   scripts/ci-retry.sh [-n ATTEMPTS] [-d SECONDS] [-t SECONDS] -- command [args...]
 #
-# For steps that fail on the network rather than on the code: the git233
-# runners reach apt mirrors and static.rust-lang.org only intermittently, and
-# one dropped connection used to turn a whole run red. The delay grows with each
-# attempt. The exit status is the last attempt's.
+# For steps that fail on the network rather than on the code: one dropped
+# connection should not turn a whole run red. The delay grows with each attempt.
+# The exit status is the last attempt's.
 #
 # `-t` bounds a single attempt. Without it a connection that hangs instead of
 # failing — the common shape on a lossy link — blocks until the job's own

@@ -9,8 +9,7 @@
 # The timeouts are the point: apt's own defaults allow a stalled connection to
 # hold a job for many minutes, which is how a Clippy job once spent 32 minutes
 # here and timed out before it could save its cache. `ForceIPv4` avoids the
-# same symptom when an IPv6 route exists but goes nowhere, a common shape on
-# these runners.
+# same symptom when an IPv6 route exists but goes nowhere.
 set -eu
 here="$(cd "$(dirname "$0")" && pwd)"
 [ "$#" -gt 0 ] || { echo "usage: $0 package..." >&2; exit 2; }
