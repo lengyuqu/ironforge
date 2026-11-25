@@ -1022,7 +1022,25 @@ enum PackObjectExpansion<'a> {
 /// Read per call rather than cached: a pack takes seconds, one `getenv` does not
 /// matter, and it keeps the value testable.
 fn pack_thread_limit() -> Option<usize> {
-    parse_pack_threads(std::env::var("IRONFORGE_PACK_THREADS").ok().as_deref())
+    let limit = parse_pack_threads(std::env::var("IRONFORGE_PACK_THREADS").ok().as_deref());
+    // Say once, at the first pack, what the pipeline is actually using: the
+    // only other way to find out is to read RSS curves and time them.
+    static ANNOUNCED: std::sync::Once = std::sync::Once::new();
+    ANNOUNCED.call_once(|| {
+        let cores = std::thread::available_parallelism().map_or(0, |n| n.get());
+        match limit {
+            Some(threads) => tracing::info!(
+                threads,
+                cores,
+                "pack pipeline thread budget set by IRONFORGE_PACK_THREADS"
+            ),
+            None => tracing::info!(
+                cores,
+                "pack pipeline uses every available core (IRONFORGE_PACK_THREADS unset)"
+            ),
+        }
+    });
+    limit
 }
 
 /// `None` means "let gix use every core".

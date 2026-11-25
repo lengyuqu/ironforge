@@ -300,7 +300,13 @@ medium ≤ 180 MiB，硬线仍是「并发 3 个不得 OOM」）。
 `Options.thread_limit`。**不设 = 全部核心**（历史行为完全不变）；`0` / 空值 / 非法值
 一律 `warn!` 后回落默认，不会被字面当成 1 线程——否则一个 typo 会表现为「神秘的 8 倍
 变慢」，而不是一条能看见的告警。每次 pack 生成读一次环境变量（一次 `getenv`，相对
-秒级 pack 可忽略），换来实现可测（`tests/pack_threads.rs`）。
+秒级 pack 可忽略），换来实现可测（`tests/pack_threads.rs`）。第一次 pack 时打一行
+`info!`，写明实际生效的线程数与 `available_parallelism`，省得下次又要从 RSS 曲线倒推：
+
+```text
+INFO pack pipeline thread budget set by IRONFORGE_PACK_THREADS threads=8 cores=16
+INFO pack pipeline uses every available core (IRONFORGE_PACK_THREADS unset) cores=16
+```
 
 档位（large 数据集，pack 阶段实测）：
 
