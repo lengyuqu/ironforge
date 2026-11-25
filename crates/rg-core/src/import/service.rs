@@ -27,7 +27,8 @@ use rg_db::ops::{
 
 use crate::error::{CoreError, CoreResult};
 use crate::import::cnb_client::{
-    parse_cnb_url, CnbClient, CnbComment, CnbIssue, CnbLabel, CnbPull, CnbPullRef, CnbUser,
+    parse_cnb_url, CnbClient, CnbComment, CnbIssue, CnbLabel, CnbPull, CnbPullRef, CnbReview,
+    CnbUser,
 };
 use crate::import::github_client::{
     GitHubClient, GitHubComment, GitHubIssue, GitHubLabel, GitHubMilestone, GitHubPR, GitHubRef,
@@ -1331,10 +1332,9 @@ async fn import_github_releases(
 ///
 /// CNB pulls carry merge state outside `state` (`state: closed` plus
 /// `is_merged`), call a draft "wip", and send full refs — all translated in
-/// [`cnb_pull_to_github`]. Pull-request discussion comments are imported as
-/// `action: comment` rows in `pr_reviews`. Formal review verdicts are not
-/// imported: CNB reports a `review_count` but exposes no review-list endpoint,
-/// so an "approved" row would be a guess.
+/// [`cnb_pull_to_github`]. Pull-request discussion comments and formal review
+/// verdicts both land in `pr_reviews`: comments as `action: comment`, verdicts
+/// from `GET /pulls/{number}/reviews` mapped from CNB's lowercase states.
 async fn run_cnb_import(
     db: &DatabaseConnection,
     task: &ImportTask,
@@ -1533,7 +1533,19 @@ async fn run_cnb_import(
             // found. Passing them as `COMMENTED` reviews lands them in
             // `pr_reviews` with `action = comment`, where a discussion belongs,
             // without touching the shared importer.
-            let reviews: Vec<GitHubReview> = comments.iter().map(cnb_comment_to_review).collect();
+            let mut reviews: Vec<GitHubReview> =
+                comments.iter().map(cnb_comment_to_review).collect();
+            // The verdicts are a separate endpoint; without this call every
+            // approval on every migrated pull was silently absent (the old
+            // comment claimed the endpoint did not exist).
+            let verdicts = match client.list_pull_reviews(&source, &pull.number).await {
+                Ok(verdicts) => verdicts,
+                Err(error) => {
+                    tracing::warn!(number = %pull.number, %error, "CNB: failed to fetch pull request reviews");
+                    Vec::new()
+                }
+            };
+            reviews.extend(verdicts.iter().map(cnb_review_to_github));
             let converted = cnb_pull_to_github(&pull);
             let mut author_names = std::collections::HashSet::new();
             if let Some(author) = &pull.author {
@@ -1541,6 +1553,11 @@ async fn run_cnb_import(
             }
             for comment in &comments {
                 if let Some(author) = &comment.author {
+                    author_names.insert(author.username.clone());
+                }
+            }
+            for verdict in &verdicts {
+                if let Some(author) = &verdict.author {
                     author_names.insert(author.username.clone());
                 }
             }
@@ -1626,6 +1643,31 @@ fn cnb_label_to_github(label: &CnbLabel) -> Option<GitHubLabel> {
             .unwrap_or_else(|| "ededed".to_string()),
         description: label.description.clone().filter(|text| !text.is_empty()),
     })
+}
+
+/// Map a CNB review verdict onto the shared review shape.
+///
+/// CNB sends `"approved"`; the shared importer keys off GitHub's uppercase
+/// vocabulary. An unknown state becomes a comment rather than a verdict, so a
+/// future CNB state cannot accidentally count as an approval.
+fn cnb_review_to_github(review: &CnbReview) -> GitHubReview {
+    let state = match review.state.to_ascii_lowercase().as_str() {
+        "approved" => "APPROVED",
+        "changes_requested" | "requested_changes" | "rejected" => "CHANGES_REQUESTED",
+        "dismissed" => "DISMISSED",
+        _ => "COMMENTED",
+    };
+    GitHubReview {
+        id: review
+            .id
+            .as_deref()
+            .and_then(|id| id.parse().ok())
+            .unwrap_or(0),
+        user: cnb_user(review.author.as_ref()),
+        state: state.to_string(),
+        body: review.body.clone(),
+        submitted_at: Some(review.created_at.clone()),
+    }
 }
 
 /// Map a CNB issue onto the shared issue shape.
@@ -2195,6 +2237,36 @@ mod tests {
             "http://localhost:8929/api/v4"
         );
         assert!(gitlab_api_base("no-scheme/group/project").is_err());
+    }
+
+    /// CNB's lowercase verdicts must become the shared uppercase states; an
+    /// unknown value must not be treated as an approval.
+    #[test]
+    fn cnb_review_states_map_to_the_shared_vocabulary() {
+        let review = |state: &str| CnbReview {
+            id: Some("2120215139786158080".to_string()),
+            state: state.to_string(),
+            body: Some(String::new()),
+            author: None,
+            created_at: "2026-11-10T18:00:55Z".to_string(),
+        };
+        assert_eq!(cnb_review_to_github(&review("approved")).state, "APPROVED");
+        assert_eq!(
+            cnb_review_to_github(&review("changes_requested")).state,
+            "CHANGES_REQUESTED"
+        );
+        assert_eq!(
+            cnb_review_to_github(&review("dismissed")).state,
+            "DISMISSED"
+        );
+        assert_eq!(
+            cnb_review_to_github(&review("commented")).state,
+            "COMMENTED"
+        );
+        assert_eq!(
+            cnb_review_to_github(&review("something-new")).state,
+            "COMMENTED"
+        );
     }
 
     /// A label defined on the repository and the same label seen on an issue

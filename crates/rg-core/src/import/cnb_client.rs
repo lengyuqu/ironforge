@@ -10,6 +10,7 @@
 //! GET https://api.cnb.cool/{owner}/{repo}/-/issues/{number} → { ..., "body": "..." }
 //! GET https://api.cnb.cool/{owner}/{repo}/-/issues/{n}/comments
 //! GET https://api.cnb.cool/{owner}/{repo}/-/pulls?state=all
+//! GET https://api.cnb.cool/{owner}/{repo}/-/pulls/{n}/reviews
 //! GET https://api.cnb.cool/{owner}/{repo}/-/labels
 //! ```
 //!
@@ -123,6 +124,24 @@ impl CnbIssue {
 pub struct CnbComment {
     #[serde(default)]
     pub id: Option<String>,
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub author: Option<CnbUser>,
+    #[serde(default)]
+    pub created_at: String,
+}
+
+/// A formal review verdict, from `GET /pulls/{number}/reviews`.
+///
+/// CNB lowercases the verdict (`"approved"`), unlike GitHub's `APPROVED`;
+/// [`crate::import::service`] maps it to the shared vocabulary.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct CnbReview {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub state: String,
     #[serde(default)]
     pub body: Option<String>,
     #[serde(default)]
@@ -425,6 +444,17 @@ impl CnbClient {
         self.paginate(&format!("/{}/-/pulls/{number}/comments", repo.path()))
             .await
     }
+
+    /// Formal review verdicts on a pull request.
+    ///
+    /// The client used to state that CNB "has no review-list endpoint" and
+    /// imported only comments. `GET /pulls/{number}/reviews` exists (captured
+    /// from zdzso/agent2ssh#3: two `{"state": "approved"}` rows), so approvals
+    /// were being dropped on every migration.
+    pub async fn list_pull_reviews(&self, repo: &CnbRepo, number: &str) -> Result<Vec<CnbReview>> {
+        self.paginate(&format!("/{}/-/pulls/{number}/reviews", repo.path()))
+            .await
+    }
 }
 
 /// Parse `https://cnb.cool/owner/repo` (with or without `.git`) into its parts.
@@ -545,6 +575,29 @@ mod tests {
         assert_eq!(
             dedupe_by_number(items, |number| number.clone()),
             vec!["11".to_string(), "12".to_string()]
+        );
+    }
+
+    /// Captured from `GET /zdzso/agent2ssh/-/pulls/3/reviews`: CNB lowercases
+    /// the verdict and omits `submitted_at` (the field is `created_at`).
+    #[test]
+    fn a_review_payload_from_the_live_api_parses() {
+        let payload = r#"[
+            {
+                "id": "2120215139786158080",
+                "state": "approved",
+                "body": "",
+                "author": {"username": "cnb.lengyuqu", "nickname": "太难了", "is_npc": false},
+                "created_at": "2026-11-10T18:00:55Z"
+            }
+        ]"#;
+        let reviews: Vec<CnbReview> = serde_json::from_str(payload).expect("CNB reviews parse");
+        assert_eq!(reviews.len(), 1);
+        assert_eq!(reviews[0].state, "approved");
+        assert_eq!(reviews[0].body.as_deref(), Some(""));
+        assert_eq!(
+            reviews[0].author.as_ref().map(|a| a.username.as_str()),
+            Some("cnb.lengyuqu")
         );
     }
 
