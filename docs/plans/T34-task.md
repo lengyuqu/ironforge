@@ -38,7 +38,7 @@
 
 | 任务卡验证项 | 结果 |
 |---|---|
-| 1. 8 项测试全绿 | ✅ `cargo test -p rg-ci`：75 单测 + 15 集成（14 通过 + 1 默认 ignore） |
+| 1. 8 项测试全绿 | ✅ `cargo test -p rg-ci`：75 单测 + 17 集成（16 通过 + 1 默认 ignore） |
 | 2. 含 composite 的 workflow → 能展开 → 脚本正确 | ✅ `creating_a_pipeline_expands_local_and_cached_remote_composites`：真走 `trigger_pipeline`，从 DB 读回 job 脚本，含 `echo "hi pipeline"` / `echo remote-composite`，无 `uses:` 残留（脚本见 `T34-plan.md` §9） |
 | 3. 含 `actions/setup-node@v4` → 创建时被拒，文案含 `actions-v1` 且无内部路径 | ✅ `creating_a_pipeline_refuses_a_node_action_with_actions_v1`：`trigger_pipeline` 返回 Err，文案含 `actions-v1` 与 action 名，不含仓库路径 |
 | 4. `cargo test -p rg-ci` 全绿无回归 | ✅ 既有 73 单测 + `quota_backends` 通过 |
