@@ -2197,6 +2197,42 @@ mod tests {
         assert!(gitlab_api_base("no-scheme/group/project").is_err());
     }
 
+    /// A label defined on the repository and the same label seen on an issue
+    /// must become one row, with the colour CNB sent rather than `ededed`.
+    #[test]
+    fn cnb_label_colours_survive_and_duplicates_collapse() {
+        let from_repo = CnbLabel {
+            id: Some("1838192555308494848".to_string()),
+            name: Some("bug".to_string()),
+            description: Some(String::new()),
+            color: Some("#FCEEE8".to_string()),
+        };
+        let from_issue = CnbLabel {
+            id: Some("1838192555308494848".to_string()),
+            name: Some("bug".to_string()),
+            description: None,
+            color: Some("#FCEEE8".to_string()),
+        };
+        let bare_string = CnbLabel {
+            id: None,
+            name: Some("enhancement".to_string()),
+            description: None,
+            color: None,
+        };
+        let labels = dedupe_labels(vec![from_repo, from_issue, bare_string]);
+        assert_eq!(labels.len(), 2);
+
+        let bug = cnb_label_to_github(&labels[0]).expect("has a name");
+        assert_eq!(bug.color, "#FCEEE8");
+        // An empty description is absence, not an empty string to display.
+        assert_eq!(bug.description, None);
+
+        // A bare-string label has no colour to keep, so the shared importer's
+        // default applies.
+        let enhancement = cnb_label_to_github(&labels[1]).expect("has a name");
+        assert_eq!(enhancement.color, "ededed");
+    }
+
     /// The API base comes from the repository URL the user pasted. Ports and
     /// nested paths must survive: self-hosted Gitea is often on one or both.
     #[test]
