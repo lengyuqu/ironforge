@@ -95,11 +95,13 @@ git push -u cnb HEAD
 | T29 | [#63·第三步] 符号查询端点与 MCP 工具 | completed | t29-symbol-query | T28 | `tasks/T29.md` |
 | T30 | doc | 更新 CLAUDE.md 到当前实现现状 | completed | t30-claude-md-refresh | T29 | `tasks/T30.md` |
 | T31 | [#63·第四步] 让 `partial` 反映真实索引质量 | completed | t31-partial-honesty | T30 | `tasks/T31.md` |
-| T32 | [缺口·Git性能] 大仓库性能基线：固定数据集 + 阈值 | available | t32-perf-baseline | none | `tasks/T32.md` |
-| T33 | [缺口·Unit权限] 全量测绘与 ADR（零代码改动） | available | t33-unit-permission | none | `tasks/T33.md` |
-| T34 | [缺口·CI Actions] 第三方 Action：composite 展开 + 能力协商 | available | t34-actions-composite | none | `tasks/T34.md` |
-| T35 | [缺口·HA] 滚动升级与故障恢复演练设计（零代码改动） | available | t35-ha-drill | none | `tasks/T35.md` |
-| T36 | [缺陷·import] CNB 导入真机验证 | available | t36-cnb-live-verify | none | `tasks/T36.md` |
+| T32 | [缺口·Git性能] 大仓库性能基线：固定数据集 + 阈值 | completed | t32-perf-baseline | none | `tasks/T32.md` |
+| T33 | [缺口·Unit权限] 全量测绘与 ADR（零代码改动） | completed | t33-unit-permission | none | `tasks/T33.md` |
+| T34 | [缺口·CI Actions] 第三方 Action：composite 展开 + 能力协商 | completed | t34-actions-composite | none | `tasks/T34.md` |
+| T35 | [缺口·HA] 滚动升级与故障恢复演练设计（零代码改动） | completed | t35-ha-drill | none | `tasks/T35.md` |
+| T36 | [缺陷·import] CNB 导入真机验证 | completed | t36-cnb-live-verify | none | `tasks/T36.md` |
+| T37 | [缺陷·Git性能] 增量 fetch 对象级差集（实测放大 ~8000×） | available | t37-pack-haves-diff | T32 | `tasks/T37.md`（待写） |
+| T38 | [缺陷·Git性能] pack 全量进内存（large 实测 1.21 GB 驻留） | available | t38-pack-streaming | T32 | `tasks/T38.md`（待写） |
 
 ## Pre-Claim Checks
 

@@ -81,3 +81,6 @@ After implementation and task acceptance checks pass, the Agent changes only its
 | 2026-11-25 | T33（Unit 权限）与 T35（HA）**只出文档不改码** | 前者属 L2 认证语义变更且必改 `route_meta.rs` 与迁移序号；后者依赖 `deploy/`（禁区）与三层架构决策。两者都必须先有可审的设计，再由协调者裁决实现批次 | T33,T35 | 余曲 |
 | 2026-11-25 | T34 本轮只做 composite action 展开，node/docker 继续 fail closed | ADR-0001 已冻结执行边界；composite 是纯 YAML 展开、零新运行时，能吃到真实场景又不触碰沙箱。沙箱执行另开任务 | T34 | 余曲 |
 | 2026-11-25 | 本批四任务文件重叠为零，可同时认领 | T32 只碰 `rg-git/tests/`，T33/T35 只碰 `docs/plans/`，T34 只碰 `rg-ci/`，T36 只碰 `rg-core/src/import/` 的 CNB 段 | T32–T36 | 余曲 |
+| 2026-11-25 | T32–T36 全部合并（`e661a0fd` + `039907d5` + `2d718a5f`） | T32/T33/T35 文件零重叠先合；T34 带一个 revert（接线与错误传播原本混在一起，重排后各自可回滚）；T36 与 T34 不重叠 | T32–T36 | 余曲 |
+| 2026-11-25 | 新开 T37（增量 fetch 对象级差集）与 T38（pack 流式化） | T32 实测：medium 仓库改 1 文件后 fetch 生成 50MB/20224 对象，真实增量 6KB/8 对象（≈8000×）；根因是 `ObjectExpansion::TreeContents` 对每个待打包 commit 展开完整工作树，**commit 层已按 haves 剪枝**，缺的是对象层差集。T38 是 T32 实测 large pack 1.21 GB 全量驻留内存 | T37,T38 | 余曲 |
+| 2026-11-25 | T33/T35 的实现不在本批 | T33 需改 `route_meta.rs`(846 行) 与迁移号段；T35 需改 `deploy/` 与 DB/存储/队列三层。两者先出可审设计，实现另开批次 | T33,T35 | 余曲 |
