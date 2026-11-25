@@ -10,6 +10,7 @@
 //! GET https://api.cnb.cool/{owner}/{repo}/-/issues/{number} → { ..., "body": "..." }
 //! GET https://api.cnb.cool/{owner}/{repo}/-/issues/{n}/comments
 //! GET https://api.cnb.cool/{owner}/{repo}/-/pulls?state=all
+//! GET https://api.cnb.cool/{owner}/{repo}/-/labels
 //! ```
 //!
 //! Three things differ from every other source and each one has cost a real
@@ -51,11 +52,16 @@ pub struct CnbUser {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct CnbLabel {
-    #[serde(default)]
-    pub name: Option<String>,
     /// Some endpoints send labels as bare strings instead of objects.
     #[serde(default)]
     pub id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// `#RRGGBB`, with the leading `#`.
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -92,16 +98,16 @@ impl CnbIssue {
 
     /// Label names, accepting both `{"name": "bug"}` and `"bug"`.
     pub fn label_names(&self) -> Vec<String> {
-        self.labels
-            .iter()
-            .filter_map(|value| match value {
-                serde_json::Value::String(name) => Some(name.clone()),
-                serde_json::Value::Object(map) => {
-                    map.get("name").and_then(|v| v.as_str()).map(str::to_string)
-                }
-                _ => None,
-            })
+        self.label_objects()
+            .into_iter()
+            .filter_map(|label| label.name)
             .collect()
+    }
+
+    /// Labels with the colour and description CNB sends, so the imported label
+    /// list matches the source instead of a wall of grey.
+    pub fn label_objects(&self) -> Vec<CnbLabel> {
+        label_objects_from(&self.labels)
     }
 }
 
@@ -161,20 +167,30 @@ impl CnbPull {
     }
 
     pub fn label_names(&self) -> Vec<String> {
-        label_names_from(&self.labels)
+        self.label_objects()
+            .into_iter()
+            .filter_map(|label| label.name)
+            .collect()
+    }
+
+    pub fn label_objects(&self) -> Vec<CnbLabel> {
+        label_objects_from(&self.labels)
     }
 }
 
-/// Accept both `{"name": "bug"}` and `"bug"`; a client that only handles one
-/// shape drops every label silently.
-fn label_names_from(labels: &[serde_json::Value]) -> Vec<String> {
+/// Accept both `{"name": "bug", "color": "#ff0000"}` and `"bug"`; a client that
+/// only handles one shape drops every label silently.
+fn label_objects_from(labels: &[serde_json::Value]) -> Vec<CnbLabel> {
     labels
         .iter()
         .filter_map(|value| match value {
-            serde_json::Value::String(name) => Some(name.clone()),
-            serde_json::Value::Object(map) => {
-                map.get("name").and_then(|v| v.as_str()).map(str::to_string)
-            }
+            serde_json::Value::String(name) => Some(CnbLabel {
+                id: None,
+                name: Some(name.clone()),
+                description: None,
+                color: None,
+            }),
+            serde_json::Value::Object(_) => serde_json::from_value(value.clone()).ok(),
             _ => None,
         })
         .collect()
@@ -309,6 +325,16 @@ impl CnbClient {
             .await
     }
 
+    /// Every label defined on the repository, including ones no issue uses.
+    ///
+    /// `/-/labels` exists and paginates (it answers `repo-notes:r` permission);
+    /// `/-/issues/labels` is the one that 404s. Deriving the label set from the
+    /// issues alone drops unused labels and their colours, which a migrated
+    /// repository then cannot recreate from its own data.
+    pub async fn list_labels(&self, repo: &CnbRepo) -> Result<Vec<CnbLabel>> {
+        self.paginate(&format!("/{}/-/labels", repo.path())).await
+    }
+
     pub async fn list_issue_comments(
         &self,
         repo: &CnbRepo,
@@ -416,6 +442,25 @@ mod tests {
             issue.author.as_ref().map(|a| a.username.as_str()),
             Some("cnb.lengyuqu")
         );
+    }
+
+    /// Captured from `cnb/feedback/-/labels`: the object carries a colour and a
+    /// description. Deriving labels from issue names alone threw both away and
+    /// painted every label the same grey.
+    #[test]
+    fn labels_carry_the_colour_and_description_the_api_sends() {
+        let payload = r##"{
+            "number": "5534", "title": "t", "state": "open",
+            "labels": [
+                {"id": "1838192555308494848", "name": "feature request", "description": "", "color": "#E8FCF4"},
+                {"id": "1845752338999881728", "name": "已解决:待发布", "description": "released next", "color": "#E8FCF4"}
+            ]
+        }"##;
+        let issue: CnbIssue = serde_json::from_str(payload).unwrap();
+        let labels = issue.label_objects();
+        assert_eq!(labels[0].name.as_deref(), Some("feature request"));
+        assert_eq!(labels[0].color.as_deref(), Some("#E8FCF4"));
+        assert_eq!(labels[1].description.as_deref(), Some("released next"));
     }
 
     /// Both shapes appear in the wild; a client that only handles objects drops

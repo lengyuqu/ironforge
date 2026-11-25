@@ -27,7 +27,7 @@ use rg_db::ops::{
 
 use crate::error::{CoreError, CoreResult};
 use crate::import::cnb_client::{
-    parse_cnb_url, CnbClient, CnbComment, CnbIssue, CnbPull, CnbPullRef, CnbUser,
+    parse_cnb_url, CnbClient, CnbComment, CnbIssue, CnbLabel, CnbPull, CnbPullRef, CnbUser,
 };
 use crate::import::github_client::{
     GitHubClient, GitHubComment, GitHubIssue, GitHubLabel, GitHubMilestone, GitHubPR, GitHubRef,
@@ -1372,20 +1372,44 @@ async fn run_cnb_import(
         update_stage(db, task.id, "importing", 20, "Repository cloned").await?;
     }
 
-    // Step 2: issues (and the labels they carry — CNB has no repository-level
-    // label list endpoint; its `/issues/labels` answers 404)
+    // Step 2: issues (and the labels they carry)
     if task.import_issues || task.import_labels {
         update_stage(db, task.id, "importing", 30, "Fetching issues...").await?;
         let issues = client.list_issues(&source).await?;
 
         if task.import_labels {
-            let mut names: Vec<String> = issues
+            // `/-/labels` is the repository's own label set: it includes labels
+            // no issue currently uses, and carries the colour and description.
+            // Deriving labels from the issues alone loses both. The endpoint is
+            // not critical — an instance that lacks it still gets the labels
+            // that are actually in use.
+            let mut labels = match client.list_labels(&source).await {
+                Ok(labels) => labels,
+                Err(error) => {
+                    tracing::warn!(%error, "CNB: failed to list repository labels");
+                    Vec::new()
+                }
+            };
+            for issue in &issues {
+                labels.extend(issue.label_objects());
+            }
+            let labels = dedupe_labels(labels);
+            // Object-shaped labels carry a colour and description; bare-string
+            // ones can only contribute a name. Importing them through the
+            // matching helper preserves both instead of flattening every label
+            // to the same grey.
+            let (described, bare): (Vec<&CnbLabel>, Vec<&CnbLabel>) = labels
                 .iter()
-                .flat_map(|issue| issue.label_names())
+                .partition(|label| label.color.is_some() || label.description.is_some());
+            let github_labels: Vec<GitHubLabel> =
+                described.iter().filter_map(|label| cnb_label_to_github(label)).collect();
+            let mut count = import_github_labels(db, repo_id, &github_labels).await?;
+            let bare_names: Vec<String> = bare
+                .iter()
+                .filter_map(|label| label.name.clone())
                 .collect();
-            names.sort();
-            names.dedup();
-            stats.labels_imported = import_label_names(db, repo_id, &names).await?;
+            count += import_label_names(db, repo_id, &bare_names).await?;
+            stats.labels_imported = count;
         }
 
         if task.import_issues {
@@ -1540,6 +1564,38 @@ fn cnb_comment_to_review(comment: &CnbComment) -> GitHubReview {
     }
 }
 
+/// One row per label name; the repository-level definition comes first, so it
+/// wins over the same label seen on an issue.
+fn dedupe_labels(labels: Vec<CnbLabel>) -> Vec<CnbLabel> {
+    let mut seen = std::collections::HashSet::new();
+    labels
+        .into_iter()
+        .filter(|label| match label.name.as_deref() {
+            Some(name) if !name.is_empty() => seen.insert(name.to_string()),
+            _ => false,
+        })
+        .collect()
+}
+
+/// Map a CNB label onto the shared shape, keeping its colour and description.
+fn cnb_label_to_github(label: &CnbLabel) -> Option<GitHubLabel> {
+    let name = label.name.as_deref().filter(|name| !name.is_empty())?;
+    Some(GitHubLabel {
+        id: label
+            .id
+            .as_deref()
+            .and_then(|id| id.parse().ok())
+            .unwrap_or(0),
+        name: name.to_string(),
+        color: label
+            .color
+            .clone()
+            .filter(|color| !color.is_empty())
+            .unwrap_or_else(|| "ededed".to_string()),
+        description: label.description.clone().filter(|text| !text.is_empty()),
+    })
+}
+
 /// Map a CNB issue onto the shared issue shape.
 ///
 /// CNB has no milestone, so `milestone` stays `None`; labels are synthesised
@@ -1551,14 +1607,9 @@ fn cnb_issue_to_github(issue: &CnbIssue) -> GitHubIssue {
         body: issue.body.clone(),
         state: issue.state.clone(),
         labels: issue
-            .label_names()
-            .into_iter()
-            .map(|name| GitHubLabel {
-                id: 0,
-                name,
-                color: "ededed".to_string(),
-                description: None,
-            })
+            .label_objects()
+            .iter()
+            .filter_map(cnb_label_to_github)
             .collect(),
         milestone: None,
         user: cnb_user(issue.author.as_ref()),
@@ -1590,14 +1641,9 @@ fn cnb_pull_to_github(pull: &CnbPull) -> GitHubPR {
         head: cnb_ref(pull.head.as_ref()),
         base: cnb_ref(pull.base.as_ref()),
         labels: pull
-            .label_names()
-            .into_iter()
-            .map(|name| GitHubLabel {
-                id: 0,
-                name,
-                color: "ededed".to_string(),
-                description: None,
-            })
+            .label_objects()
+            .iter()
+            .filter_map(cnb_label_to_github)
             .collect(),
         milestone: None,
         created_at: pull.created_at.clone(),
