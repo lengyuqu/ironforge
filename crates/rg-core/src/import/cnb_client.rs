@@ -31,8 +31,11 @@ const DEFAULT_BASE: &str = "https://api.cnb.cool";
 const PAGE_SIZE: usize = 100;
 /// CNB answers `429 {"errcode":8,"errmsg":"Too many requests..."}` once the
 /// import's N+1 requests (two list calls, one detail and one comment call per
-/// issue or pull) exceed its window. Live: 132 requests in ~30s tripped it.
-const MAX_ATTEMPTS: usize = 4;
+/// issue or pull) exceed its window. Live: 132 requests in ~30s tripped it, and
+/// two imports at once still hit the limit after six attempts — one pull body
+/// was lost that way. Eight attempts cover ~90s of backoff, longer than a
+/// concurrent import takes to finish and release the window.
+const MAX_ATTEMPTS: usize = 8;
 const RETRY_BASE_MS: u64 = 1_000;
 
 /// A repository identifier in CNB's `owner/repo` form.
