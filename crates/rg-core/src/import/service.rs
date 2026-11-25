@@ -1331,9 +1331,10 @@ async fn import_github_releases(
 ///
 /// CNB pulls carry merge state outside `state` (`state: closed` plus
 /// `is_merged`), call a draft "wip", and send full refs — all translated in
-/// [`cnb_pull_to_github`]. Reviews are not imported: CNB exposes a
-/// `review_count` but has no review-list endpoint, so a review would be a
-/// guess.
+/// [`cnb_pull_to_github`]. Pull-request discussion comments are imported as
+/// `action: comment` rows in `pr_reviews`. Formal review verdicts are not
+/// imported: CNB reports a `review_count` but exposes no review-list endpoint,
+/// so an "approved" row would be a guess.
 async fn run_cnb_import(
     db: &DatabaseConnection,
     task: &ImportTask,
@@ -1477,8 +1478,15 @@ async fn run_cnb_import(
                 .list_pull_comments(&source, &pull.number)
                 .await
                 .unwrap_or_default();
-            let converted_comments: Vec<GitHubComment> =
-                comments.iter().map(cnb_comment_to_github).collect();
+            // A pull-request discussion is a review, not an issue comment.
+            // Handing these to the shared importer as `comments` wrote them to
+            // `issue_comments` with the pull-request id in `issue_id`; no row in
+            // `issues` has that id, so they were orphans the statistics counted
+            // and nothing could read — the exact defect the GitLab migration
+            // found. Passing them as `COMMENTED` reviews lands them in
+            // `pr_reviews` with `action = comment`, where a discussion belongs,
+            // without touching the shared importer.
+            let reviews: Vec<GitHubReview> = comments.iter().map(cnb_comment_to_review).collect();
             let converted = cnb_pull_to_github(&pull);
             let empty_user_map = HashMap::new();
             let empty_milestone_map = HashMap::new();
@@ -1486,8 +1494,8 @@ async fn run_cnb_import(
                 db,
                 repo_id,
                 &converted,
-                &converted_comments,
                 &[],
+                &reviews,
                 &empty_user_map,
                 &empty_milestone_map,
             )
@@ -1496,6 +1504,7 @@ async fn run_cnb_import(
                 tracing::warn!(number = %pull.number, %error, "CNB: failed to import pull request");
             } else {
                 stats.prs_imported += 1;
+                stats.pr_reviews_imported += reviews.len();
             }
         }
     }
@@ -1511,6 +1520,24 @@ fn cnb_user(user: Option<&CnbUser>) -> Option<GitHubUser> {
         avatar_url: None,
         user_type: None,
     })
+}
+
+/// A comment on a pull request, as the `pr_reviews` row it becomes.
+///
+/// `COMMENTED` is the review state the shared importer maps to `action =
+/// comment`; the comment's own timestamp is carried as `submitted_at`.
+fn cnb_comment_to_review(comment: &CnbComment) -> GitHubReview {
+    GitHubReview {
+        id: comment
+            .id
+            .as_deref()
+            .and_then(|id| id.parse().ok())
+            .unwrap_or(0),
+        user: cnb_user(comment.author.as_ref()),
+        state: "COMMENTED".to_string(),
+        body: comment.body.clone(),
+        submitted_at: Some(comment.created_at.clone()),
+    }
 }
 
 /// Map a CNB issue onto the shared issue shape.
