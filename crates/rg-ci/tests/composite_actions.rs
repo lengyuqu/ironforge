@@ -502,16 +502,15 @@ fn a_local_composite_is_expanded_from_the_workflow_commit() {
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .expect("git is installed");
+    // Through the gateway: `test_no_raw_git_command_in_crates` guards the whole
+    // workspace, tests included, so fixtures spawn git the same way production
+    // does.
+    let gateway = rg_git::cli_gateway::GitCommandGateway::new().expect("git gateway");
+    let output = gateway.run(args, Some(dir)).expect("git is installed");
     assert!(
-        output.status.success(),
+        output.success(),
         "git {args:?} failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        output.stderr_str()
     );
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
+    output.stdout_str().trim().to_string()
 }

@@ -11,18 +11,17 @@ use rg_ci::{trigger_pipeline, TriggerPipelineParams};
 use rg_db::sea_orm::{NotSet, Set};
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .expect("git is installed");
+    // Through the gateway: `test_no_raw_git_command_in_crates` guards the whole
+    // workspace, tests included, so fixtures spawn git the same way production
+    // does.
+    let gateway = rg_git::cli_gateway::GitCommandGateway::new().expect("git gateway");
+    let output = gateway.run(args, Some(dir)).expect("git is installed");
     assert!(
-        output.status.success(),
+        output.success(),
         "git {args:?} failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        output.stderr_str()
     );
-    String::from_utf8_lossy(&output.stdout).trim().to_string()
+    output.stdout_str().trim().to_string()
 }
 
 /// A bare repository with one commit, laid out like the server's data
@@ -45,11 +44,11 @@ fn seed_repository(root: &Path, files: &[(&str, &str)]) -> (PathBuf, String) {
     let owner = root.join("owner");
     std::fs::create_dir_all(&owner).unwrap();
     let bare = owner.join("ci.git");
-    let status = std::process::Command::new("git")
-        .args(["clone", "--bare", "-q"])
-        .arg(&worktree)
-        .arg(&bare)
-        .status()
+    let gateway = rg_git::cli_gateway::GitCommandGateway::new().expect("git gateway");
+    let worktree_arg = worktree.to_string_lossy().to_string();
+    let bare_arg = bare.to_string_lossy().to_string();
+    let status = gateway
+        .run(&["clone", "--bare", "-q", &worktree_arg, &bare_arg], None)
         .expect("git is installed");
     assert!(status.success(), "bare clone failed");
     (bare, sha)
