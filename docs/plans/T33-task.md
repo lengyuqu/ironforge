@@ -42,7 +42,7 @@ $ grep -rn "can_write_repo\|can_read_repo\|can_admin_repo\|fn can_" crates/*/src
 | 指标 | 数值 |
 |---|---:|
 | grep 原始命中 | 95 |
-| 真实 handler 级判断点 | **60** |
+| 业务代码直接调用点 | **60** |
 | 与任务卡估计（95）的差异 | −36.8%（口径不同：命中含注释/定义/`use`/日志） |
 | handler 侧通用守卫调用（间接） | 182 次 / 34 文件 |
 | `route_meta.rs` `ROUTES` 总条数 | 266（199 `repo` + 3 `other_repos` + 27 `admin` + 38 `user`；第 529 行另有一条非路由模式） |

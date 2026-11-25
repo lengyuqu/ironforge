@@ -436,7 +436,7 @@ S7 依赖 S4 全绿 + 两个发布周期
 
 ## 12. 验收清单（实现任务照此验收）
 
-1. `repo_unit_permissions` 在 SQLite / PG / MySQL 三后端迁移 + 回填成功，行数 = 24 × collaborator 数。
+1. `repo_unit_permissions` 在 SQLite / PG / MySQL 三后端迁移 + 回填成功，行数 = 8 × collaborator 数（每个老角色展开为 8 个 unit）。
 2. `unit_model=off` 时全量测试与基线一致（行为零变化）。
 3. `unit_model=shadow` 跑一个发布周期，`unit_permission_divergence` 事件为 0。
 4. 以下负向用例全部 403：
