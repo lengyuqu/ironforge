@@ -1053,4 +1053,46 @@ mod tests {
         assert!(RunnerCapabilities::from_labels(["self-hosted", "ACTIONS-V1"]).actions_v1);
         assert!(!RunnerCapabilities::from_labels(["self-hosted"]).actions_v1);
     }
+
+    #[test]
+    fn clone_failures_are_classified_as_network_or_missing_ref() {
+        assert_eq!(
+            classify_clone_error(
+                "fatal: unable to access 'https://example.invalid/a/b.git/': Could not resolve host: example.invalid"
+            ),
+            ActionErrorKind::Network
+        );
+        assert_eq!(
+            classify_clone_error("fatal: Remote branch v9 not found in upstream origin"),
+            ActionErrorKind::RefNotFound
+        );
+        assert_eq!(
+            classify_clone_error("fatal: couldn't find remote ref refs/heads/nope"),
+            ActionErrorKind::RefNotFound
+        );
+        assert_eq!(
+            classify_clone_error("warning: Could not find remote branch v9 to clone."),
+            ActionErrorKind::RefNotFound
+        );
+        assert_eq!(
+            classify_clone_error("fatal: something unexpected"),
+            ActionErrorKind::Fetch
+        );
+    }
+
+    #[test]
+    fn clone_error_messages_name_only_the_reference() {
+        for kind in [
+            ActionErrorKind::Network,
+            ActionErrorKind::RefNotFound,
+            ActionErrorKind::Fetch,
+        ] {
+            let message = clone_error_message(kind, "owner", "repo", "v1");
+            assert!(message.contains("owner/repo@v1"), "{message}");
+            assert!(
+                !message.contains("http") && !message.contains(".tmp"),
+                "no clone URL or cache path expected: {message}"
+            );
+        }
+    }
 }
