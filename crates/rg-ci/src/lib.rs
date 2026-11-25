@@ -52,25 +52,6 @@ fn invalid_config(message: impl Into<String>) -> anyhow::Error {
     anyhow::Error::new(CoreError::invalid_input(message))
 }
 
-/// "There is no applicable Gitea workflow at this commit", and nothing else.
-///
-/// Used as a typed marker rather than a message match: only this error lets
-/// `read_ci_config` fall back to `.ironforge-ci.yml`. Every other failure — a
-/// workflow that does not parse, cannot be expanded, or uses an unsupported
-/// action — must reach the user. Swallowing those turned "the workflow is
-/// wrong" into "no CI config found", which is why an unsupported `uses:` looked
-/// like it was being silently ignored.
-#[derive(Debug)]
-struct NoWorkflows(&'static str);
-
-impl std::fmt::Display for NoWorkflows {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0)
-    }
-}
-
-impl std::error::Error for NoWorkflows {}
-
 // M-14: TriggerPipelineParams and has_ci_config are now defined in rg-core.
 // Re-export for backward compatibility with any code that still imports from rg_ci.
 pub use rg_core::ci::{has_ci_config, ResumePipelineParams, TriggerPipelineParams};
@@ -639,17 +620,12 @@ fn read_ci_config(
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
-    // Try Gitea Actions format first. Only `NoWorkflows` — no directory, or no
-    // workflow matching this event — is a reason to fall back.
-    match try_read_gitea_workflows(&repo, commit_sha, ref_name, event) {
-        Ok(config) => {
-            tracing::info!("Using Gitea Actions workflow from .gitea/workflows/");
-            return Ok(config);
-        }
-        Err(error) if error.downcast_ref::<NoWorkflows>().is_some() => {
-            tracing::debug!(commit = %commit_sha, %error, "no applicable Gitea workflow");
-        }
-        Err(error) => return Err(error),
+    // Try Gitea Actions format first. `None` means there is nothing to run
+    // here; every failure propagates, so a workflow that exists but is broken
+    // keeps its own error instead of turning into "no CI config found".
+    if let Some(config) = try_read_gitea_workflows(&repo, commit_sha, ref_name, event)? {
+        tracing::info!("Using Gitea Actions workflow from .gitea/workflows/");
+        return Ok(config);
     }
 
     // Fall back to native .ironforge-ci.yml
@@ -679,25 +655,28 @@ fn read_ci_config(
 
 /// Try to find and parse Gitea Actions workflow files in `.gitea/workflows/`.
 ///
-/// `NoWorkflows` means "nothing to run here": the directory is absent, or no
-/// workflow matches the event. Everything else is an error — the tree is not a
-/// directory, a reusable-workflow or composite expansion failure, an unsupported
-/// action, a bad condition, or a directory in which every file fails to parse. One
-/// unparseable file next to a working one is still skipped with a `debug` log;
-/// it is only surfaced when it is the reason nothing ran, because otherwise a
-/// typo in the only workflow would be indistinguishable from "no CI config".
+/// Returns `Ok(None)` when there is nothing to run here — the directory is
+/// absent, or no workflow matches the event — so the caller can fall back to
+/// the native config.
+///
+/// Everything else is an error: `.gitea/workflows` existing but not being a
+/// tree, the default branch failing to resolve, a reusable-workflow or composite
+/// expansion failure (including a cycle or the depth limit), an unsupported
+/// action, or a bad condition. A file that cannot be read or parsed is skipped
+/// with a `debug` log, so a directory in which every file is broken looks like
+/// "no workflow matches"; tightening that is a follow-up recorded in
+/// `docs/plans/T34-plan.md` §6.
 fn try_read_gitea_workflows(
     repo: &gix::Repository,
     commit_sha: &str,
     ref_name: &str,
     event: &str,
-) -> Result<CiConfig> {
+) -> Result<Option<CiConfig>> {
     let tree_revspec = format!("{}:.gitea/workflows", commit_sha);
-    let object_id = repo
-        .rev_parse_single(tree_revspec.as_str())
-        .map_err(|_| {
-            anyhow::Error::new(NoWorkflows("no .gitea/workflows directory"))
-        })?;
+    let object_id = match repo.rev_parse_single(tree_revspec.as_str()) {
+        Ok(object_id) => object_id,
+        Err(_) => return Ok(None),
+    };
 
     let object = object_id.object()?;
     let tree = object
@@ -755,17 +734,11 @@ fn try_read_gitea_workflows(
         cache_parent.join(".ironforge").join("actions"),
     );
 
-    let mut parse_errors: Vec<(String, String)> = Vec::new();
-    let mut parsed_any = false;
     for (name, yml) in &workflow_sources {
         let workflow = match gitea_actions::GiteaWorkflow::parse(yml) {
-            Ok(w) => {
-                parsed_any = true;
-                w
-            }
+            Ok(w) => w,
             Err(e) => {
                 tracing::debug!("Skipping .gitea/workflows/{} (parse error: {})", name, e);
-                parse_errors.push((name.clone(), e.to_string()));
                 continue;
             }
         };
@@ -821,27 +794,14 @@ fn try_read_gitea_workflows(
     }
 
     if all_jobs.is_empty() {
-        // Only when nothing ran *because* every file was unparseable does the
-        // parse error reach the user; a broken file next to working ones stays
-        // a skip. Reporting "no CI config" for a directory of typos is the
-        // silent degradation this whole path is meant to stop.
-        if !parsed_any {
-            if let Some((name, error)) = parse_errors.first() {
-                return Err(invalid_config(format!(
-                    "failed to parse .gitea/workflows/{name}: {error}"
-                )));
-            }
-        }
-        return Err(anyhow::Error::new(NoWorkflows(
-            "no matching workflows found in .gitea/workflows/",
-        )));
+        return Ok(None);
     }
 
-    Ok(CiConfig {
+    Ok(Some(CiConfig {
         stages: Some(all_stages),
         concurrency: None, // per-workflow concurrency not merged
         jobs: all_jobs,
-    })
+    }))
 }
 
 /// Get the default branch name of the repository.
@@ -1236,24 +1196,25 @@ mod matrix_tests {
         assert!(!message.contains("no CI config found"), "{message}");
     }
 
-    /// A workflow that cannot even be parsed used to be skipped, so a repository
-    /// whose only workflow was a typo looked like it had no CI at all.
+    /// `.gitea/workflows` exists but is a file, not a directory: that is a
+    /// configuration mistake, so it must be reported rather than fall back to
+    /// "no CI config found".
     #[test]
-    fn an_unparseable_workflow_reports_its_parse_error() {
+    fn a_workflows_file_instead_of_a_directory_is_an_error() {
         let temp = tempfile::tempdir().unwrap();
         let sha = commit_workflow_files(
             temp.path(),
             &[
-                (".gitea/workflows/ci.yml", "on: push\njobs: [unclosed\n"),
+                (".gitea/workflows", "on: push\n"),
                 (".ironforge-ci.yml", NATIVE_CONFIG),
             ],
         );
 
         let error = read_ci_config(temp.path(), &sha, "refs/heads/main", "push")
-            .expect_err("the parse error must reach the user");
+            .expect_err("a file where the directory belongs must be reported");
         let message = format!("{error:#}");
         assert!(
-            message.contains("failed to parse .gitea/workflows/ci.yml"),
+            message.contains(".gitea/workflows is not a directory"),
             "{message}"
         );
         assert!(!message.contains("no CI config found"), "{message}");

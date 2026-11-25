@@ -91,15 +91,14 @@ $ git show 64861cf9:crates/rg-ci/src/lib.rs | sed -n '619,623p'
 
 改法（`lib.rs`）：
 
-- 新增 `NoWorkflows(&'static str)` 标记错误，只表示「这个 commit 没有可用的 Gitea workflow」；
-- `read_ci_config` 用 `error.downcast_ref::<NoWorkflows>()` 判断是否回退，**不用错误文案做控制流**
-  （改一个字就悄悄回到静默降级，比原 bug 更难发现）；
-- `.gitea/workflows` 不存在、或没有匹配 event 的 workflow → `NoWorkflows`，可回退；
-- `.gitea/workflows` 不是目录、`get_default_branch` 失败 → 普通错误，**冒泡**（那是配置错误，
-  回退会掩盖它）；
-- parse / reusable 展开 / composite 展开 / 校验失败 → 冒泡。唯一例外：一个目录里**所有**文件都
-  parse 失败时，报第一条 parse 错误（`failed to parse .gitea/workflows/<name>: ...`）；坏文件旁边
-  还有能跑的文件时仍然跳过，保持多文件仓库的兼容性。
+- `try_read_gitea_workflows` 返回 `Result<Option<CiConfig>>`：`None` 在**类型上**表示「这个 commit
+  没有可跑的 Gitea workflow」，`?` 一行完成冒泡，不需要运行时判别错误类型；
+- `read_ci_config` 只在 `Some` 时使用，`None` 才回退到 `.ironforge-ci.yml`；
+- `.gitea/workflows` **不存在**、或**没有匹配 event 的 workflow** → `None`，可回退；
+- `.gitea/workflows` **存在但不是目录** → 普通错误，冒泡（用户把目录建成了文件是配置错误，
+  回退会让他看到 "no CI config found"，明明他建了 workflows）；
+- `get_default_branch` 失败、reusable 展开失败、composite 展开失败（循环/深度）、
+  校验失败（unsupported action / 坏条件）→ 冒泡。
 
 用户可见差异（`actions/setup-node@v4`，未缓存且未配置远程源）：
 
@@ -109,6 +108,13 @@ $ git show 64861cf9:crates/rg-ci/src/lib.rs | sed -n '619,623p'
       is not cached and no remote action source is configured, so it cannot be fetched;
       a node or docker action would additionally require an actions-v1 runner, which is
       not implemented
+```
+
+`.gitea/workflows` 被建成文件时：
+
+```
+改前: no CI config found (.gitea/workflows/*.yml or .ironforge-ci.yml) at commit <sha>
+改后: .gitea/workflows is not a directory
 ```
 
 （若 Action 可获取，展开层能读出 `runs.using: node20`，文案会变成
@@ -323,26 +329,24 @@ impl RunnerCapabilities {
 | 递归拉取 submodule | ADR §2.3.5：默认不递归，需显式策略 |
 | 子 step 的 `working-directory` / `continue-on-error` | 现有扁平 step 模型不携带这两个字段，展开时忽略；属于结构化 step（CI-202 stage B）的范围 |
 | 多行输入值导出为 `INPUT_*` | 见 §4.1：为避免破坏现有未加引号的 `export` 行，只注入 shell 安全的值 |
+| **后续任务**：parse 失败的 workflow 文件当前逐个 `continue`，全部失败时归入 `Ok(None)` | 用户 5 个 workflow 全写坏时，会被告知「没有匹配的 workflow」并回退到 native，而不是「5 个文件都解析失败」。行为在本次之前就有，本轮不改（协调者裁决），应改为「存在 yml 但全部解析失败 → 报错」并补测试 |
 
 ## 7. 接线（`lib.rs`，范围外但验收必需，已获协调者授权）
 
 任务卡的 `Owned paths` 不含 `crates/rg-ci/src/lib.rs`，但展开必须接在 `read_ci_config`
-的读取链上，否则验收 2/3 无法成立。开工时已把两处精确 patch 与风险报告给协调者，获
-**A 方案**授权（并追加两个约束：错误判别必须用 `downcast`、第 2 处单独成 commit）。
-最终改动集中在一个函数体内，共三块：
+的读取链上，否则验收 2/3 无法成立。开工时已把精确 patch 与风险报告给协调者，获 **A 方案**授权，
+并要求第 2 处（错误传播）单独成 commit。
 
 ```rust
 // 1) 模块声明
 pub mod action_fetch;
 
-// 2) read_ci_config：只有 NoWorkflows 才回退
-match try_read_gitea_workflows(&repo, commit_sha, ref_name, event) {
-    Ok(config) => { /* info + return */ }
-    Err(error) if error.downcast_ref::<NoWorkflows>().is_some() => {
-        tracing::debug!(commit = %commit_sha, %error, "no applicable Gitea workflow");
-    }
-    Err(error) => return Err(error),
+// 2) read_ci_config：Option 在类型上区分「没有」与「出错」
+if let Some(config) = try_read_gitea_workflows(&repo, commit_sha, ref_name, event)? {
+    tracing::info!("Using Gitea Actions workflow from .gitea/workflows/");
+    return Ok(config);
 }
+// 否则回退 .ironforge-ci.yml
 
 // 3) try_read_gitea_workflows：reusable 展开之后、校验之前
 let cache_parent = if repo.is_bare() {
@@ -394,7 +398,7 @@ source is configured" fail closed。端到端测试用预热缓存覆盖这条�
 | 验收 2 | 含本地 + 缓存远程 composite 的 workflow 真走 `trigger_pipeline`，读回 job 脚本 | `creating_a_pipeline_expands_local_and_cached_remote_composites` |
 | 验收 3 | 含 `actions/setup-node@v4` 的 workflow → 创建 Pipeline 被拒，文案含 `actions-v1`、不含 `/Users/` `/private/` `/var/folders/` `ironforge-t34` `.ironforge/actions` | `creating_a_pipeline_refuses_a_node_action_with_actions_v1` |
 | lib.rs 回归 | 可解析但被拒的 workflow 不再变成 "no CI config found"（即使仓库有原生配置） | `a_rejected_workflow_is_not_reported_as_missing_config` |
-| lib.rs 回归 | 目录里唯一/全部文件 parse 失败 → 报 parse 错误 | `an_unparseable_workflow_reports_its_parse_error` |
+| lib.rs 回归 | `.gitea/workflows` 被建成文件 → 报 `.gitea/workflows is not a directory`，不回退 | `a_workflows_file_instead_of_a_directory_is_an_error` |
 | lib.rs 回归 | 坏文件旁边有能跑的 workflow → 仍然运行（兼容） | `a_broken_workflow_file_next_to_a_working_one_is_still_skipped` |
 | lib.rs 回归 | 原生配置只在没有可用 Gitea workflow 时使用 | `the_native_config_is_used_only_when_no_gitea_workflow_applies` |
 
