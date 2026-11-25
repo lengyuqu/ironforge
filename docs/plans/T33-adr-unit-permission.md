@@ -1,6 +1,6 @@
 # ADR-0002：仓库 Unit 级权限模型
 
-- Status: Proposed（待协调者裁决，本轮不实现）
+- Status: **Accepted**（2026-11-25 协调者裁决；实现尚未开始）
 - Date: 2026-11-25
 - Task: T33（`tasks/T33.md`）
 - Evidence: `docs/plans/T33-authorization-map.md`（95 行实测）、`docs/plans/T33-plan.md`（执行拆解）
@@ -83,8 +83,8 @@ pub enum Action {
 **未纳入但必须裁决的两类**：
 
 - `skills` / `mcp-servers`（12 条路由）：是仓库内的「制品注册表」，既像 packages 又像 code。
-  建议**先并入 `code`**（读走 code 读、发布走 code 写），未来需要独立治理时再拆；不新增 unit 以免
-  第一版就要 9 个 unit 的迁移。
+  **已裁决：并入 `code`**（读走 code 读、发布走 code 写），不新增 unit。若将来出现「只给 skills
+  不给代码」的真实诉求再拆（避免第一版多一个 unit 的迁移与 151 条之外的标注负担）。
 - `webhooks` / `mirror` / `push-mirror` / `branch-protection`（13 条路由）：属于**仓库设置**，
   继续要求仓库级 `admin`，不归任何业务 unit。否则「能写 code」就等价于「能配 webhook 外发代码」，
   是明确的提权。
@@ -313,7 +313,8 @@ unit_model = "off"      # off | shadow | on
 - 内容：`enum Unit { Code, Issues, Pulls, Releases, Wiki, Packages, Actions, Boards }`、
   `enum UnitPermission { Read, Write, Admin }`、`Unit::ALL`、`as_str`/`parse`、
   `UnitPermission::satisfies`。**不接线任何 handler。**
-- 验收：`cargo test -p rg-core --lib authorization::unit`
+- 另交付：D1 影响面报告（§11 的 SQL 在三后端各跑一次，给出 `users` / `repos` 数字与是否触发白名单）。
+- 验收：`cargo test -p rg-core --lib authorization::unit`；D1 报告随 S0 一起提交到 `docs/plans/T33-d1-impact.md`
 - 串行原因：S2/S5/S6 都要引用这些类型；先合入可避免三处各写一套。
 
 **S1 [串行，阻塞 S2]：迁移 + 实体 + ops**
@@ -423,16 +424,37 @@ S7 依赖 S4 全绿 + 两个发布周期
   `pulls.rs` 列表均只查 `can_read_repo`）。
 - 外部贡献者想报 issue，必须给 `read`，从而能 clone 全部私有代码（`rg-ssh/src/lib.rs:864`）。
 
-## 11. 需要协调者裁决的问题
+## 11. 裁决记录（2026-11-25，余曲）
 
-| ID | 问题 | 选项 | 建议 |
+| ID | 问题 | 裁决 | 落地要求 |
 |---|---|---|---|
-| D1 | 是否同时收紧「组织成员可读全部私有仓库」 | (a) 不动（unit 化不修复读泄露）(b) 引入 unit 级读团队 | 本轮选 (a)；(b) 单独立项，否则迁移与读模型变更耦合，无法回滚 |
-| D2 | `skills` / `mcp-servers` 是否独立 unit | (a) 并入 code (b) 新增 `registries` unit | (a)，第一版 unit 数控制在 8 |
-| D3 | `webhooks` / `mirror` 归 unit 还是仓库 admin | (a) 仓库 admin（现状）(b) `code:admin` | (a)，避免「能写 code 就能配外发 webhook」 |
-| D4 | `scope_expand` 批准人是否要求 `code:admin` | (a) 保持仓库 admin (b) 要求 code:admin | (b)，见 8.3 |
-| D5 | 迁移号段 | 需要协调者分配 | 建议 `m20261125_0000NN_*` 整段留给 T33 实现 |
-| D6 | `attachments.rs` 归属 | S4b 或 S4c 单方拥有 | 给 S4c（PR 附件路径更复杂） |
+| D1 | 是否收紧「组织成员可读全部私有仓库」 | **收紧，但先测影响面** | S0 必须先产出一份实测数字：多少仓库、多少用户会失去访问。**受影响用户 >10 或涉及 >3 个仓库时，先提供一次性过渡白名单再收紧**。读模型变更单独开关，不与 unit 迁移同批上线 |
+| D2 | `skills` / `mcp-servers` 是否独立 unit | **不独立，并入 `code`** | 12 条路由全部按 `code` 标注；不新增 unit |
+| D3 | `webhooks` / `mirror` 归 unit 还是仓库 admin | **保持仓库级 `admin`** | webhook 可外泄私有事件、mirror 可把整仓推到外部，均不可逆；不随 unit 放宽 |
+| D4 | `scope_expand` 批准人 | **强制 `code:admin`** | `evaluator` 中 `ScopeExpand` 的 `admins: true` 改为 `code:admin` 谓词；仓库 owner 仍可批（owner 隐式 code:admin），但仅 `issues:admin` 等 unit admin 不可批。必须加负向测试 |
+| D5 | 迁移号段 | **批准预留 `m20261125_0000NN` 整段** | 实现时不得使用该段之外的新号；与其它任务串行合入 |
+| D6 | `attachments.rs` 归属 | **按附件实际挂载的实体决定，默认 `issues`** | 代码事实：`AttachmentTarget` 区分 issue / PR / comment；S4 按目标分流，issue 与 issue-comment 走 `issues:*`，PR 与 PR-comment 走 `pulls:*`，文件本身由**一个**子任务（S4c）拥有以避免合并冲突 |
+
+### D1 的影响面查询（S0 交付物）
+
+```sql
+-- 会失去读权限的用户-仓库对：组织成员，且不是 owner、不是该仓库 collaborator
+SELECT COUNT(DISTINCT om.user_id) AS users,
+       COUNT(DISTINCT r.id)      AS repos
+FROM repositories r
+JOIN org_members om ON om.org_id = r.org_id
+WHERE r.deleted_at IS NULL
+  AND r.is_private = 1
+  AND om.user_id <> r.owner_id
+  AND NOT EXISTS (
+      SELECT 1 FROM repo_collaborators c
+      WHERE c.repo_id = r.id AND c.user_id = om.user_id
+  );
+```
+
+判定：`users > 10` 或 `repos > 3` → 必须附过渡白名单（一张 `repo_read_allowlist(repo_id,user_id,expires_at)` 表 +
+一个到期清理任务），否则直接收紧。三后端写法一致（`is_private` 在 MySQL/SQLite 是整数，PG 是 boolean，
+实现时按后端绑定）。
 
 ## 12. 验收清单（实现任务照此验收）
 
@@ -446,3 +468,5 @@ S7 依赖 S4 全绿 + 两个发布周期
    - 仅 `issues:admin` 的用户批准 `ProtectedBranchMerge`（第 8.2 第 2 点）。
 5. `route_metadata_tests` 对 151 条带 unit 的路由全部断言通过。
 6. `down` 后旧表数据完好、旧语义恢复（抽样 10 个仓库对比权限矩阵）。
+7. D1 影响面数字已产出；若 `users > 10` 或 `repos > 3`，过渡白名单表与到期清理已实现并测试。
+8. 仅 `issues:admin` 的用户批准 `scope_expand` 必须 403（D4）。
