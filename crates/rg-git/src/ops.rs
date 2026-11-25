@@ -1011,6 +1011,42 @@ enum PackObjectExpansion<'a> {
     },
 }
 
+/// Thread budget for the pack pipeline, from `IRONFORGE_PACK_THREADS`.
+///
+/// Unset — the default — leaves gix to use every core, which is the behaviour
+/// this server has always had. The knob exists because the pipeline's working
+/// set is roughly `threads x chunk of in-flight entries` (T38 measured ~208 MiB
+/// at 16 threads and ~123 MiB at 8 for a 20 000-commit repository), and a small
+/// host may prefer the slower, smaller setting. See `docs/plans/T38-plan.md`.
+///
+/// Read per call rather than cached: a pack takes seconds, one `getenv` does not
+/// matter, and it keeps the value testable.
+fn pack_thread_limit() -> Option<usize> {
+    parse_pack_threads(std::env::var("IRONFORGE_PACK_THREADS").ok().as_deref())
+}
+
+/// `None` means "let gix use every core".
+///
+/// `0`, an empty value and anything unparsable fall back to the default with a
+/// warning instead of being taken literally: silently encoding a pack on one
+/// thread would look like a mysterious 8x slowdown rather than a typo.
+fn parse_pack_threads(raw: Option<&str>) -> Option<usize> {
+    let raw = raw?;
+    match raw.trim().parse::<usize>() {
+        Ok(threads) if threads > 0 => Some(threads),
+        _ => {
+            static WARNED: std::sync::Once = std::sync::Once::new();
+            WARNED.call_once(|| {
+                tracing::warn!(
+                    value = raw,
+                    "IRONFORGE_PACK_THREADS must be a positive integer; using all cores"
+                );
+            });
+            None
+        }
+    }
+}
+
 /// Count the pack objects for `input_ids` under `expansion`.
 ///
 /// `db` must be an odb handle with pack unloading prevented; see
@@ -1034,7 +1070,7 @@ fn count_pack_objects(
         &Discard,
         &should_interrupt,
         output::count::objects::Options {
-            thread_limit: None,
+            thread_limit: pack_thread_limit(),
             chunk_size: 10,
             input_object_expansion: expansion,
         },
@@ -1131,6 +1167,7 @@ fn generate_pack_with<W: std::io::Write>(
         Box::new(Discard),
         output::entry::iter_from_counts::Options {
             allow_thin_pack: false,
+            thread_limit: pack_thread_limit(),
             ..Default::default()
         },
     )
@@ -2728,5 +2765,36 @@ mod tree_listing_tests {
         )
         .is_err());
         assert!(read_blobs(temp.path(), &[]).unwrap().is_empty());
+    }
+}
+
+/// T38: `IRONFORGE_PACK_THREADS` parsing. The variable only trades speed for
+/// memory, so the contract that matters is that a bad value never silently
+/// degrades into a one-thread pack.
+#[cfg(test)]
+mod pack_threads_tests {
+    use super::parse_pack_threads;
+
+    #[test]
+    fn unset_keeps_the_historical_behaviour() {
+        assert_eq!(parse_pack_threads(None), None);
+    }
+
+    #[test]
+    fn positive_values_are_forwarded() {
+        assert_eq!(parse_pack_threads(Some("1")), Some(1));
+        assert_eq!(parse_pack_threads(Some("8")), Some(8));
+        assert_eq!(parse_pack_threads(Some(" 16 ")), Some(16));
+    }
+
+    #[test]
+    fn zero_empty_and_garbage_fall_back_to_all_cores() {
+        // Not `Some(0)`: gix reads 0 as "all cores" too, but going through the
+        // warning path is what makes a typo visible in the logs.
+        assert_eq!(parse_pack_threads(Some("0")), None);
+        assert_eq!(parse_pack_threads(Some("")), None);
+        assert_eq!(parse_pack_threads(Some("   ")), None);
+        assert_eq!(parse_pack_threads(Some("eight")), None);
+        assert_eq!(parse_pack_threads(Some("-2")), None);
     }
 }

@@ -56,6 +56,10 @@ Ok(out)
 `FromEntriesIter::new(in_order, &mut out, ...)` 的 `W` 就是 `std::io::Write`
 （gix-pack 0.77 本来就支持），pack 逐 entry 编码后直接交给 sink。
 
+同一文件里还加了 `pack_thread_limit()` / `parse_pack_threads()`：
+`IRONFORGE_PACK_THREADS` 会同时传给 `count::objects` 与 `iter_from_counts` 的
+`Options.thread_limit`，用来把「内存 ↔ 速度」交给运维，默认不变（§6.6）。
+
 ### 3.2 `crates/rg-git/src/protocol/upload_pack.rs`：`stream_pack`
 
 ```text
@@ -285,22 +289,50 @@ medium ≤ 180 MiB，硬线仍是「并发 3 个不得 OOM」）。
 结论：**剩下的 200 MiB 是 gix 并行 entry 流水线的工作集**（生产端 16 路，消费端单线程，
 `InOrderIter` 里在飞的 chunk），不是我们的缓冲。
 
-**8 线程是这张表里性价比最高的一档**：内存在 pack 阶段降 41%（208 → 123 MiB），
-耗时只从 39.2 s 涨到 56.6 s（pack 阶段 +44%，端到端 clone 约 +26%）。比 4 线程
-（−46% 内存、+147% 时间）划算得多。本任务**没有**改默认值（不改默认行为），
-把它作为后续任务的首选候选记录在这里。
+本任务的取舍：**保留默认并行度，不用时间换内存**（RSS 降 8.4×，clone 反而快 18%）。
+砍并行度能把绝对值压到目标，但 4 线程要付 +147% 时间、且 3 并发仍到不了 400 MiB；
+8 线程是折中最优（§6.6），做成运行时旋钮交给运维，默认不动。team-lead 的裁决
+（接受实测值、按净增量口径验收、`IRONFORGE_PACK_THREADS` 并入本任务）即基于这组数据。
 
-砍并行度的代价，所以**没有**为了绝对值去动默认值：
+### 6.6 `IRONFORGE_PACK_THREADS`：把「内存 ↔ 速度」交给运维
 
-- single clone < 200 MiB → 需要 `thread_limit ≤ 4` → large clone **95.2 s**，
-  比 T37 基线 38.5 s 慢 **147%**，远破「不劣化 > 20%」；且 3 并发仍到不了 400 MiB。
-- 8 线程（内存优先档）→ pack 阶段 56.6 s（+44%），端到端 clone 约 +26%，
-  内存 123 MiB。这是**折中最好的一档**，留给后续任务（`thread_limit` 可配置），
-  本任务不改默认行为。
+`ops.rs` 读 `IRONFORGE_PACK_THREADS`，同时传给 `count::objects` 与 `iter_from_counts` 的
+`Options.thread_limit`。**不设 = 全部核心**（历史行为完全不变）；`0` / 空值 / 非法值
+一律 `warn!` 后回落默认，不会被字面当成 1 线程——否则一个 typo 会表现为「神秘的 8 倍
+变慢」，而不是一条能看见的告警。每次 pack 生成读一次环境变量（一次 `getenv`，相对
+秒级 pack 可忽略），换来实现可测（`tests/pack_threads.rs`）。
 
-本任务的取舍：保留默认并行度，RSS 降 8.4× 且 clone 更快 18%——
-**不用时间换内存**。team-lead 的裁决（接受实测值、按净增量口径验收、另开任务做
-`thread_limit` 可配置）记录在此，`tasks/T38.md` 由他更新。
+档位（large 数据集，pack 阶段实测）：
+
+| `IRONFORGE_PACK_THREADS` | pack 生成 | pack 阶段内存 | 建议场景 |
+|---|---|---|---|
+| 16（默认，不设） | 39.2 s | 208 MiB | ≥8 GB 空闲内存，追求 clone 速度 |
+| **8** | **56.6 s** | **123 MiB** | 4–8 GB，均衡 —— **最优点** |
+| 4 | 95.2 s | 113 MiB | <4 GB 或并发 clone 多 |
+| 1 | 331.8 s | 78 MiB | 只作对照，实际不可用 |
+
+8 线程是这张表的最优点：内存降 **41%**，pack 阶段只多 17 秒；相对 4 线程（内存再降
+10 MiB、时间多 39 秒），交易明显更好。
+
+端到端交叉验证（medium，真实服务 + 真 clone；16 线程那行是 §6.2 的数字）：
+
+| 设置 | medium 峰值 | 净增量 | clone 耗时 |
+|---|---|---|---|
+| 不设（16） | 161 MiB | 77 MiB | 5.05 s |
+| `=8` | 136 MiB | **51 MiB** | 5.87 s（+16%） |
+| `=1` | **98 MiB** | **13 MiB** | 38.91 s |
+
+`=1` 这行同时证明两件事：旋钮**真的生效**（峰值 161 → 98、耗时 5 → 39 s），以及
+「净增量几十 MB」在关掉并行后确实成立（13 MiB）——反过来说，那 200 MiB 就是并行流水线，
+不是泄漏，也不是我们的缓冲。
+
+**默认值故意不改成 8。** 299 MiB 单 clone、782 MiB 三并发在 4 GB 以上机器都安全；
+而默认 8 线程会让每个用户 clone 慢约 26%。为最紧的内存场景牺牲多数场景，等于替用户做
+了他们没要求的交易。要省内存的部署自己设一个环境变量即可。
+
+正确性不随旋钮变：`tests/pack_threads.rs` 用 `IRONFORGE_PACK_THREADS=1` 生成的 pack 与
+默认设置生成的 pack 各自 `git index-pack` 进独立仓库，比对
+`git cat-file --batch-all-objects --batch-check` 的 `(oid, type, size)` 列表，完全相等。
 
 ## 7. 性能
 
@@ -341,18 +373,29 @@ ops 层（`pack_for_wants_into` → `io::sink()`，large）：**39.2 s**，T37 �
 冒上来，而不是静默截断；`upload_pack.rs` 内 3 个单测覆盖分帧等价、非 sideband 原样透传、
 生成器失败上抛。
 
+6. **线程预算不改变内容**：`tests/pack_threads.rs` 用 `IRONFORGE_PACK_THREADS=1` 与默认
+   设置各产一份 pack，对象集合（oid/type/size 排序列表）完全相等；`ops.rs` 内 3 个单测
+   覆盖 `0` / 空值 / 非法值回落到默认（不会被当成 1 线程）。
+
 ## 9. 未做项
 
 - **receive-pack 流式化**：不做，代码里写了原因（§3.4）。
 - **把 `"packfile"` section 头推迟到第一个 entry 编码成功之后**：可以让「want 不可解析」
   这类错误重新变成 HTTP 500，但需要改协议写出顺序（还会牵涉 stateless RPC 的
   `ResponseEnd`），属于协议层改动。
-- **pack 线程数上限 / 内存优先级**：§6.5 的数据说明这是唯一能把 RSS 再压下去的手段，
-  但它与「不劣化 > 20%」冲突，且属于运维策略（任务卡也把「并发 pack 数量上限/限流」
-  划到范围外）。
-- **`counts` 本身的内存**（321 106 个 `Count`）：不是瓶颈（§6.4 第一个阶段 74 MiB，
-  含 odb 与遍历状态）。
+- **pack 线程数的默认值**：`IRONFORGE_PACK_THREADS` 已经可用（§6.6），但**默认仍是
+  「全部核心」**，没有替运维做选择。把 8 线程当默认值需要另一次有意识的决定。
+- **并发 pack 数量上限 / 限流**：属于运维层（任务卡明确划到范围外），未做。
+- **`counts` 本身的内存**（321 106 个 `Count` = 17.2 MiB）：不是瓶颈（§6.4）。
 - **`pack_universe` 走磁盘的优化**（`fork_repo`）：非协议路径，未动。
+
+## 9.1 已知限制（记录，不修）
+
+- **gix 的 pack 错误粒度太粗**：pack 生成中途失败时，`anyhow` 链到
+  `failed to write pack entry: Pack entry input iterator failed` 就断了，看不出是**哪个
+  oid** 读失败（§4.1 的端到端证据）。要修得包住 gix 的 error 并附上当前 entry 的 oid，
+  属于给上游打补丁，超出本任务范围。运维含义：遇到这条日志时，需要靠 `git fsck` 或
+  对象库层面的检查来定位具体损坏对象。
 
 ## 10. 复现
 
@@ -361,12 +404,15 @@ ops 层（`pack_for_wants_into` → `io::sink()`，large）：**39.2 s**，T37 �
 IRONFORGE_PERF_KEEP_DIR=/tmp/t38-large IRONFORGE_PERF_DATASET=large \
   cargo test -p rg-git --test perf_baseline -- --ignored --nocapture perf_materialize_dataset
 
+# 可选：内存优先档（§6.6）
+IRONFORGE_PACK_THREADS=8 ironforge serve …
+
 # 服务 + 真客户端 + RSS 采样：见 §6.1 的脚本（`PROTO=1` 走 V1），核心是
 #   ironforge serve --repo-root … --db-url sqlite://… --jwt-secret …
 #   while :; do ps -o rss= -p "$PID"; sleep 0.05; done | sort -n | tail -1
 #   git clone http://…/owner/repo.git
 
-cargo test -p rg-git        # 含 pack_streaming / 分帧单测
+cargo test -p rg-git        # 含 pack_streaming / pack_threads / 分帧单测
 cargo test -p rg-http       # 含 V1/V2 端到端 clone
 cargo test -p rg-ci
 ```

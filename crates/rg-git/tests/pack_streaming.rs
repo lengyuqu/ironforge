@@ -254,13 +254,18 @@ fn streamed_incremental_fetch_pack_has_the_same_objects() {
     let tip = source.head();
     let server = bare_server(&source);
 
-    let buffered = pack_for_wants(&server, std::slice::from_ref(&tip), &[parent.clone()], &[])
-        .expect("buffered pack");
+    let buffered = pack_for_wants(
+        &server,
+        std::slice::from_ref(&tip),
+        std::slice::from_ref(&parent),
+        &[],
+    )
+    .expect("buffered pack");
     let mut recorder = ChunkRecorder::default();
     pack_for_wants_into(
         &server,
         std::slice::from_ref(&tip),
-        &[parent],
+        std::slice::from_ref(&parent),
         &[],
         &mut recorder,
     )
