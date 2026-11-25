@@ -151,7 +151,7 @@ Post-restore quiesce (the restored state is older than the world):
 1. `restore` 打印 `Verified N files against checksums.sha256`，且 N 与备份目录的文件数一致；
 2. `ironforge migrate` 打印 `No pending migrations`；
 3. `git --git-dir=/data/repos/<owner>/<repo>.git fsck` 退出码 0；
-4. `/health` 五项全 `ok`，且用一个真实账号能登录、能列出 issue、能 `git clone`。
+4. `/health` 的 `database`/`filesystem`/`metrics`/`smtp` 均为 `ok`（`git` 恒为 `builtin`），且用一个真实账号能登录、能列出 issue、能 `git clone`。
 
 ## 5. 实测记录（2026-11-25）
 

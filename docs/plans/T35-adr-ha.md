@@ -100,7 +100,7 @@
 
 **升级前**
 
-1. `curl -fsS http://host:8080/health` 五项全 `ok`。
+1. `curl -fsS http://host:8080/health`：`database` / `filesystem` / `metrics` / `smtp` 为 `ok`，`git` 为 `builtin`。
 2. 停服后跑 `ironforge backup`，确认 `checksums.sha256` 与 `manifest.json` 存在，并**把备份复制到另一块盘**。
 3. 记录当前镜像 digest 与 `git rev-parse HEAD`（回滚要用旧镜像）。
 4. 确认新版本的迁移只有加列/加表；若含删列，拆成两个版本。
