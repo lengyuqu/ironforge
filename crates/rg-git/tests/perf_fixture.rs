@@ -384,11 +384,10 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 /// Pack containing only the objects added by `commit` relative to its first
 /// parent — what `git push` of a one-file change actually sends.
 ///
-/// `rg_git::ops::pack_for_wants` always expands commits with `TreeContents`,
-/// which re-sends the whole tree of the new commit even when the client
-/// already has it; a real client sends the delta, so the fixture builds the
-/// delta itself. (The `TreeContents` behaviour is recorded as a known
-/// bottleneck in `docs/plans/T32-baseline-report.md`.)
+/// Since T37 `rg_git::ops::pack_for_wants` computes the same delta for fetches,
+/// so this is no longer a stand-in for a smarter server; it stays because the
+/// push measurement needs a realistic pack handed to `receive-pack`, built
+/// without going through the code under measurement.
 pub fn incremental_pack(repo_path: &Path, commit: &str) -> anyhow::Result<Vec<u8>> {
     use gix::odb::pack::data::output;
     use gix::progress::Discard;
