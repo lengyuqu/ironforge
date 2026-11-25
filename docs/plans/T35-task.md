@@ -60,6 +60,30 @@ list_issues=200
 clone_after_restore=OK
 ```
 
+### 3.1 HEAD 二进制复跑（112 条迁移，补测）
+
+按协调者要求不重建镜像，用 HEAD 源码构建 release 二进制（`CARGO_TARGET_DIR` 共享，14m32s），
+在宿主独立数据目录重跑：
+
+| 里程碑 | 旧镜像（97） | HEAD（112） |
+|---|---:|---:|
+| 启动 | 322 ms | 379 ms |
+| 停服 | 2 ms | 15 ms |
+| 备份 | 29 ms | 46 ms |
+| 恢复 | 26 ms | 42 ms |
+| migrate | 6 ms | 25 ms |
+| 启动（恢复后） | 111 ms | 146 ms |
+
+```
+migrations=112
+last_migration=m20261124_000001_add_pipeline_job_steps
+rows_before: issue_comments=1 pr_reviews=1
+orphans_before/after: 0 / 0
+list_issues=200 list_comments=200 list_reviews=200
+clone_after_restore=OK
+restore_db_only_ms=36 → api_issues=200, clone_exit=128
+```
+
 损坏备份被拒、且不创建目标：
 
 ```
@@ -112,8 +136,8 @@ live_rows_after=0
 
 1. `backup` / `restore` / `restore-db` 的路径是**位置参数**，不是 `--output`/`--input`；
    第一次按 `--output` 写直接报 `unexpected argument`。
-2. 镜像构建于 2026-11-09，只认识 **97** 条迁移；源码 HEAD 有 **112** 条。演练未覆盖最近 15 条迁移，
-   已在 drill §0 与 §10 明写。
+2. 镜像构建于 2026-11-09，只认识 **97** 条迁移；源码 HEAD 有 **112** 条。已用 HEAD 二进制补跑覆盖（§3.1），
+   但 Docker 镜像层未重建。
 3. 应用镜像没有 `sqlite3` / `python3`；手工验证 quiesce 需要在容器内 `apt-get install sqlite3`
    （非 root 会因 apt 目录权限失败，需 `-u 0`）。
 4. `restore` 目标已存在时必须 `--force`，且 `--force` 会删 `-wal`/`-shm`；不停服时会被拒绝。
@@ -124,21 +148,23 @@ live_rows_after=0
 
 | 项 | 说明 |
 |---|---|
-| `db-postgres` / `db-mysql` feature | 任务卡与部分说明暗示有这两个 feature；实际 `Cargo.toml:43` 默认把三后端全部编进二进制，**feature 不存在** |
+| `db-postgres` / `db-mysql` feature | 任务卡与部分说明暗示有这两个 feature；实际 `Cargo.toml:43` 默认把三后端全部编进二进制，**feature 不存在**。更糟的是 `crates/rg-db/src/lib.rs:182-184` 的注释说「gated behind the `db-postgres` / `db-mysql` cargo features so the default binary stays SQLite-only」，与 `Cargo.toml:43` 及实际依赖相反——**这条注释是错的**，实现者以 `Cargo.toml` 为准 |
 | 迁移历史表名 | 任务卡写 `_sea_orm_migration_history`；实际 `seaql_migrations`（`main.rs:866`、drill 脚本 `scripts/db-restore-drill.sh:115`） |
 | 多实例限制 | `deploy/README.md:53-65` 只列了权限缓存/限流/实例设置三项；实际还缺 repo 存储、周期任务选主、镜像同步 claim、审计归档、启动迁移竞争（ADR §4.2 共 9 项） |
 | 全量 `backup` 要求停服 | README 说「Stop the server first」，但代码不检查；运行中执行会产出不一致备份（ADR §2、drill §1） |
 | `/health` 的 filesystem 检查 | 只 `read_dir`，磁盘满/只读挂载仍报 `ok`（`lib.rs:2118`） |
 
-## 8. 需要协调者裁决（ADR §7 摘要）
+## 8. 协调者裁决（2026-11-25，已记录到 ADR §7）
 
-1. **D1 Git 仓库存储是否外置**（共享 POSIX + 租约 / 对象存储网关 / 维持单实例）——多实例的头号阻塞。
-2. **D2 选主实现**（DB 租约表 / Redis / 外置调度器）。
-3. **D3 迁移是否从启动路径拆出**（独立命令 vs advisory lock）。
-4. **D4 是否提供 `migrate --down`**（建议不提供，回滚靠备份）。
-5. **D5 小团队档是否内置备份调度**（建议只给 cron 模板）。
-6. **D6 MySQL 是否与 PG 同级支持**（本轮未实测 MySQL）。
-7. **D7 时钟偏差容忍度**（60s 默认是否显式化，并在 `/health` 暴露偏移）。
+| ID | 裁决 |
+|---|---|
+| D1 Git 存储外置 | 本轮不做；支持等级只到单机/小团队，文档必须明写「不支持多实例」及代价 |
+| D2 选主 | DB 租约；不引 Redis |
+| D3 迁移 | 移出启动路径，`ironforge migrate` 作为显式前置步骤 |
+| D4 `migrate --down` | 不提供；回滚靠备份 + 旧镜像 |
+| D5 内置备份调度 | 要做，范围限定为定时备份 + 保留 N 份 + 恢复校验；当前未实现 |
+| D6 MySQL | 不同级；PG 优先，MySQL best-effort（dump/restore 未实测） |
+| D7 时钟偏差 | 显式 ±60s；要求 NTP；`/health` 暴露偏移（实现任务） |
 
 ## 9. 验收对照（任务卡「验证」小节）
 
@@ -152,6 +178,6 @@ live_rows_after=0
 
 ## 10. 遗留
 
-- 用 HEAD（112 条迁移）构建镜像后复跑一次 drill，覆盖最近 15 条迁移。
+- HEAD 二进制已复跑（112 条迁移，§3.1）；Docker 镜像本身未重建，镜像层（前端资源、运行用户、HEALTHCHECK）未重测。
 - 在 Linux CI 跑 `scripts/collab-e2e.py --scenario restore`（更细的 14 个协作视图对比）。
 - 跑 `scripts/db-restore-drill.sh mysql`，把 MySQL 从「未实测」变「已实测」。

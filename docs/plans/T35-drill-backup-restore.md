@@ -15,11 +15,10 @@
 | 数据集 | 1 用户、1 仓库、1 issue、1 协作 session、2 个真实 commit（18 个仓库文件）、SQLite DB 917,504 B |
 | PG 演练 | `postgres:16`，105 张表、97 条迁移历史、dump 334,188 B |
 
-**必须说明的版本差**：镜像构建于 11-09，源码 HEAD 是 11-25。镜像内的二进制只认识 **97** 条迁移；
-当前源码是 **112** 条（`grep -c 'Box::new(m' crates/rg-db/src/migrations/mod.rs`）。
-所以本次演练**没有覆盖最近新增的 15 条迁移**。备份/恢复相关代码路径本身已用 `--help` 与源码逐项核对
-（`backup`/`restore`/`restore-db`/`backup-db` 的参数形状与 `crates/rg-cli/src/main.rs:247-345` 一致），
-但「HEAD 全量 schema 下的 restore」需要一次用 HEAD 构建镜像的复跑（见 §10）。
+**版本差与补测**：镜像构建于 11-09，只认识 **97** 条迁移；源码 HEAD（11-25）是 **112** 条
+（`grep -c 'Box::new(m' crates/rg-db/src/migrations/mod.rs`）。因此除旧镜像的 Docker 演练外，
+另用 HEAD 源码构建了 release 二进制（未重建镜像），在宿主上复跑同一流程，**112 条迁移全部应用**，
+结果见 §5.6。两套结果都保留，便于对比。
 
 ## 1. 备份什么，以及三者的原子性关系
 
@@ -229,6 +228,70 @@ source_rows=1
 
 说明 `VACUUM INTO` 在线备份可用；但它**只含 DB**，不含 Git 仓库。
 
+### 5.6 HEAD 二进制复跑（112 条迁移，2026-11-25）
+
+旧镜像是 2026-11-09 的，只认识 97 条迁移。为了确认结论不依赖旧 schema，用 HEAD 源码构建了
+`rg-cli` 的 release 二进制（共享 `CARGO_TARGET_DIR`，**没有重建 Docker 镜像**），在 macOS 宿主上
+用独立数据目录重跑同一套流程：
+
+```sh
+cd /Users/yuqu/vibeCodeing/ironforge-t35
+export CARGO_TARGET_DIR=/Users/yuqu/vibeCodeing/ironforge/target
+cargo build --release -p rg-cli      # 14m32s，产物 66MB
+# 数据目录 /tmp/t35-head-drill，端口 18080/12222
+```
+
+| 里程碑 | 旧镜像（97 迁移） | HEAD 二进制（112 迁移） | 差异说明 |
+|---|---:|---:|---|
+| 启动到 `/health` 200 | 322 ms | 379 ms | 启动要对 112 条迁移逐条比对 |
+| 停服 | 2 ms | 15 ms | 后台任务更多（outbox/审计/清理循环），关闭稍慢 |
+| 全量备份 | 29 ms | **46 ms** | 仓库文件 18 → 22（多了 PR ref），DB 同为 917,504 B，备份仍 1.6 MB |
+| 恢复 | 26 ms | **42 ms** | 校验 23 个文件（旧版 19 个） |
+| `migrate`（no-op） | 6 ms | **25 ms** | 112 条 vs 97 条逐个比对 |
+| 启动到 `/health` 200 | 111 ms | 146 ms | 同上 |
+
+关键校验（全部通过）：
+
+```
+migrations=112
+last_migration=m20261124_000001_add_pipeline_job_steps
+create_issue_comment=201
+create_pr=201
+submit_review=201
+rows_before: issue_comments=1 pr_reviews=1
+orphans_before: issue_comments=0 pr_reviews=0
+Verified 23 files against checksums.sha256
+git fsck: OK
+restored_head=156b859b28be5b0041c6e188e62795627a405376
+migrations_after_restore=112
+orphans_after: issue_comments=0 pr_reviews=0
+login_after_restore=200
+list_issues=200
+list_comments=200
+list_reviews=200
+clone_after_restore=OK
+```
+
+孤儿检查不是空表自证：备份前 `issue_comments` 与 `pr_reviews` 各 1 行，恢复后仍是 1 行，且
+
+```sql
+SELECT COUNT(*) FROM issue_comments c LEFT JOIN issues i ON c.issue_id=i.id WHERE i.id IS NULL;   -- 0
+SELECT COUNT(*) FROM pr_reviews r LEFT JOIN pull_requests p ON r.pr_id=p.id WHERE p.id IS NULL;    -- 0
+```
+
+**非原子反例在 HEAD 上复现**：
+
+```
+restore_db_only_ms=36
+api_issues_without_repo_dir=200
+clone_exit=128
+remote: repository not found
+```
+
+结论：换到 112 条迁移后，备份/恢复仍可用，所有耗时的量级不变（都在几十毫秒到一百多毫秒），
+差异来自「多 15 条迁移 + 多一个 PR ref」，不是设计变化。
+quiesce 仍然生效：恢复时 `collaboration sessions ended : 1`。
+
 ## 6. `deploy/post-restore-quiesce.sql` 是什么，怎么用
 
 恢复出来的库是「过去的快照」。如果直接起服：
@@ -332,7 +395,7 @@ mysql ... ironforge < deploy/post-restore-quiesce.sql
 | MySQL dump/restore | **未实测** | 需要跑 `scripts/db-restore-drill.sh mysql`，它会 `cargo test -p rg-http --test collab_condition_tests`（整套 debug 构建）；本轮未做，避免用未编译的测试结果冒充实测。镜像支持 MySQL，`mysqldump` 命令在 README 里给了 |
 | S3 后端下的备份/恢复 | **未实测** | 本次未起 MinIO/S3；`backup` 只拷本地 `repo_root`，S3 里的 blob 不在备份内（代码事实，`main.rs:970-1010` 只 `copy_dir_recursive(repo_root)`） |
 | Python 端到端恢复场景 | **未实测** | `scripts/collab-e2e.py --scenario restore` 需要 `python3` + 本地 `target/debug/ironforge`；应用镜像无 python3，宿主是 macOS 不能直接跑 Linux 二进制。该脚本覆盖更细（14 个协作视图、`--keep-live-state` 语义），建议在 Linux CI 上跑一次 |
-| 从 HEAD（112 迁移）构建的镜像 | **未实测** | 需要一次完整 `docker build`（前端 pnpm + Rust release）；本轮的镜像是 11-09 的，少 15 条迁移 |
+| HEAD 镜像（Docker） | **未实测** | 按要求未重建镜像（Rust + 前端构建太慢）。改用 HEAD 源码构建 release 二进制在宿主复跑，112 条迁移已覆盖（§5.6）；镜像层本身未重测 |
 | PITR / 增量备份 | **不支持** | 无 WAL 归档、无 binlog 消费 |
 
 ## 11. 复跑本演练的最小脚本

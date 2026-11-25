@@ -1,6 +1,6 @@
 # ADR-0003：HA、滚动升级与故障恢复的支持边界
 
-- Status: Proposed（待协调者裁决；本轮不改 `deploy/` 与代码）
+- Status: **Accepted**（2026-11-25 协调者裁决；本轮不改 `deploy/` 与代码，实现另开批次）
 - Date: 2026-11-25
 - Task: T35（`tasks/T35.md`）
 - Evidence: `docs/plans/T35-drill-backup-restore.md`（本机 Docker 实测：SQLite 全流程 + PostgreSQL dump/restore）
@@ -20,7 +20,7 @@
 | 项 | 事实 | 证据 |
 |---|---|---|
 | 实例数 | 单个 `ironforge` 服务；compose 无副本、无 `deploy.replicas` | `deploy/docker-compose.yml:13-38`；`restart: unless-stopped` 在 `:20` |
-| DB | **三后端默认全部编译进二进制**，运行时按 URL 选择；无 `db-postgres`/`db-mysql` cargo feature（任务卡这句是错的） | `Cargo.toml:43` `features = ["sqlx-sqlite","sqlx-postgres","sqlx-mysql",...]` |
+| DB | **三后端默认全部编译进二进制**，运行时按 URL 选择；无 `db-postgres`/`db-mysql` cargo feature | `Cargo.toml:43`（正确）；`crates/rg-db/src/lib.rs:182-184` 的注释**写错了**，它说「gated behind the `db-postgres` / `db-mysql` cargo features so the default binary stays SQLite-only」，与 `Cargo.toml:43` 和实际依赖相反。实现者以 `Cargo.toml` 为准 |
 | SQLite 参数 | WAL、`synchronous=NORMAL`、`busy_timeout=5s`、`foreign_keys=on`、池上限 5 | `crates/rg-db/src/lib.rs:220-234` |
 | 存储 | Git 仓库与 blob（LFS/packages/OCI/artifacts/attachments）都在 `repo_root` 本地盘；S3 只是 blob 的可选后端，Git 仓库不进 S3 | `Dockerfile` CMD `--repo-root /data/repos`；`crates/rg-core/src/blob_storage/s3.rs:1-44` |
 | 队列 | `background_jobs` 是**持久表 + 条件 UPDATE 原子 claim**，设计上多 worker 安全；worker 本身在进程内 | `crates/rg-core/src/background_jobs/mod.rs:1-18`、`:100-108` |
@@ -144,26 +144,26 @@
 
 ## 6. 支持等级（RPO/RTO 基于实测，不外推）
 
-实测数据集：SQLite 917KB DB + 18 个仓库文件，备份目录 1.6MB；PostgreSQL dump 334KB / 105 张表。
+实测数据集：SQLite 917KB DB + 18–22 个仓库文件，备份目录 1.6MB；PostgreSQL dump 334KB / 105 张表（PG 数字来自旧镜像的 97 条迁移）。
 数字含义见 drill §8：RTO 只算「机器执行时间」，不含人工发现、取备份、决策。
 
 | 等级 | 拓扑 | RPO | RTO（实测基线） | 承诺 | 不承诺 |
 |---|---|---|---|---|---|
-| **单机（当前）** | 1 实例 + SQLite + 本地盘 | **自上次成功备份**（无自动备份、无 WAL 归档；备份需停服） | 停服 2ms + restore 26ms + migrate 6ms + 启动 111ms ≈ **0.15s**（1.6MB 数据集） | 进程崩溃/宿主重启后自动拉起；`backup`/`restore` 带校验与 quiesce；单机可用性由 `restart: unless-stopped` 提供 | 不承诺零停机升级、自动备份、PITR、多实例、损坏后无损恢复（取决于备份） |
-| **小团队** | 1 实例 + PostgreSQL + S3 | 自上次 `pg_dump`（工具支持，**没有内置调度**） | `pg_dump` 69ms + `pg_restore` 424ms + migrate 10ms ≈ **0.5s**（334KB dump）；启动未计入 | DB 可外置、blob 可进 S3、dump/restore 往返经过实测 | 不承诺 Git 仓库外置（仍在本地盘）、不承诺自动备份、不承诺 HA |
-| **生产** | 多实例 + PG + 共享 repo 存储 + 选主 | **不支持**（无可承诺值） | **不支持** | 无 | 全部；先完成 §5 的 4 个硬阻塞项 |
+| **单机（当前）** | 1 实例 + SQLite + 本地盘 | **自上次成功备份**（当前无自动备份、无 WAL 归档；备份需停服。内置定时备份已裁决要做，见 §7 D5，但**尚未实现**） | 停服 15ms + restore 42ms + migrate 25ms + 启动 146ms ≈ **0.23s**（HEAD 112 迁移，1.6MB 数据集；旧镜像 97 迁移为 0.15s，见 drill §5.6） | 进程崩溃/宿主重启后自动拉起；`backup`/`restore` 带校验与 quiesce；单机可用性由 `restart: unless-stopped` 提供 | 不承诺零停机升级、自动备份、PITR、多实例、损坏后无损恢复（取决于备份） |
+| **小团队** | 1 实例 + PostgreSQL + S3 | 自上次 `pg_dump`（工具支持，**当前没有内置调度**；D5 已批准内置定时备份，未实现） | `pg_dump` 69ms + `pg_restore` 424ms + migrate 10ms ≈ **0.5s**（334KB dump）；启动未计入 | DB 可外置、blob 可进 S3、dump/restore 往返经过实测；**PostgreSQL 是首选后端，MySQL 为 best-effort**（D6） | 不承诺 Git 仓库外置（仍在本地盘）、不承诺自动备份、不承诺 HA、不承诺 MySQL 与 PG 同级（MySQL 的 dump/restore 未实测，见 drill §10） |
+| **生产** | 多实例 + PG + 共享 repo 存储 + 选主 | **不支持**（无可承诺值） | **不支持** | 无 | 全部；先完成 §5 的 4 个硬阻塞项。**本轮明确不做 Git 存储外置（D1），因此多实例在可预见的版本内都不支持** |
 
-## 7. 需要协调者裁决的问题
+## 7. 裁决记录（2026-11-25，余曲）
 
-| ID | 问题 | 选项 | 建议 |
+| ID | 问题 | 裁决 | 落地要求 |
 |---|---|---|---|
-| D1 | Git 仓库存储是否外置 | (a) 共享 POSIX + 租约 (b) 引入对象存储网关 (c) 维持单实例 | 本轮维持 (c)；若要做多实例，选 (a)，并先做仓库租约 |
-| D2 | 多实例选主实现 | (a) DB 租约表 (b) Redis (c) 外置调度器 | (a)，不新增基础设施；与现有 DB 队列一致 |
-| D3 | 迁移是否从启动路径拆出 | (a) 拆成独立命令（compose init/Job）(b) 保留启动迁移但加 advisory lock | (a) 更安全，但需要改 `deploy/`；两者都要先决定 |
-| D4 | 是否提供 `migrate --down` | (a) 不提供，回滚靠备份 (b) 提供并限制步数 | (a)，理由：多数 `down` 不可逆（删列丢数据） |
-| D5 | 小团队档是否内置备份调度 | (a) 提供 `ironforge backup` 的 cron 模板（只写文档） (b) 内置调度器 | (a)，零代码 |
-| D6 | MySQL 是否与 PG 同级支持 | (a) 是（跑 `scripts/db-restore-drill.sh mysql`）(b) 只保证 migrate 可用 | (a) 需 CI 时间；本轮未实测 MySQL（见 drill §10） |
-| D7 | 时钟偏差容忍度 | 维持 jsonwebtoken 默认 60s，还是显式设置 | 显式设置并在 `/health` 暴露时钟偏移，便于排障 |
+| D1 | Git 仓库存储是否外置 | **本轮不做** | 对象存储 + git 层改造是季度级工程。支持等级只到「单机 / 小团队」；**ADR 与 README 都必须明写「不支持多实例」及其代价**（无故障转移、升级有停机、容量受单机限制） |
+| D2 | 多实例选主实现 | **DB 租约** | 复用 PG 与 `background_jobs` 的原子 claim 思路；不引 Redis（新依赖 + 新故障面）。实现时先做 `task_leases(name, owner, expires_at)` 与一个 `try_lease` 封装，周期任务逐个接入 |
+| D3 | 迁移是否从启动路径拆出 | **是** | `serve` 不再隐式迁移：启动时只校验 schema 版本（缺迁移就拒绝启动并提示）；`ironforge migrate` 作为显式前置步骤（compose init/Job 或运维命令） |
+| D4 | 是否提供 `migrate --down` | **不提供** | 回滚靠备份 + 旧镜像。SeaORM 的 `down` 在三后端上没人验证过，半可靠的回滚比没有更危险 |
+| D5 | 小团队档是否内置备份调度 | **内置，但范围要小** | 定时 `VACUUM INTO`（SQLite）/ `pg_dump`（PG）+ 保留 N 份 + 每次备份后跑一次恢复校验；不做 PITR、不做异地复制。**当前未实现**，文档不得写成已支持 |
+| D6 | MySQL 是否与 PG 同级 | **不同级** | PostgreSQL 优先；MySQL 降级为 best-effort（只保证 `migrate` 可用，dump/restore 未实测）。README/支持表不得把两者并列 |
+| D7 | 时钟偏差容忍度 | **显式化 ±60s** | JWT `exp`/`iat` 允许 ±60s；文档要求多实例部署必须 NTP 同步；`/health` 增加实例时间与数据库时间的偏移（实现任务做，本轮只写要求） |
 
 ## 8. 本文明确「不支持」的项
 
@@ -172,4 +172,6 @@
 - 自动备份、PITR、WAL 归档；
 - SQLite 在线（不停服）全量备份——`backup` 要求停服；只有 `backup-db`（`VACUUM INTO`）可在线；
 - PostgreSQL/MySQL 的 Git 仓库备份（CLI 只备份 SQLite 的 DB；PG/MySQL 需 `pg_dump`/`mysqldump` + 单独拷 `repo_root`）；
-- 自动故障转移、只读副本、跨机房。
+- 自动故障转移、只读副本、跨机房；
+- MySQL 与 PostgreSQL 同等级支持（D6：PG 优先，MySQL best-effort，dump/restore 未实测）；
+- 内置定时备份（D5 已批准实现，但当前代码里没有）。
