@@ -1,0 +1,9 @@
+name: outer
+description: One composite Action that invokes another composite Action.
+runs:
+  using: composite
+  steps:
+    - uses: ./inner
+    - name: outer tail
+      shell: bash
+      run: echo outer-done

@@ -1,0 +1,5 @@
+name: dockerish
+description: A container Action; refused by the YAML-only converter.
+runs:
+  using: docker
+  image: Dockerfile

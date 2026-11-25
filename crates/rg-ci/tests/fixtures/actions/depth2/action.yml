@@ -1,0 +1,6 @@
+name: depth2
+description: Depth fixture level 2.
+runs:
+  using: composite
+  steps:
+    - uses: ./depth3

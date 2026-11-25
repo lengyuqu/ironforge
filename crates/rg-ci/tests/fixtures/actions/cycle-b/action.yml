@@ -1,0 +1,6 @@
+name: cycle-b
+description: Half of a two-Action cycle.
+runs:
+  using: composite
+  steps:
+    - uses: ./cycle-a

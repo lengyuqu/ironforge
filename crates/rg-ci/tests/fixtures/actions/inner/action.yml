@@ -1,0 +1,11 @@
+name: inner
+description: Nested composite Action used by the outer fixture.
+runs:
+  using: composite
+  steps:
+    - name: inner one
+      shell: bash
+      run: echo inner-one
+    - name: inner two
+      shell: bash
+      run: echo inner-two

@@ -29,6 +29,7 @@
 //!       - run: cargo build
 //! ```
 
+pub mod action_fetch;
 pub mod condition;
 pub mod config;
 pub mod gitea_actions;

@@ -1,0 +1,13 @@
+name: outputs
+description: Publishes a declared output from an inner step.
+outputs:
+  version:
+    description: The detected version.
+    value: ${{ steps.detect.outputs.version }}
+runs:
+  using: composite
+  steps:
+    - id: detect
+      name: detect
+      shell: bash
+      run: echo "version=1.2.3" >> "$GITHUB_OUTPUT"

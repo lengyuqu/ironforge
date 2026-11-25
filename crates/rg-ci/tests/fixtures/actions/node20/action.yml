@@ -1,0 +1,5 @@
+name: node20
+description: A JavaScript Action; refused by the YAML-only converter.
+runs:
+  using: node20
+  main: index.js
