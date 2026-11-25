@@ -1,0 +1,8 @@
+name: depth6
+description: Sixth level; exceeds the maximum nesting depth.
+runs:
+  using: composite
+  steps:
+    - name: bottom
+      shell: bash
+      run: echo bottom

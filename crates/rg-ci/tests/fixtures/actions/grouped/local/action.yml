@@ -1,0 +1,8 @@
+name: local
+description: A composite Action under a subdirectory.
+runs:
+  using: composite
+  steps:
+    - name: nested path
+      shell: bash
+      run: echo grouped-local

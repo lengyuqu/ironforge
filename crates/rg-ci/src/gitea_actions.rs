@@ -7,18 +7,25 @@
 //! - `on: push`, `on: pull_request` triggers with branch filtering
 //! - `jobs.<id>.runs-on` → runner tags
 //! - `jobs.<id>.steps[].run` → script commands
-//! - `jobs.<id>.steps[].uses` → `actions/checkout` is implicit; other actions are rejected
+//! - `jobs.<id>.steps[].uses` → `actions/checkout` is implicit, `actions/cache`
+//!   maps to a native cache, `composite` Actions are expanded into plain steps,
+//!   and everything else is rejected (node/docker Actions need the `actions-v1`
+//!   runner that ADR-0001 defines but this tree does not implement yet)
 //! - `jobs.<id>.container.image` → Docker image
 //! - `jobs.<id>.env` → environment variables
 //! - `jobs.<id>.needs` → stage ordering (implicit via dependency graph)
 //! - Repository-local reusable workflows with `on: workflow_call`, inputs, inherited secrets, and dependency rewriting
 //! - Basic `${{ }}` expression substitution
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rg_core::yaml::Value as YamlValue;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
+use crate::action_fetch::{
+    is_builtin_action, ActionError, ActionErrorKind, ActionFileSource, ActionFetcher,
+    ActionManifest, ActionOutput, ActionRuns, ACTIONS_V1_CAPABILITY, MAX_COMPOSITE_DEPTH,
+};
 use crate::config::{CacheConfig, CiConfig, ConcurrencyConfig, JobConfig};
 
 /// A parsed Gitea Actions workflow file.
@@ -229,6 +236,57 @@ impl GiteaWorkflow {
         Ok(expanded)
     }
 
+    /// Expand `composite` third-party Actions into the steps that invoke them.
+    ///
+    /// This is the only third-party Action support in this tree: it is a pure
+    /// YAML-to-YAML transformation, so it does not move any execution onto the
+    /// IronForge host. `node*` and `docker` Actions (and unknown runtimes) are
+    /// refused here, because running them needs the `actions-v1` runner that
+    /// ADR-0001 describes but this tree does not implement.
+    ///
+    /// Rules:
+    /// - the Action's `inputs` defaults are overridden by the calling step's
+    ///   `with`; `${{ inputs.x }}` and `${{ github.action_path }}` are replaced
+    ///   in the child step's `run`, `env` and `with`;
+    /// - nested `uses` are expanded recursively, up to
+    ///   [`MAX_COMPOSITE_DEPTH`]; a cycle or a sixth level is an error;
+    /// - when the calling step has an `id`, its inner step ids are namespaced
+    ///   with `<id>.` and the composite's `outputs` are published by a
+    ///   generated step that keeps the caller's `id`;
+    /// - expanded steps keep their order in the job.
+    ///
+    /// Requires [`ActionFetcher`] because a `uses` must be read before it can
+    /// be classified; nothing is executed and no file is written outside the
+    /// Action cache.
+    pub fn expand_composite_actions(&mut self, fetcher: &ActionFetcher) -> Result<()> {
+        // Sorted so that a workflow with several bad Actions reports the same
+        // one on every run. Expansion runs on a copy so a failure leaves the
+        // caller's workflow untouched.
+        let mut job_names = self.jobs.keys().cloned().collect::<Vec<_>>();
+        job_names.sort();
+        let mut jobs = self.jobs.clone();
+        for job_name in job_names {
+            let Some(job) = jobs.get_mut(&job_name) else {
+                continue;
+            };
+            let mut expander = CompositeExpander {
+                fetcher,
+                stack: Vec::new(),
+                mappings: Vec::new(),
+            };
+            let mut expanded = Vec::new();
+            for step in &job.steps {
+                expander
+                    .expand(None, step.clone(), 1, &mut expanded)
+                    .with_context(|| format!("job '{job_name}'"))?;
+            }
+            expander.apply_output_mappings(&mut expanded)?;
+            job.steps = expanded;
+        }
+        self.jobs = jobs;
+        Ok(())
+    }
+
     fn is_reusable(&self) -> bool {
         match &self.on {
             WorkflowTriggers::Simple(name) => name == "workflow_call",
@@ -280,7 +338,9 @@ impl GiteaWorkflow {
             Ok(())
         } else {
             anyhow::bail!(
-                "unsupported action step(s): {}. Convert them to run: commands or use .ironforge-ci.yml",
+                "unsupported action step(s): {}. Actions other than `actions/checkout`, \
+`actions/cache` and composite actions require an {ACTIONS_V1_CAPABILITY} runner, which is not \
+implemented. Convert them to run: commands or use .ironforge-ci.yml",
                 unsupported.join(", ")
             )
         }
@@ -475,8 +535,8 @@ impl GiteaWorkflow {
                     // Direct callers should still fail visibly even if they
                     // skipped `validate_supported_actions`.
                     script.push(format!(
-                        "echo \"IronForge does not support action '{}'; use run: or .ironforge-ci.yml\" >&2; exit 78",
-                        uses
+                        "echo \"IronForge does not support action '{}'; it needs an {} runner, which is not implemented. Use run: or .ironforge-ci.yml\" >&2; exit 78",
+                        uses, ACTIONS_V1_CAPABILITY
                     ));
                     continue;
                 }
@@ -590,8 +650,377 @@ impl GiteaWorkflow {
     }
 }
 
-fn environment_name(value: &YamlValue) -> Option<String> {
-    match value {
+/// A composite Action invocation whose declared `outputs` still need to be
+/// published on the calling step.
+struct PendingOutputMapping {
+    /// Position of the generated publishing step in the job's final step list.
+    index: usize,
+    /// The calling step's `id`; also the namespace of its inner step ids.
+    parent_id: String,
+    /// The original `uses:`, for error messages.
+    reference: String,
+    outputs: BTreeMap<String, ActionOutput>,
+}
+
+/// Walks one job's steps and replaces composite Actions with their steps.
+struct CompositeExpander<'a> {
+    fetcher: &'a ActionFetcher,
+    /// `(identity, uses)` of the Actions currently being expanded. The `uses`
+    /// string is what the error message shows; the identity is what detects a
+    /// cycle, so two paths to the same directory still count as one Action.
+    stack: Vec<(String, String)>,
+    mappings: Vec<PendingOutputMapping>,
+}
+
+fn action_error(kind: ActionErrorKind, message: impl Into<String>) -> anyhow::Error {
+    anyhow::Error::new(ActionError::new(kind, message))
+}
+
+fn unsupported_action(uses: &str, runtime: &str) -> anyhow::Error {
+    action_error(
+        ActionErrorKind::Unsupported,
+        format!(
+            "action '{uses}' runs with '{runtime}'; JavaScript, Docker and unknown-runtime actions \
+require an {ACTIONS_V1_CAPABILITY} runner, which is not implemented. Use a run: step or a \
+composite action instead"
+        ),
+    )
+}
+
+impl CompositeExpander<'_> {
+    fn expand(
+        &mut self,
+        parent: Option<&dyn ActionFileSource>,
+        step: GiteaStep,
+        depth: usize,
+        out: &mut Vec<GiteaStep>,
+    ) -> Result<()> {
+        let Some(uses) = step.uses.clone() else {
+            out.push(step);
+            return Ok(());
+        };
+        // checkout/cache keep their built-in adapters at every nesting level.
+        if is_builtin_action(&uses) {
+            out.push(step);
+            return Ok(());
+        }
+        if depth > MAX_COMPOSITE_DEPTH {
+            return Err(action_error(
+                ActionErrorKind::DepthLimit,
+                format!(
+                    "composite action nesting exceeds the maximum depth of \
+{MAX_COMPOSITE_DEPTH} while expanding '{uses}'"
+                ),
+            ));
+        }
+
+        let resolved = match parent {
+            Some(source) => self.fetcher.resolve_within(source, &uses)?,
+            None => self.fetcher.resolve(&uses)?,
+        };
+        if self
+            .stack
+            .iter()
+            .any(|(identity, _)| identity == &resolved.identity)
+        {
+            let mut chain = self
+                .stack
+                .iter()
+                .map(|(_, uses)| uses.as_str())
+                .collect::<Vec<_>>();
+            chain.push(uses.as_str());
+            return Err(action_error(
+                ActionErrorKind::Cycle,
+                format!(
+                    "composite action cycle detected: {} -> {uses}",
+                    chain.join(" -> ")
+                ),
+            ));
+        }
+
+        let ActionManifest {
+            inputs: declared_inputs,
+            outputs: declared_outputs,
+            runs,
+            ..
+        } = resolved.manifest;
+        match runs {
+            ActionRuns::Node { using } | ActionRuns::Other { using } => {
+                Err(unsupported_action(&uses, &using))
+            }
+            ActionRuns::Docker { image } => Err(unsupported_action(&uses, &image)),
+            ActionRuns::Composite { steps } => {
+                let call = InstantiatedAction::new(&step, &declared_inputs, &resolved.action_path);
+                self.stack.push((resolved.identity.clone(), uses.clone()));
+                for child in steps {
+                    self.expand(
+                        Some(resolved.child_source.as_ref()),
+                        call.instantiate(child),
+                        depth + 1,
+                        out,
+                    )?;
+                }
+                self.stack.pop();
+
+                // Nothing can reference the outputs without an `id`, so an
+                // anonymous invocation gets no publishing step.
+                if !declared_outputs.is_empty() {
+                    if let Some(parent_id) = step.id.clone() {
+                        let index = out.len();
+                        out.push(GiteaStep {
+                            id: Some(parent_id.clone()),
+                            name: step.name.clone(),
+                            uses: None,
+                            run: Some(String::new()),
+                            shell: Some("bash".to_string()),
+                            env: HashMap::new(),
+                            condition: step.condition.clone(),
+                            with: HashMap::new(),
+                        });
+                        self.mappings.push(PendingOutputMapping {
+                            index,
+                            parent_id,
+                            reference: uses,
+                            outputs: declared_outputs,
+                        });
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Fill each generated publishing step with the shell that copies a child
+    /// step's `$GITHUB_OUTPUT` entry into the caller's output file.
+    ///
+    /// Step indices are the positions in the final step list, which is exactly
+    /// what `to_ci_config` uses when it points `GITHUB_OUTPUT` at
+    /// `.ironforge-outputs/step-<index>.outputs`.
+    fn apply_output_mappings(&self, steps: &mut [GiteaStep]) -> Result<()> {
+        for mapping in &self.mappings {
+            let mut script = String::new();
+            for (name, output) in &mapping.outputs {
+                if !is_safe_output_name(name) {
+                    return Err(action_error(
+                        ActionErrorKind::ManifestInvalid,
+                        format!(
+                            "composite action '{}' declares an output name '{name}' that cannot be \
+published safely",
+                            mapping.reference
+                        ),
+                    ));
+                }
+                let Some(value) = output.value.as_deref() else {
+                    return Err(action_error(
+                        ActionErrorKind::ManifestInvalid,
+                        format!(
+                            "composite action '{}' declares output '{name}' without a value",
+                            mapping.reference
+                        ),
+                    ));
+                };
+                let Some((inner_id, inner_output)) = parse_step_output_expression(value) else {
+                    return Err(action_error(
+                        ActionErrorKind::ManifestInvalid,
+                        format!(
+                            "composite action '{}' output '{name}' uses unsupported value '{value}'; \
+only ${{{{ steps.<id>.outputs.<name> }}}} is supported",
+                            mapping.reference
+                        ),
+                    ));
+                };
+                if !is_safe_output_name(&inner_output) {
+                    return Err(action_error(
+                        ActionErrorKind::ManifestInvalid,
+                        format!(
+                            "composite action '{}' output '{name}' refers to an output name that \
+cannot be published safely",
+                            mapping.reference
+                        ),
+                    ));
+                }
+                let namespaced = format!("{}.{inner_id}", mapping.parent_id);
+                let index = steps
+                    .iter()
+                    .position(|step| step.id.as_deref() == Some(namespaced.as_str()))
+                    .or_else(|| {
+                        steps
+                            .iter()
+                            .position(|step| step.id.as_deref() == Some(inner_id.as_str()))
+                    })
+                    .ok_or_else(|| {
+                        action_error(
+                            ActionErrorKind::ManifestInvalid,
+                            format!(
+                                "composite action '{}' output '{name}' refers to step '{inner_id}', \
+which was not expanded",
+                                mapping.reference
+                            ),
+                        )
+                    })?;
+                script.push_str(&format!(
+                    "printf '%s\\n' '{name}<<IRONFORGE_COMPOSITE_OUTPUT' >> \"$GITHUB_OUTPUT\"\n\
+sed -n 's/^{inner_output}=//p' \".ironforge-outputs/step-{index}.outputs\" >> \"$GITHUB_OUTPUT\"\n\
+printf '%s\\n' 'IRONFORGE_COMPOSITE_OUTPUT' >> \"$GITHUB_OUTPUT\"\n"
+                ));
+            }
+            if let Some(step) = steps.get_mut(mapping.index) {
+                step.run = Some(script);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The caller-side view of one composite invocation.
+struct InstantiatedAction<'a> {
+    inputs: HashMap<String, String>,
+    action_path: &'a str,
+    caller: &'a GiteaStep,
+    /// `<caller id>.` when the caller has an id. Gitea scopes step ids to the
+    /// job, so two invocations of the same Action would otherwise collide.
+    id_prefix: Option<String>,
+}
+
+impl<'a> InstantiatedAction<'a> {
+    fn new(
+        caller: &'a GiteaStep,
+        declared: &BTreeMap<String, crate::action_fetch::ActionInput>,
+        action_path: &'a str,
+    ) -> Self {
+        // Defaults first, then the caller's `with` — GitHub's precedence.
+        let mut inputs = declared
+            .iter()
+            .map(|(name, input)| (name.clone(), input.default.clone().unwrap_or_default()))
+            .collect::<HashMap<_, _>>();
+        for (name, value) in &caller.with {
+            inputs.insert(name.clone(), value.clone());
+        }
+        Self {
+            inputs,
+            action_path,
+            caller,
+            id_prefix: caller.id.as_ref().map(|id| format!("{id}.")),
+        }
+    }
+
+    fn instantiate(&self, child: GiteaStep) -> GiteaStep {
+        let substitute = |text: &str| {
+            substitute_action_expressions(text, &self.inputs, self.action_path)
+        };
+        let id = match (&self.id_prefix, child.id) {
+            (Some(prefix), Some(id)) => Some(format!("{prefix}{id}")),
+            (_, id) => id,
+        };
+        let mut env = self.caller.env.clone();
+        for (key, value) in &child.env {
+            env.insert(key.clone(), substitute(value));
+        }
+        // GitHub exposes inputs as `INPUT_<NAME>` too; a composite that uses
+        // shell-style access keeps working. Only values that survive the
+        // converter's unquoted `export K=V` line are injected — anything with a
+        // space or shell metacharacter would turn the generated script into a
+        // syntax error, and quoting here would change how `$VAR` in an existing
+        // `env:` value expands. Textual `${{ inputs.x }}` substitution in `run`
+        // already covers those values.
+        for (key, value) in &self.inputs {
+            if !is_safe_env_value(value) {
+                continue;
+            }
+            env.entry(format!(
+                "INPUT_{}",
+                key.to_ascii_uppercase().replace('-', "_")
+            ))
+            .or_insert_with(|| value.clone());
+        }
+        GiteaStep {
+            id,
+            name: child.name,
+            uses: child.uses,
+            run: child.run.map(|run| substitute(&run)),
+            shell: child.shell,
+            env,
+            condition: combine_conditions(
+                self.caller.condition.as_deref(),
+                child.condition.as_deref(),
+            ),
+            with: child
+                .with
+                .into_iter()
+                .map(|(key, value)| (key, substitute(&value)))
+                .collect(),
+        }
+    }
+}
+
+/// Replace `${{ inputs.x }}` and `${{ github.action_path }}` with literal
+/// values. Any input the caller and manifest left unset becomes empty, which is
+/// GitHub's behaviour.
+fn substitute_action_expressions(
+    text: &str,
+    inputs: &HashMap<String, String>,
+    action_path: &str,
+) -> String {
+    let mut result = text
+        .replace("${{ github.action_path }}", action_path)
+        .replace("${{github.action_path}}", action_path);
+    for (name, value) in inputs {
+        for pattern in [
+            format!("${{{{ inputs.{name} }}}}"),
+            format!("${{{{inputs.{name}}}}}"),
+            format!("${{{{ inputs['{name}'] }}}}"),
+            format!("${{{{ inputs[\"{name}\"] }}}}"),
+        ] {
+            result = result.replace(&pattern, value);
+        }
+    }
+    replace_context_expression(result, "inputs", |_| String::new())
+}
+
+fn combine_conditions(parent: Option<&str>, child: Option<&str>) -> Option<String> {
+    match (parent, child) {
+        (Some(parent), Some(child)) => Some(format!("({parent}) && ({child})")),
+        (Some(parent), None) => Some(parent.to_string()),
+        (None, child) => child.map(str::to_string),
+    }
+}
+
+/// `${{ steps.<id>.outputs.<name> }}` → `(id, name)`.
+fn parse_step_output_expression(expression: &str) -> Option<(String, String)> {
+    let inner = expression
+        .trim()
+        .strip_prefix("${{")?
+        .strip_suffix("}}")?
+        .trim();
+    let rest = inner.strip_prefix("steps.")?;
+    let (id, output) = rest.split_once(".outputs.")?;
+    if id.is_empty() || output.is_empty() || output.contains('.') {
+        return None;
+    }
+    let valid = |value: &str| {
+        value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+    };
+    (valid(id) && valid(output)).then(|| (id.to_string(), output.to_string()))
+}
+
+fn is_safe_output_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+}
+
+/// Whether a value can be emitted as `export NAME=value` without breaking the
+/// generated script. See the `INPUT_*` injection in `InstantiatedAction`.
+fn is_safe_env_value(value: &str) -> bool {
+    value.chars().all(|c| {
+        c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '@' | '+' | ',' | '=')
+    })
+}
+
+fn environment_name(value: &YamlValue) -> Option<String> {    match value {
         YamlValue::String(name) => Some(name.clone()),
         YamlValue::Object(mapping) => mapping
             .get("name")

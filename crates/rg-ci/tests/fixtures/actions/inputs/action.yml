@@ -1,0 +1,17 @@
+name: greet
+description: Echoes an input, with a default.
+inputs:
+  who:
+    description: Who to greet.
+    default: world
+  greeting:
+    description: A required input with no default.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: greet
+      shell: bash
+      run: echo "${{ inputs.greeting }} ${{ inputs.who }}"
+      env:
+        IRONFORGE_ACTION_PATH: ${{ github.action_path }}

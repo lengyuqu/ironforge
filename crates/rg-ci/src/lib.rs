@@ -29,6 +29,7 @@
 //!       - run: cargo build
 //! ```
 
+pub mod action_fetch;
 pub mod condition;
 pub mod config;
 pub mod gitea_actions;
@@ -603,7 +604,10 @@ fn expand_matrix(job_name: &str, config: &config::JobConfig) -> Result<Vec<Matri
 ///
 /// Tries formats in order:
 /// 1. `.gitea/workflows/*.yml` (Gitea Actions format)
-/// 2. `.ironforge-ci.yml` (native format) — errors in step 1 are swallowed, so a broken Gitea workflow silently falls through to here.
+/// 2. `.ironforge-ci.yml` (native format) — only when there is no applicable
+///    Gitea workflow. A workflow that exists but cannot be parsed, expanded or
+///    validated keeps its own error: reporting "no CI config found" for it would
+///    hide the real reason (an unsupported action, a cycle, a broken file).
 ///
 /// For Gitea Actions workflows, multiple files are merged into a single `CiConfig`.
 /// Jobs from different workflow files are placed in separate stages.
@@ -616,8 +620,10 @@ fn read_ci_config(
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
-    // Try Gitea Actions format first
-    if let Ok(config) = try_read_gitea_workflows(&repo, commit_sha, ref_name, event) {
+    // Try Gitea Actions format first. `None` means there is nothing to run
+    // here; every failure propagates, so a workflow that exists but is broken
+    // keeps its own error instead of turning into "no CI config found".
+    if let Some(config) = try_read_gitea_workflows(&repo, commit_sha, ref_name, event)? {
         tracing::info!("Using Gitea Actions workflow from .gitea/workflows/");
         return Ok(config);
     }
@@ -647,17 +653,30 @@ fn read_ci_config(
     Ok(config)
 }
 
-/// Try to find and parse Gitea Actions workflow files in `.gitea/workflows/`. Returns `Err` when the `.gitea/workflows` tree entry is absent or is not a tree, when that object cannot be read, when the default branch cannot be resolved, when a workflow file fails to expand or contains unsupported actions, or when no workflow matches the event. A file that does not parse is skipped with a `debug` log rather than failing the read, so a directory in which every file is unparseable surfaces as "no workflow matches". An empty job set is never returned as an empty `CiConfig`: callers see the error instead.
+/// Try to find and parse Gitea Actions workflow files in `.gitea/workflows/`.
+///
+/// Returns `Ok(None)` when there is nothing to run here — the directory is
+/// absent, or no workflow matches the event — so the caller can fall back to
+/// the native config.
+///
+/// Everything else is an error: `.gitea/workflows` existing but not being a
+/// tree, the default branch failing to resolve, a reusable-workflow or composite
+/// expansion failure (including a cycle or the depth limit), an unsupported
+/// action, or a bad condition. A file that cannot be read or parsed is skipped
+/// with a `debug` log, so a directory in which every file is broken looks like
+/// "no workflow matches"; tightening that is a follow-up recorded in
+/// `docs/plans/T34-plan.md` §6.
 fn try_read_gitea_workflows(
     repo: &gix::Repository,
     commit_sha: &str,
     ref_name: &str,
     event: &str,
-) -> Result<CiConfig> {
+) -> Result<Option<CiConfig>> {
     let tree_revspec = format!("{}:.gitea/workflows", commit_sha);
-    let object_id = repo
-        .rev_parse_single(tree_revspec.as_str())
-        .map_err(|_| anyhow::anyhow!("no .gitea/workflows directory"))?;
+    let object_id = match repo.rev_parse_single(tree_revspec.as_str()) {
+        Ok(object_id) => object_id,
+        Err(_) => return Ok(None),
+    };
 
     let object = object_id.object()?;
     let tree = object
@@ -696,6 +715,25 @@ fn try_read_gitea_workflows(
         workflow_sources.insert(name, yml);
     }
 
+    // Action sources are read from the same immutable commit as the workflow.
+    // Cache placement matters: a bare repository (`<data>/repos/<owner>/<name>.git`)
+    // must not have anything written inside it, so the cache goes next to it;
+    // for a non-bare checkout (local development) it goes under `.git`, where it
+    // is invisible to `git status` and cannot become repository content.
+    let cache_parent = if repo.is_bare() {
+        repo.path()
+            .parent()
+            .unwrap_or_else(|| repo.path())
+            .to_path_buf()
+    } else {
+        repo.path().to_path_buf()
+    };
+    let actions = action_fetch::ActionFetcher::for_git_commit(
+        repo.path(),
+        commit_sha,
+        cache_parent.join(".ironforge").join("actions"),
+    );
+
     for (name, yml) in &workflow_sources {
         let workflow = match gitea_actions::GiteaWorkflow::parse(yml) {
             Ok(w) => w,
@@ -709,8 +747,11 @@ fn try_read_gitea_workflows(
         if !workflow.matches_event(event, ref_name, &default_branch) {
             continue;
         }
-        let workflow = workflow
+        let mut workflow = workflow
             .expand_local_reusable_workflows(&workflow_sources)
+            .with_context(|| format!("failed to expand .gitea/workflows/{name}"))?;
+        workflow
+            .expand_composite_actions(&actions)
             .with_context(|| format!("failed to expand .gitea/workflows/{name}"))?;
         workflow
             .validate_supported_actions()
@@ -753,14 +794,14 @@ fn try_read_gitea_workflows(
     }
 
     if all_jobs.is_empty() {
-        anyhow::bail!("no matching workflows found in .gitea/workflows/");
+        return Ok(None);
     }
 
-    Ok(CiConfig {
+    Ok(Some(CiConfig {
         stages: Some(all_stages),
         concurrency: None, // per-workflow concurrency not merged
         jobs: all_jobs,
-    })
+    }))
 }
 
 /// Get the default branch name of the repository.
@@ -1085,6 +1126,119 @@ mod matrix_tests {
             .iter()
             .any(|line| line.contains("${INPUT_TARGET}")));
         assert_eq!(job.variables.as_ref().unwrap()["INPUT_TARGET"], "staging");
+    }
+
+    /// Create a repository with one commit and return its SHA.
+    fn commit_workflow_files(dir: &std::path::Path, files: &[(&str, &str)]) -> String {
+        for (relative, contents) in files {
+            let path = dir.join(relative);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(path, contents).unwrap();
+        }
+        let git = rg_git::cli_gateway::global_gateway().as_ref().unwrap();
+        assert!(git.run(&["init"], Some(dir)).unwrap().success());
+        assert!(git
+            .run(&["config", "user.name", "CI"], Some(dir))
+            .unwrap()
+            .success());
+        assert!(git
+            .run(&["config", "user.email", "ci@example.com"], Some(dir))
+            .unwrap()
+            .success());
+        assert!(git.run(&["add", "-A"], Some(dir)).unwrap().success());
+        assert!(git
+            .run(&["commit", "-m", "workflow"], Some(dir))
+            .unwrap()
+            .success());
+        git.run(&["rev-parse", "HEAD"], Some(dir))
+            .unwrap()
+            .stdout_str()
+            .trim()
+            .to_owned()
+    }
+
+    const NATIVE_CONFIG: &str =
+        "stages: [build]\nnative:\n  stage: build\n  script: [echo native]\n";
+
+    #[test]
+    fn the_native_config_is_used_only_when_no_gitea_workflow_applies() {
+        let temp = tempfile::tempdir().unwrap();
+        let sha = commit_workflow_files(temp.path(), &[(".ironforge-ci.yml", NATIVE_CONFIG)]);
+
+        let config = read_ci_config(temp.path(), &sha, "refs/heads/main", "push").unwrap();
+        assert!(config.jobs.contains_key("native"));
+    }
+
+    /// The core of the `lib.rs` fix: a workflow that exists and fails validation
+    /// must keep its error even when a native config is present, instead of
+    /// becoming "no CI config found".
+    #[test]
+    fn a_rejected_workflow_is_not_reported_as_missing_config() {
+        let temp = tempfile::tempdir().unwrap();
+        let sha = commit_workflow_files(
+            temp.path(),
+            &[
+                (
+                    ".gitea/workflows/ci.yml",
+                    "on: push\njobs:\n  build:\n    steps:\n      - uses: actions/setup-node@v4\n",
+                ),
+                (".ironforge-ci.yml", NATIVE_CONFIG),
+            ],
+        );
+
+        let error = read_ci_config(temp.path(), &sha, "refs/heads/main", "push")
+            .expect_err("an unsupported action must be refused");
+        let message = format!("{error:#}");
+        assert!(message.contains("actions-v1"), "{message}");
+        assert!(message.contains(".gitea/workflows/ci.yml"), "{message}");
+        assert!(!message.contains("no CI config found"), "{message}");
+    }
+
+    /// `.gitea/workflows` exists but is a file, not a directory: that is a
+    /// configuration mistake, so it must be reported rather than fall back to
+    /// "no CI config found".
+    #[test]
+    fn a_workflows_file_instead_of_a_directory_is_an_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let sha = commit_workflow_files(
+            temp.path(),
+            &[
+                (".gitea/workflows", "on: push\n"),
+                (".ironforge-ci.yml", NATIVE_CONFIG),
+            ],
+        );
+
+        let error = read_ci_config(temp.path(), &sha, "refs/heads/main", "push")
+            .expect_err("a file where the directory belongs must be reported");
+        let message = format!("{error:#}");
+        assert!(
+            message.contains(".gitea/workflows is not a directory"),
+            "{message}"
+        );
+        assert!(!message.contains("no CI config found"), "{message}");
+    }
+
+    /// A broken file next to a working one keeps the old compatibility rule: the
+    /// working workflow still runs.
+    #[test]
+    fn a_broken_workflow_file_next_to_a_working_one_is_still_skipped() {
+        let temp = tempfile::tempdir().unwrap();
+        let sha = commit_workflow_files(
+            temp.path(),
+            &[
+                (".gitea/workflows/broken.yml", "jobs: [unclosed\n"),
+                (
+                    ".gitea/workflows/ci.yml",
+                    "on: push\njobs:\n  build:\n    steps:\n      - run: echo hi\n",
+                ),
+            ],
+        );
+
+        let config = read_ci_config(temp.path(), &sha, "refs/heads/main", "push").unwrap();
+        assert_eq!(config.jobs.len(), 1);
+        assert!(config.jobs.contains_key("ci/build"));
     }
 
     #[test]

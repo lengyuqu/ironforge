@@ -1,0 +1,11 @@
+name: single
+description: One composite Action with two plain steps.
+runs:
+  using: composite
+  steps:
+    - name: first
+      shell: bash
+      run: echo first
+    - name: second
+      shell: bash
+      run: echo second
