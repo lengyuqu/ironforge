@@ -2048,10 +2048,24 @@ pub async fn start_import(
 ) -> CoreResult<ImportTask> {
     let now = Utc::now();
     // Gitea goes through the GitHub importer, so it supports metadata too.
-    // CNB has issues and labels but no milestone concept, and its pull requests
-    // have not been verified against a live instance — so it is listed for the
-    // metadata it can actually deliver today.
+    // CNB delivers issues, labels, pull requests and their discussion comments
+    // (verified against the live API) but has no milestone concept, and this
+    // importer has no release or wiki path for it. `supports_metadata` gates the
+    // whole group, so the unsupported flags are cleared here — storing them as
+    // requested while `run_cnb_import` ignores them would report a migration
+    // that never happened. Clearing beats erroring: the dialog sends these on by
+    // default, so rejecting would fail every CNB import out of the box.
     let supports_metadata = matches!(platform.as_str(), "github" | "gitlab" | "gitea" | "cnb");
+    let (import_wiki, import_releases, import_milestones) = if platform == "cnb" {
+        if import_wiki || import_releases || import_milestones {
+            tracing::info!(
+                "CNB import: milestones, releases and wiki are not supported; the requested flags are cleared"
+            );
+        }
+        (false, false, false)
+    } else {
+        (import_wiki, import_releases, import_milestones)
+    };
     // The column has always been called `auth_token_encrypted`; until now the
     // caller's string went straight in.
     let auth_token = match auth_token {
