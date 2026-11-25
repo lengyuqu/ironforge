@@ -604,7 +604,10 @@ fn expand_matrix(job_name: &str, config: &config::JobConfig) -> Result<Vec<Matri
 ///
 /// Tries formats in order:
 /// 1. `.gitea/workflows/*.yml` (Gitea Actions format)
-/// 2. `.ironforge-ci.yml` (native format) — errors in step 1 are swallowed, so a broken Gitea workflow silently falls through to here.
+/// 2. `.ironforge-ci.yml` (native format) — only when there is no applicable
+///    Gitea workflow. A workflow that exists but cannot be parsed, expanded or
+///    validated keeps its own error: reporting "no CI config found" there would
+///    hide the actual reason (an unsupported action, a cycle, ...).
 ///
 /// For Gitea Actions workflows, multiple files are merged into a single `CiConfig`.
 /// Jobs from different workflow files are placed in separate stages.
@@ -617,8 +620,8 @@ fn read_ci_config(
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
-    // Try Gitea Actions format first
-    if let Ok(config) = try_read_gitea_workflows(&repo, commit_sha, ref_name, event) {
+    // Try Gitea Actions format first.
+    if let Some(config) = try_read_gitea_workflows(&repo, commit_sha, ref_name, event)? {
         tracing::info!("Using Gitea Actions workflow from .gitea/workflows/");
         return Ok(config);
     }
@@ -648,22 +651,34 @@ fn read_ci_config(
     Ok(config)
 }
 
-/// Try to find and parse Gitea Actions workflow files in `.gitea/workflows/`. Returns `Err` when the `.gitea/workflows` tree entry is absent or is not a tree, when that object cannot be read, when the default branch cannot be resolved, when a workflow file fails to expand or contains unsupported actions, or when no workflow matches the event. A file that does not parse is skipped with a `debug` log rather than failing the read, so a directory in which every file is unparseable surfaces as "no workflow matches". An empty job set is never returned as an empty `CiConfig`: callers see the error instead.
+/// Try to find and parse Gitea Actions workflow files in `.gitea/workflows/`.
+///
+/// Returns `Ok(None)` when there is nothing to run here — the directory is
+/// absent or is not a tree, the default branch cannot be resolved, or no
+/// workflow matches the event — so the caller can fall back to the native
+/// config. Anything else is an error: an unreadable file, a reusable-workflow or
+/// composite expansion failure (including a cycle or the depth limit), an
+/// unsupported action, or a bad condition. A workflow that fails to *parse* is
+/// skipped with a `debug` log, so a directory in which every file is
+/// unparseable surfaces as "no workflow matches" (`Ok(None)`). An empty job set
+/// is never returned as an empty `CiConfig`.
 fn try_read_gitea_workflows(
     repo: &gix::Repository,
     commit_sha: &str,
     ref_name: &str,
     event: &str,
-) -> Result<CiConfig> {
+) -> Result<Option<CiConfig>> {
     let tree_revspec = format!("{}:.gitea/workflows", commit_sha);
-    let object_id = repo
-        .rev_parse_single(tree_revspec.as_str())
-        .map_err(|_| anyhow::anyhow!("no .gitea/workflows directory"))?;
+    let object_id = match repo.rev_parse_single(tree_revspec.as_str()) {
+        Ok(object_id) => object_id,
+        Err(_) => return Ok(None),
+    };
 
     let object = object_id.object()?;
-    let tree = object
-        .try_into_tree()
-        .map_err(|_| anyhow::anyhow!(".gitea/workflows is not a directory"))?;
+    let tree = match object.try_into_tree() {
+        Ok(tree) => tree,
+        Err(_) => return Ok(None),
+    };
 
     let default_branch = get_default_branch(repo)?;
 
@@ -671,6 +686,17 @@ fn try_read_gitea_workflows(
         std::collections::HashMap::new();
     let mut all_stages: Vec<String> = Vec::new();
     let mut workflow_sources = std::collections::HashMap::new();
+    // Action sources are read from the same immutable commit as the workflow.
+    // The cache lives next to the repository, never inside the bare repo
+    // directory (that would pollute backups and `git gc`).
+    let action_cache = repo
+        .path()
+        .parent()
+        .unwrap_or_else(|| repo.path())
+        .join(".ironforge")
+        .join("actions");
+    let actions =
+        action_fetch::ActionFetcher::for_git_commit(repo.path(), commit_sha, action_cache);
 
     // Load all workflow sources first so callers can resolve repository-local
     // reusable workflows from the same immutable commit tree.
@@ -710,8 +736,11 @@ fn try_read_gitea_workflows(
         if !workflow.matches_event(event, ref_name, &default_branch) {
             continue;
         }
-        let workflow = workflow
+        let mut workflow = workflow
             .expand_local_reusable_workflows(&workflow_sources)
+            .with_context(|| format!("failed to expand .gitea/workflows/{name}"))?;
+        workflow
+            .expand_composite_actions(&actions)
             .with_context(|| format!("failed to expand .gitea/workflows/{name}"))?;
         workflow
             .validate_supported_actions()
@@ -754,14 +783,14 @@ fn try_read_gitea_workflows(
     }
 
     if all_jobs.is_empty() {
-        anyhow::bail!("no matching workflows found in .gitea/workflows/");
+        return Ok(None);
     }
 
-    Ok(CiConfig {
+    Ok(Some(CiConfig {
         stages: Some(all_stages),
         concurrency: None, // per-workflow concurrency not merged
         jobs: all_jobs,
-    })
+    }))
 }
 
 /// Get the default branch name of the repository.

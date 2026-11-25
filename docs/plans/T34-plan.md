@@ -73,7 +73,7 @@ $ git show 64861cf9:crates/rg-ci/src/gitea_actions.rs | sed -n '475,482p'
 基线只做两个 `starts_with` 前缀判断，`owner/repo@ref`、`./local/path`、`docker://image`
 全部落入同一个 "unsupported" 分支。这正是本轮补的第一件事：先解析成四种形态，再按形态决定行为。
 
-### 1.3 一个既有缺陷（影响验收 3）
+### 1.3 一个既有缺陷（本轮一并修掉）
 
 ```
 $ git show 64861cf9:crates/rg-ci/src/lib.rs | sed -n '619,623p'
@@ -86,8 +86,11 @@ $ git show 64861cf9:crates/rg-ci/src/lib.rs | sed -n '619,623p'
 ```
 
 `if let Ok(...)` 把 `unsupported workflow ...` 一并吞掉，随后回退到 `.ironforge-ci.yml`；如果
-仓库没有原生配置，用户看到的是 `no CI config found`，而不是真正的拒绝原因。**本轮不在这里
-扩大范围**，见 §7 的接线提案。
+仓库没有原生配置，用户看到的是 `no CI config found`，而不是真正的拒绝原因。
+
+改法（`lib.rs`）：`try_read_gitea_workflows` 改为 `Result<Option<CiConfig>>`，`None` 只表示
+「没有 `.gitea/workflows` 目录」或「没有匹配的 workflow」；其余错误（解析、reusable/composite
+展开、校验）直接冒泡。这样 `actions/setup-node@v4` 的拒绝原因才能到达用户（验收 3）。
 
 ## 2. 模块划分
 
@@ -299,33 +302,45 @@ impl RunnerCapabilities {
 | 子 step 的 `working-directory` / `continue-on-error` | 现有扁平 step 模型不携带这两个字段，展开时忽略；属于结构化 step（CI-202 stage B）的范围 |
 | 多行输入值导出为 `INPUT_*` | 见 §4.1：为避免破坏现有未加引号的 `export` 行，只注入 shell 安全的值 |
 
-## 7. 接线（需要协调者裁决）
+## 7. 接线（`lib.rs`，范围外但验收必需）
 
-`Owned paths` 不含 `crates/rg-ci/src/lib.rs`，但展开必须接在读取链上。本分支只改了 1 行
-声明（`pub mod action_fetch;`）。要满足验收 2/3 还需要两处：
+任务卡的 `Owned paths` 不含 `crates/rg-ci/src/lib.rs`，但展开必须接在 `read_ci_config`
+的读取链上，否则验收 2/3 无法成立。已向协调者报告并给出精确 patch；在等待回复期间主体
+实现已完成，本分支随后按 A 方案落地了下面三处（合计约 20 行，不涉及路由、OpenAPI、
+runner 或 Cargo）：
 
 ```rust
-// 1) try_read_gitea_workflows（lib.rs:712 附近）
-let mut workflow = workflow.expand_local_reusable_workflows(&workflow_sources)?;
-let fetcher = gitea_actions::ActionFetcher::for_git_commit(
-    repo.path(),
-    commit_sha,
-    repo.path().join(".ironforge/actions"),
-);
-workflow.expand_composite_actions(&fetcher)?;
-workflow.validate_supported_actions()?;
+// 1) 模块声明
+pub mod action_fetch;
 
-// 2) read_ci_config（lib.rs:620）
-match try_read_gitea_workflows(&repo, commit_sha, ref_name, event) {
-    Ok(config) => return Ok(config),
-    // 没有 workflows 目录 / 没有匹配的 workflow 才回退
-    Err(error) if is_missing_workflows(&error) => {}
-    Err(error) => return Err(error),
+// 2) read_ci_config：只有 None 才回退到 .ironforge-ci.yml
+if let Some(config) = try_read_gitea_workflows(&repo, commit_sha, ref_name, event)? {
+    tracing::info!("Using Gitea Actions workflow from .gitea/workflows/");
+    return Ok(config);
 }
+
+// 3) try_read_gitea_workflows：构造 fetcher 并在 reusable 展开之后、校验之前展开 composite
+let action_cache = repo
+    .path()
+    .parent()
+    .unwrap_or_else(|| repo.path())
+    .join(".ironforge")
+    .join("actions");
+let actions = action_fetch::ActionFetcher::for_git_commit(repo.path(), commit_sha, action_cache);
+
+let mut workflow = workflow.expand_local_reusable_workflows(&workflow_sources)?;
+workflow.expand_composite_actions(&actions)?;
+workflow.validate_supported_actions()?;
 ```
 
-在裁决前，`expand_composite_actions` 已经在集成测试里用真实 commit 树跑通（§8 第 10 项），
-接线只是把它放进 `read_ci_config`。
+缓存位置：裸仓库的 `repo.path()` 是 `<data>/repos/<owner>/<name>.git`，其父目录是
+`<data>/repos/<owner>`，缓存因此落在 `<data>/repos/<owner>/.ironforge/actions/`。**不写进裸仓库
+目录本身**（会污染备份与 `git gc`）。
+
+`remote_base` 本轮**不**配置：没有实例级 ActionResolver 时无法安全地推断 host
+（ADR §2.3.1 要求 allowlist）。因此远程 Action 只有命中缓存时才会展开，否则以
+"not cached and no remote action source is configured" fail closed。端到端测试用预热的
+缓存条目覆盖这条路径；真实 clone 路径由 `#[ignore]` 测试和 `with_remote_base` 接口覆盖。
 
 ## 8. 测试映射（`cargo test -p rg-ci`）
 
@@ -345,6 +360,8 @@ match try_read_gitea_workflows(&repo, commit_sha, ref_name, event) {
 | 附加 | 已缓存远程（含 subdir）→ 不联网 | `a_cached_remote_action_resolves_without_network` |
 | 附加 | 真实 commit 树（生产读取路径） | `a_local_composite_is_expanded_from_the_workflow_commit` |
 | 附加 | 真实网络获取（默认 ignore） | `fetches_a_real_remote_action_from_the_configured_base` |
+| 验收 2 | 含本地 + 缓存远程 composite 的 workflow 真走 `trigger_pipeline`，读回 job 脚本 | `creating_a_pipeline_expands_local_and_cached_remote_composites` |
+| 验收 3 | 含 `actions/setup-node@v4` 的 workflow → 创建 Pipeline 被拒，文案含 `actions-v1`、无仓库路径 | `creating_a_pipeline_refuses_a_node_action_with_actions_v1` |
 
 单测另覆盖：引用解析的正/负例、manifest 分类、标量默认值、label→能力。
 
@@ -364,3 +381,17 @@ echo "hi pipeline"
 
 即：`uses: ./.gitea/actions/greet` 消失，Action 的 `run` 变成了普通 step，input 以
 `INPUT_WHO` 环境变量 + 字面替换两种方式同时可用。
+
+走真实 `trigger_pipeline`（创建 Pipeline、写 DB、再读回 job 脚本）的样例，workflow 同时含
+`./.gitea/actions/greet` 和缓存中的 `some-owner/some-composite@v1`：
+
+```
+pipeline job script:
+# [IronForge] Repository is already checked out at /workspace
+set -e
+export INPUT_WHO=pipeline
+echo "hi pipeline"
+echo remote-composite
+```
+
+（`creating_a_pipeline_expands_local_and_cached_remote_composites`，`--nocapture` 输出。）
