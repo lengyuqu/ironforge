@@ -153,13 +153,23 @@
 | **小团队** | 1 实例 + PostgreSQL + S3 | 自上次 `pg_dump`（工具支持，**当前没有内置调度**；D5 已批准内置定时备份，未实现） | `pg_dump` 69ms + `pg_restore` 424ms + migrate 10ms ≈ **0.5s**（334KB dump）；启动未计入 | DB 可外置、blob 可进 S3、dump/restore 往返经过实测；**PostgreSQL 是首选后端，MySQL 为 best-effort**（D6） | 不承诺 Git 仓库外置（仍在本地盘）、不承诺自动备份、不承诺 HA、不承诺 MySQL 与 PG 同级（MySQL 的 dump/restore 未实测，见 drill §10） |
 | **生产** | 多实例 + PG + 共享 repo 存储 + 选主 | **不支持**（无可承诺值） | **不支持** | 无 | 全部；先完成 §5 的 4 个硬阻塞项。**本轮明确不做 Git 存储外置（D1），因此多实例在可预见的版本内都不支持** |
 
+> **上表 RTO 的测量环境（决策时必须一起看）**：`0.23s` 那一行是 HEAD 二进制在 **macOS 宿主**直接运行、
+> 数据目录为宿主本地盘测得的；**容器内数字未测量**——overlayfs/volume 的 I/O 语义、`ironforge` 非 root
+> 运行用户、`HEALTHCHECK`、镜像层前端资源均未覆盖。真实容器拓扑的 RTO 应视为「上表 + 容器启动开销」，
+> **当前数字方向偏乐观**。小团队行的 69/424/10ms 来自旧镜像（97 迁移）的容器内 `pg_dump`/`pg_restore`，
+> 与 HEAD 不同版本，不能与 `0.23s` 直接相加或比较。
+>
+> **D3 落地后 RTO 构成会变**：`migrate`（25ms）移出启动路径，不再是 RTO 的一部分，而是显式前置步骤；
+> 启动会新增一次 schema 版本校验（预计 ms 级）。**不要拿当前公式（停服 + restore + migrate + 启动）
+> 去套 D3 之后的新拓扑**。
+
 ## 7. 裁决记录（2026-11-25，余曲）
 
 | ID | 问题 | 裁决 | 落地要求 |
 |---|---|---|---|
 | D1 | Git 仓库存储是否外置 | **本轮不做** | 对象存储 + git 层改造是季度级工程。支持等级只到「单机 / 小团队」；**ADR 与 README 都必须明写「不支持多实例」及其代价**（无故障转移、升级有停机、容量受单机限制） |
 | D2 | 多实例选主实现 | **DB 租约** | 复用 PG 与 `background_jobs` 的原子 claim 思路；不引 Redis（新依赖 + 新故障面）。实现时先做 `task_leases(name, owner, expires_at)` 与一个 `try_lease` 封装，周期任务逐个接入 |
-| D3 | 迁移是否从启动路径拆出 | **是** | `serve` 不再隐式迁移：启动时只校验 schema 版本（缺迁移就拒绝启动并提示）；`ironforge migrate` 作为显式前置步骤（compose init/Job 或运维命令） |
+| D3 | 迁移是否从启动路径拆出 | **是** | `serve` 不再隐式迁移：启动时只校验 schema 版本（缺迁移就拒绝启动并提示）；`ironforge migrate` 作为显式前置步骤（compose init/Job 或运维命令）。**RTO 构成随之变化：migrate 移出 RTO，启动新增 schema 校验；旧公式作废** |
 | D4 | 是否提供 `migrate --down` | **不提供** | 回滚靠备份 + 旧镜像。SeaORM 的 `down` 在三后端上没人验证过，半可靠的回滚比没有更危险 |
 | D5 | 小团队档是否内置备份调度 | **内置，但范围要小** | 定时 `VACUUM INTO`（SQLite）/ `pg_dump`（PG）+ 保留 N 份 + 每次备份后跑一次恢复校验；不做 PITR、不做异地复制。**当前未实现**，文档不得写成已支持 |
 | D6 | MySQL 是否与 PG 同级 | **不同级** | PostgreSQL 优先；MySQL 降级为 best-effort（只保证 `migrate` 可用，dump/restore 未实测）。README/支持表不得把两者并列 |
