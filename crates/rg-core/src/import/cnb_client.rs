@@ -330,6 +330,17 @@ impl CnbClient {
             .await
     }
 
+    /// Fetch one pull request, which is where its `body` lives.
+    ///
+    /// The list endpoint sends `"body": ""` for every pull — the key exists, so
+    /// "is it null?" does not detect the omission — while the detail endpoint
+    /// carries the real text. Its payload has no `created_at`/`updated_at`,
+    /// though, so callers must keep the list row and take only the body.
+    pub async fn get_pull(&self, repo: &CnbRepo, number: &str) -> Result<CnbPull> {
+        self.get_json(&format!("/{}/-/pulls/{number}", repo.path()))
+            .await
+    }
+
     pub async fn list_pull_comments(
         &self,
         repo: &CnbRepo,
@@ -428,6 +439,40 @@ mod tests {
             dedupe_by_number(items, |number| number.clone()),
             vec!["11".to_string(), "12".to_string()]
         );
+    }
+
+    /// Captured from `GET /lengyuqu/ironforge/-/pulls/66`. The detail payload has
+    /// the real body and full refs, and — unlike the list row — has no
+    /// `created_at`/`updated_at`, which is why the importer keeps the list row
+    /// and takes only the body.
+    #[test]
+    fn a_pull_detail_payload_from_the_live_api_parses() {
+        let payload = r###"{
+            "number": "66",
+            "state": "closed",
+            "title": "chore(deps): upgrade jsonwebtoken to 10.3.0",
+            "body": "## 现状问题\n...",
+            "is_merged": true,
+            "is_wip": false,
+            "merged_by": {"username": "cnb.lengyuqu", "nickname": "太难了", "is_npc": false},
+            "head": {"ref": "refs/heads/auto/jwt-cve-25537-9fce", "sha": "1160da2f66e72cb695bd25d50a5034eeb8d7f88e"},
+            "base": {"ref": "refs/heads/main", "sha": "669b196d508c56e09af6691813658e9a1f3b0c93"},
+            "labels": [],
+            "author": {"username": "CodeBuddy", "nickname": "临时免费，节后再说", "is_npc": true},
+            "closed_at": "2026-11-24T15:59:05Z"
+        }"###;
+        let pull: CnbPull = serde_json::from_str(payload).expect("CNB pull must parse");
+        assert_eq!(pull.number_as_i64(), 66);
+        assert_eq!(pull.state, "closed");
+        assert!(pull.is_merged);
+        assert_eq!(pull.body.as_deref(), Some("## 现状问题\n..."));
+        assert_eq!(
+            pull.head.as_ref().map(|head| head.r#ref.as_str()),
+            Some("refs/heads/auto/jwt-cve-25537-9fce")
+        );
+        // The detail payload does not send these; they stay empty.
+        assert!(pull.created_at.is_empty());
+        assert!(pull.updated_at.is_empty());
     }
 
     #[test]

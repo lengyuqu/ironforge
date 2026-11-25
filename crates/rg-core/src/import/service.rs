@@ -1401,10 +1401,12 @@ async fn run_cnb_import(
                 .await?;
 
                 // The list endpoint omits `body`; the text only exists on the
-                // single-issue endpoint.
-                let detail = match issue.body {
-                    Some(_) => issue.clone(),
-                    None => match client.get_issue(&source, &issue.number).await {
+                // single-issue endpoint. An empty string counts as missing too:
+                // the pull-request list uses `""` rather than omitting the key,
+                // so "Some" alone is not a reliable test.
+                let detail = match issue.body.as_deref().map(str::is_empty) {
+                    Some(false) => issue.clone(),
+                    _ => match client.get_issue(&source, &issue.number).await {
                         Ok(detail) => detail,
                         Err(error) => {
                             tracing::warn!(number = %issue.number, %error, "CNB: failed to fetch issue body");
@@ -1458,13 +1460,26 @@ async fn run_cnb_import(
             )
             .await?;
 
+            // The list endpoint sends `"body": ""` for every pull request; the
+            // text only exists on the single-pull endpoint. Unlike the issue
+            // detail payload, this one has no `created_at`/`updated_at`, so the
+            // list row is kept and only the body is taken from the detail.
+            let mut pull = pull.clone();
+            if pull.body.as_deref().unwrap_or("").is_empty() {
+                match client.get_pull(&source, &pull.number).await {
+                    Ok(detail) => pull.body = detail.body,
+                    Err(error) => {
+                        tracing::warn!(number = %pull.number, %error, "CNB: failed to fetch pull request body");
+                    }
+                }
+            }
             let comments = client
                 .list_pull_comments(&source, &pull.number)
                 .await
                 .unwrap_or_default();
             let converted_comments: Vec<GitHubComment> =
                 comments.iter().map(cnb_comment_to_github).collect();
-            let converted = cnb_pull_to_github(pull);
+            let converted = cnb_pull_to_github(&pull);
             let empty_user_map = HashMap::new();
             let empty_milestone_map = HashMap::new();
             if let Err(error) = import_github_pr(
