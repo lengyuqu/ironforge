@@ -6,10 +6,10 @@
 //! from the live API instead:
 //!
 //! ```text
-//! GET https://api.cnb.cool/{owner}/{repo}/-/issues          → [ {...}, ... ]
+//! GET https://api.cnb.cool/{owner}/{repo}/-/issues?state=open|closed  → [ {...}, ... ]
 //! GET https://api.cnb.cool/{owner}/{repo}/-/issues/{number} → { ..., "body": "..." }
 //! GET https://api.cnb.cool/{owner}/{repo}/-/issues/{n}/comments
-//! GET https://api.cnb.cool/{owner}/{repo}/-/pulls
+//! GET https://api.cnb.cool/{owner}/{repo}/-/pulls?state=all
 //! ```
 //!
 //! Three things differ from every other source and each one has cost a real
@@ -180,6 +180,19 @@ fn label_names_from(labels: &[serde_json::Value]) -> Vec<String> {
         .collect()
 }
 
+/// Keep the first row per number.
+///
+/// An item that changes state between the `open` and `closed` calls would
+/// otherwise be returned twice; the shared importer creates by number, so the
+/// second copy always fails and the failure count lies about the source.
+fn dedupe_by_number<T>(items: Vec<T>, number: impl Fn(&T) -> String) -> Vec<T> {
+    let mut seen = std::collections::HashSet::new();
+    items
+        .into_iter()
+        .filter(|item| seen.insert(number(item)))
+        .collect()
+}
+
 pub struct CnbClient {
     token: String,
     base: String,
@@ -271,10 +284,23 @@ impl CnbClient {
         Ok(all)
     }
 
-    /// Every issue, whatever its state (same default-open trap as pulls).
+    /// Every issue, whatever its state.
+    ///
+    /// Unlike `/pulls`, CNB's issue list does **not** accept `state=all`: it
+    /// answers `400 {"errmsg":"bad request"}`. Omitting the parameter is not a
+    /// way out either — it silently means `open`, so a repository whose issues
+    /// are mostly closed (31 of 32 on the live test repo) imports a fraction
+    /// and reports success. Only `open` and `closed` are accepted, so this
+    /// asks twice and merges.
     pub async fn list_issues(&self, repo: &CnbRepo) -> Result<Vec<CnbIssue>> {
-        self.paginate(&format!("/{}/-/issues?state=all", repo.path()))
-            .await
+        let mut all = Vec::new();
+        for state in ["open", "closed"] {
+            let batch = self
+                .paginate(&format!("/{}/-/issues?state={state}", repo.path()))
+                .await?;
+            all.extend(batch);
+        }
+        Ok(dedupe_by_number(all, |issue| issue.number.clone()))
     }
 
     /// Fetch one issue, which is where its `body` lives.
@@ -391,6 +417,17 @@ mod tests {
         }"#;
         let issue: CnbIssue = serde_json::from_str(payload).unwrap();
         assert_eq!(issue.label_names(), vec!["bug", "enhancement"]);
+    }
+
+    /// `state=all` is a 400 on this endpoint, so the client asks twice; an
+    /// issue that flips state between those calls must not be imported twice.
+    #[test]
+    fn duplicates_across_the_two_state_calls_are_collapsed() {
+        let items = vec!["11".to_string(), "12".to_string(), "11".to_string()];
+        assert_eq!(
+            dedupe_by_number(items, |number| number.clone()),
+            vec!["11".to_string(), "12".to_string()]
+        );
     }
 
     #[test]
