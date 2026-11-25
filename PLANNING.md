@@ -77,3 +77,7 @@ After implementation and task acceptance checks pass, the Agent changes only its
 | 2026-11-14 | R9（#39）依赖策略：**允许引入 tree-sitter + 5 个 grammar** | 结构化大纲需要真 AST，正则在 TS/Go/Python 上精度不足；代价是 6 个新 crate 与更长构建，由该任务独占 `Cargo.*` 承担 | T06（待建） | 余曲 |
 | 2026-11-14 | R7 扫描超限口径取 **fail-open + 强制审计事件** | 首次导入大仓是真实场景，硬拒会阻断迁移；`secret_scan_skipped` 事件让管理员可见 | T04 | 余曲 |
 | 2026-11-14 | R10 配额只对 `kind = agent` 生效 | 人类账号不受限，避免误伤现有用户；最小闭环不新增 REST 端点以避开路由注册争用 | T05 | 余曲 |
+| 2026-11-25 | 第四批开 T32–T36，对应差距清单四个 MISSING 硬伤 + CNB 真机验证 | 四块失分合计 3.35（CI Actions 1.50 / HA 1.00 / Git 基线 0.75 / Unit 权限 0.60），是 82.1% → 100% 的主要障碍 | T32,T33,T34,T35,T36 | 余曲 |
+| 2026-11-25 | T33（Unit 权限）与 T35（HA）**只出文档不改码** | 前者属 L2 认证语义变更且必改 `route_meta.rs` 与迁移序号；后者依赖 `deploy/`（禁区）与三层架构决策。两者都必须先有可审的设计，再由协调者裁决实现批次 | T33,T35 | 余曲 |
+| 2026-11-25 | T34 本轮只做 composite action 展开，node/docker 继续 fail closed | ADR-0001 已冻结执行边界；composite 是纯 YAML 展开、零新运行时，能吃到真实场景又不触碰沙箱。沙箱执行另开任务 | T34 | 余曲 |
+| 2026-11-25 | 本批四任务文件重叠为零，可同时认领 | T32 只碰 `rg-git/tests/`，T33/T35 只碰 `docs/plans/`，T34 只碰 `rg-ci/`，T36 只碰 `rg-core/src/import/` 的 CNB 段 | T32–T36 | 余曲 |
