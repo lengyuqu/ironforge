@@ -736,6 +736,25 @@ fn try_read_gitea_workflows(
         workflow_sources.insert(name, yml);
     }
 
+    // Action sources are read from the same immutable commit as the workflow.
+    // Cache placement matters: a bare repository (`<data>/repos/<owner>/<name>.git`)
+    // must not have anything written inside it, so the cache goes next to it;
+    // for a non-bare checkout (local development) it goes under `.git`, where it
+    // is invisible to `git status` and cannot become repository content.
+    let cache_parent = if repo.is_bare() {
+        repo.path()
+            .parent()
+            .unwrap_or_else(|| repo.path())
+            .to_path_buf()
+    } else {
+        repo.path().to_path_buf()
+    };
+    let actions = action_fetch::ActionFetcher::for_git_commit(
+        repo.path(),
+        commit_sha,
+        cache_parent.join(".ironforge").join("actions"),
+    );
+
     let mut parse_errors: Vec<(String, String)> = Vec::new();
     let mut parsed_any = false;
     for (name, yml) in &workflow_sources {
@@ -755,8 +774,11 @@ fn try_read_gitea_workflows(
         if !workflow.matches_event(event, ref_name, &default_branch) {
             continue;
         }
-        let workflow = workflow
+        let mut workflow = workflow
             .expand_local_reusable_workflows(&workflow_sources)
+            .with_context(|| format!("failed to expand .gitea/workflows/{name}"))?;
+        workflow
+            .expand_composite_actions(&actions)
             .with_context(|| format!("failed to expand .gitea/workflows/{name}"))?;
         workflow
             .validate_supported_actions()
@@ -1210,7 +1232,7 @@ mod matrix_tests {
             .expect_err("an unsupported action must be refused");
         let message = format!("{error:#}");
         assert!(message.contains("actions-v1"), "{message}");
-        assert!(message.contains("unsupported workflow"), "{message}");
+        assert!(message.contains(".gitea/workflows/ci.yml"), "{message}");
         assert!(!message.contains("no CI config found"), "{message}");
     }
 

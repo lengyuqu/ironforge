@@ -634,7 +634,8 @@ require an {ACTIONS_V1_CAPABILITY} runner, which is not implemented"
                 ActionErrorKind::Unsupported,
                 format!(
                     "action '{owner}/{repo}@{git_ref}' is not cached and no remote action source is \
-configured; remote actions require an {ACTIONS_V1_CAPABILITY} runner, which is not implemented"
+configured, so it cannot be fetched; a node or docker action would additionally require an \
+{ACTIONS_V1_CAPABILITY} runner, which is not implemented"
                 ),
             ));
         };

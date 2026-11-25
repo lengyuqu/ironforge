@@ -73,7 +73,7 @@ $ git show 64861cf9:crates/rg-ci/src/gitea_actions.rs | sed -n '475,482p'
 基线只做两个 `starts_with` 前缀判断，`owner/repo@ref`、`./local/path`、`docker://image`
 全部落入同一个 "unsupported" 分支。这正是本轮补的第一件事：先解析成四种形态，再按形态决定行为。
 
-### 1.3 一个既有缺陷（影响验收 3）
+### 1.3 一个既有缺陷（本轮一并修掉）
 
 ```
 $ git show 64861cf9:crates/rg-ci/src/lib.rs | sed -n '619,623p'
@@ -86,8 +86,33 @@ $ git show 64861cf9:crates/rg-ci/src/lib.rs | sed -n '619,623p'
 ```
 
 `if let Ok(...)` 把 `unsupported workflow ...` 一并吞掉，随后回退到 `.ironforge-ci.yml`；如果
-仓库没有原生配置，用户看到的是 `no CI config found`，而不是真正的拒绝原因。**本轮不在这里
-扩大范围**，见 §7 的接线提案。
+仓库没有原生配置，用户看到的是 `no CI config found`，而不是真正的拒绝原因。基线 doc comment
+自己就写着 "errors in step 1 are swallowed"——这是已知但一直没修的缺陷。
+
+改法（`lib.rs`）：
+
+- 新增 `NoWorkflows(&'static str)` 标记错误，只表示「这个 commit 没有可用的 Gitea workflow」；
+- `read_ci_config` 用 `error.downcast_ref::<NoWorkflows>()` 判断是否回退，**不用错误文案做控制流**
+  （改一个字就悄悄回到静默降级，比原 bug 更难发现）；
+- `.gitea/workflows` 不存在、或没有匹配 event 的 workflow → `NoWorkflows`，可回退；
+- `.gitea/workflows` 不是目录、`get_default_branch` 失败 → 普通错误，**冒泡**（那是配置错误，
+  回退会掩盖它）；
+- parse / reusable 展开 / composite 展开 / 校验失败 → 冒泡。唯一例外：一个目录里**所有**文件都
+  parse 失败时，报第一条 parse 错误（`failed to parse .gitea/workflows/<name>: ...`）；坏文件旁边
+  还有能跑的文件时仍然跳过，保持多文件仓库的兼容性。
+
+用户可见差异（`actions/setup-node@v4`，未缓存且未配置远程源）：
+
+```
+改前: no CI config found (.gitea/workflows/*.yml or .ironforge-ci.yml) at commit <sha>
+改后: failed to expand .gitea/workflows/ci.yml: job 'build': action 'actions/setup-node@v4'
+      is not cached and no remote action source is configured, so it cannot be fetched;
+      a node or docker action would additionally require an actions-v1 runner, which is
+      not implemented
+```
+
+（若 Action 可获取，展开层能读出 `runs.using: node20`，文案会变成
+`action '...' runs with 'node20'; ... require an actions-v1 runner`。）
 
 ## 2. 模块划分
 
@@ -299,33 +324,54 @@ impl RunnerCapabilities {
 | 子 step 的 `working-directory` / `continue-on-error` | 现有扁平 step 模型不携带这两个字段，展开时忽略；属于结构化 step（CI-202 stage B）的范围 |
 | 多行输入值导出为 `INPUT_*` | 见 §4.1：为避免破坏现有未加引号的 `export` 行，只注入 shell 安全的值 |
 
-## 7. 接线（需要协调者裁决）
+## 7. 接线（`lib.rs`，范围外但验收必需，已获协调者授权）
 
-`Owned paths` 不含 `crates/rg-ci/src/lib.rs`，但展开必须接在读取链上。本分支只改了 1 行
-声明（`pub mod action_fetch;`）。要满足验收 2/3 还需要两处：
+任务卡的 `Owned paths` 不含 `crates/rg-ci/src/lib.rs`，但展开必须接在 `read_ci_config`
+的读取链上，否则验收 2/3 无法成立。开工时已把两处精确 patch 与风险报告给协调者，获
+**A 方案**授权（并追加两个约束：错误判别必须用 `downcast`、第 2 处单独成 commit）。
+最终改动集中在一个函数体内，共三块：
 
 ```rust
-// 1) try_read_gitea_workflows（lib.rs:712 附近）
-let mut workflow = workflow.expand_local_reusable_workflows(&workflow_sources)?;
-let fetcher = gitea_actions::ActionFetcher::for_git_commit(
-    repo.path(),
-    commit_sha,
-    repo.path().join(".ironforge/actions"),
-);
-workflow.expand_composite_actions(&fetcher)?;
-workflow.validate_supported_actions()?;
+// 1) 模块声明
+pub mod action_fetch;
 
-// 2) read_ci_config（lib.rs:620）
+// 2) read_ci_config：只有 NoWorkflows 才回退
 match try_read_gitea_workflows(&repo, commit_sha, ref_name, event) {
-    Ok(config) => return Ok(config),
-    // 没有 workflows 目录 / 没有匹配的 workflow 才回退
-    Err(error) if is_missing_workflows(&error) => {}
+    Ok(config) => { /* info + return */ }
+    Err(error) if error.downcast_ref::<NoWorkflows>().is_some() => {
+        tracing::debug!(commit = %commit_sha, %error, "no applicable Gitea workflow");
+    }
     Err(error) => return Err(error),
 }
+
+// 3) try_read_gitea_workflows：reusable 展开之后、校验之前
+let cache_parent = if repo.is_bare() {
+    repo.path().parent().unwrap_or_else(|| repo.path()).to_path_buf()
+} else {
+    repo.path().to_path_buf()
+};
+let actions = action_fetch::ActionFetcher::for_git_commit(
+    repo.path(),
+    commit_sha,
+    cache_parent.join(".ironforge").join("actions"),
+);
+
+let mut workflow = workflow.expand_local_reusable_workflows(&workflow_sources)?;
+workflow.expand_composite_actions(&actions)?;
+workflow.validate_supported_actions()?;
 ```
 
-在裁决前，`expand_composite_actions` 已经在集成测试里用真实 commit 树跑通（§8 第 10 项），
-接线只是把它放进 `read_ci_config`。
+### 缓存目录落点
+
+| 仓库形态 | `repo.path()` | 缓存根 | 依据 |
+|---|---|---|---|
+| 生产：裸仓库 `<data>/repos/<owner>/<name>.git` | 裸仓库目录本身 | `<data>/repos/<owner>/.ironforge/actions` | 写进裸仓库会污染备份与 `git gc`；同 owner 共用一份缓存 |
+| 本地开发：非裸仓库 | `<worktree>/.git` | `<worktree>/.git/.ironforge/actions` | `.git` 是元数据目录，`git status` 看不到，不会变成仓库内容 |
+
+`remote_base` 本轮不配置：没有实例级 ActionResolver 时无法安全推断 host（ADR §2.3.1 要求
+allowlist）。因此远程 Action 只有命中缓存才会展开，否则以 "not cached and no remote action
+source is configured" fail closed。端到端测试用预热缓存覆盖这条路径；真实 clone 由
+`#[ignore]` 测试与 `with_remote_base` 接口覆盖。
 
 ## 8. 测试映射（`cargo test -p rg-ci`）
 
@@ -345,8 +391,14 @@ match try_read_gitea_workflows(&repo, commit_sha, ref_name, event) {
 | 附加 | 已缓存远程（含 subdir）→ 不联网 | `a_cached_remote_action_resolves_without_network` |
 | 附加 | 真实 commit 树（生产读取路径） | `a_local_composite_is_expanded_from_the_workflow_commit` |
 | 附加 | 真实网络获取（默认 ignore） | `fetches_a_real_remote_action_from_the_configured_base` |
+| 验收 2 | 含本地 + 缓存远程 composite 的 workflow 真走 `trigger_pipeline`，读回 job 脚本 | `creating_a_pipeline_expands_local_and_cached_remote_composites` |
+| 验收 3 | 含 `actions/setup-node@v4` 的 workflow → 创建 Pipeline 被拒，文案含 `actions-v1`、不含 `/Users/` `/private/` `/var/folders/` `ironforge-t34` `.ironforge/actions` | `creating_a_pipeline_refuses_a_node_action_with_actions_v1` |
+| lib.rs 回归 | 可解析但被拒的 workflow 不再变成 "no CI config found"（即使仓库有原生配置） | `a_rejected_workflow_is_not_reported_as_missing_config` |
+| lib.rs 回归 | 目录里唯一/全部文件 parse 失败 → 报 parse 错误 | `an_unparseable_workflow_reports_its_parse_error` |
+| lib.rs 回归 | 坏文件旁边有能跑的 workflow → 仍然运行（兼容） | `a_broken_workflow_file_next_to_a_working_one_is_still_skipped` |
+| lib.rs 回归 | 原生配置只在没有可用 Gitea workflow 时使用 | `the_native_config_is_used_only_when_no_gitea_workflow_applies` |
 
-单测另覆盖：引用解析的正/负例、manifest 分类、标量默认值、label→能力。
+单测另覆盖：引用解析的正/负例、manifest 分类、标量默认值、label→能力、clone 失败分类。
 
 ## 9. 实际展开样例
 
