@@ -36,7 +36,6 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use crate::gitea_actions::GiteaStep;
 
@@ -424,33 +423,45 @@ impl GitTreeSource {
 impl ActionFileSource for GitTreeSource {
     fn read(&self, relative: &str) -> std::result::Result<Option<Vec<u8>>, ActionError> {
         let spec = self.spec(relative);
-        // `git show <rev>:<path>`. The commit is a SHA from the pipeline, and
-        // the path is normalised; neither can start with '-'.
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(&self.repo_path)
-            .args(["show", &spec])
-            .output()
-            .map_err(|error| {
-                ActionError::new(
+        // Read `<commit>:<path>` straight out of the object database. This used
+        // to shell out to `git show` and decide "file is absent" by matching
+        // stderr text (`does not exist`, `exists on disk, but not in`) — both
+        // of which stop being true the day git rewords a message.
+        let repo = gix::open(&self.repo_path).map_err(|error| {
+            ActionError::new(
+                ActionErrorKind::Io,
+                format!("failed to open the repository to read actions: {error}"),
+            )
+        })?;
+
+        // A missing *commit* is an error (the pipeline's own SHA cannot resolve);
+        // a missing *path* inside a valid commit only means "no such Action file".
+        if repo.rev_parse_single(self.commit.as_str()).is_err() {
+            return Err(ActionError::new(
+                ActionErrorKind::Io,
+                format!("commit '{}' does not resolve in the repository", self.commit),
+            ));
+        }
+        let object_id = match repo.rev_parse_single(spec.as_str()) {
+            Ok(id) => id,
+            Err(_) => return Ok(None),
+        };
+        let object = match object_id.object() {
+            Ok(object) => object,
+            Err(error) => {
+                return Err(ActionError::new(
                     ActionErrorKind::Io,
-                    format!("failed to run git while reading actions: {error}"),
-                )
-            })?;
-        if output.status.success() {
-            return Ok(Some(output.stdout));
-        }
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("does not exist")
-            || stderr.contains("exists on disk, but not in")
-            || stderr.contains("not in")
-        {
-            return Ok(None);
-        }
-        Err(ActionError::new(
-            ActionErrorKind::Io,
-            format!("failed to read '{spec}' from the workflow commit: {stderr}"),
-        ))
+                    format!("failed to read '{spec}' from the workflow commit: {error}"),
+                ))
+            }
+        };
+        // A directory (tree) where a file is expected reads as "not present"
+        // rather than an error: the caller then reports the Action as malformed.
+        let blob = match object.try_into_blob() {
+            Ok(blob) => blob,
+            Err(_) => return Ok(None),
+        };
+        Ok(Some(blob.data.to_vec()))
     }
 
     fn root(&self) -> Box<dyn ActionFileSource> {
@@ -653,13 +664,32 @@ configured, so it cannot be fetched; a node or docker action would additionally 
             })?;
         }
 
-        let output = Command::new("git")
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .args(["clone", "--quiet", "--depth", "1", "--single-branch", "--branch"])
-            .arg(git_ref)
-            .arg(&url)
-            .arg(&tmp)
-            .output()
+        // Clone through the shared gateway rather than spawning `git` here:
+        // the gateway owns the timeout, the audit span and the environment, and
+        // `test_no_raw_git_command_in_crates` exists to keep it that way.
+        let gateway = rg_git::cli_gateway::GitCommandGateway::new().map_err(|error| {
+            fail(
+                ActionErrorKind::Io,
+                format!("failed to initialise the git gateway: {error}"),
+            )
+        })?;
+        let tmp_arg = tmp.to_string_lossy().to_string();
+        let output = gateway
+            .run_with_env(
+                &[
+                    "clone",
+                    "--quiet",
+                    "--depth",
+                    "1",
+                    "--single-branch",
+                    "--branch",
+                    git_ref,
+                    url.as_str(),
+                    tmp_arg.as_str(),
+                ],
+                None,
+                &[("GIT_TERMINAL_PROMPT", "0")],
+            )
             .map_err(|error| {
                 fail(
                     ActionErrorKind::Fetch,
@@ -667,9 +697,9 @@ configured, so it cannot be fetched; a node or docker action would additionally 
                 )
             })?;
 
-        if !output.status.success() {
+        if !output.success() {
             let _ = std::fs::remove_dir_all(&tmp);
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = output.stderr_str();
             let kind = classify_clone_error(&stderr);
             return Err(fail(kind, clone_error_message(kind, owner, repo, git_ref)));
         }
