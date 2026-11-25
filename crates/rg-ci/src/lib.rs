@@ -52,6 +52,25 @@ fn invalid_config(message: impl Into<String>) -> anyhow::Error {
     anyhow::Error::new(CoreError::invalid_input(message))
 }
 
+/// "There is no applicable Gitea workflow at this commit", and nothing else.
+///
+/// Used as a typed marker rather than a message match: only this error lets
+/// `read_ci_config` fall back to `.ironforge-ci.yml`. Every other failure — a
+/// workflow that does not parse, cannot be expanded, or uses an unsupported
+/// action — must reach the user. Swallowing those turned "the workflow is
+/// wrong" into "no CI config found", which is why an unsupported `uses:` looked
+/// like it was being silently ignored.
+#[derive(Debug)]
+struct NoWorkflows(&'static str);
+
+impl std::fmt::Display for NoWorkflows {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for NoWorkflows {}
+
 // M-14: TriggerPipelineParams and has_ci_config are now defined in rg-core.
 // Re-export for backward compatibility with any code that still imports from rg_ci.
 pub use rg_core::ci::{has_ci_config, ResumePipelineParams, TriggerPipelineParams};
@@ -604,7 +623,10 @@ fn expand_matrix(job_name: &str, config: &config::JobConfig) -> Result<Vec<Matri
 ///
 /// Tries formats in order:
 /// 1. `.gitea/workflows/*.yml` (Gitea Actions format)
-/// 2. `.ironforge-ci.yml` (native format) — errors in step 1 are swallowed, so a broken Gitea workflow silently falls through to here.
+/// 2. `.ironforge-ci.yml` (native format) — only when there is no applicable
+///    Gitea workflow. A workflow that exists but cannot be parsed, expanded or
+///    validated keeps its own error: reporting "no CI config found" for it would
+///    hide the real reason (an unsupported action, a cycle, a broken file).
 ///
 /// For Gitea Actions workflows, multiple files are merged into a single `CiConfig`.
 /// Jobs from different workflow files are placed in separate stages.
@@ -617,10 +639,17 @@ fn read_ci_config(
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
-    // Try Gitea Actions format first
-    if let Ok(config) = try_read_gitea_workflows(&repo, commit_sha, ref_name, event) {
-        tracing::info!("Using Gitea Actions workflow from .gitea/workflows/");
-        return Ok(config);
+    // Try Gitea Actions format first. Only `NoWorkflows` — no directory, or no
+    // workflow matching this event — is a reason to fall back.
+    match try_read_gitea_workflows(&repo, commit_sha, ref_name, event) {
+        Ok(config) => {
+            tracing::info!("Using Gitea Actions workflow from .gitea/workflows/");
+            return Ok(config);
+        }
+        Err(error) if error.downcast_ref::<NoWorkflows>().is_some() => {
+            tracing::debug!(commit = %commit_sha, %error, "no applicable Gitea workflow");
+        }
+        Err(error) => return Err(error),
     }
 
     // Fall back to native .ironforge-ci.yml
@@ -648,7 +677,15 @@ fn read_ci_config(
     Ok(config)
 }
 
-/// Try to find and parse Gitea Actions workflow files in `.gitea/workflows/`. Returns `Err` when the `.gitea/workflows` tree entry is absent or is not a tree, when that object cannot be read, when the default branch cannot be resolved, when a workflow file fails to expand or contains unsupported actions, or when no workflow matches the event. A file that does not parse is skipped with a `debug` log rather than failing the read, so a directory in which every file is unparseable surfaces as "no workflow matches". An empty job set is never returned as an empty `CiConfig`: callers see the error instead.
+/// Try to find and parse Gitea Actions workflow files in `.gitea/workflows/`.
+///
+/// `NoWorkflows` means "nothing to run here": the directory is absent, or no
+/// workflow matches the event. Everything else is an error — the tree is not a
+/// directory, a reusable-workflow or composite expansion failure, an unsupported
+/// action, a bad condition, or a directory in which every file fails to parse. One
+/// unparseable file next to a working one is still skipped with a `debug` log;
+/// it is only surfaced when it is the reason nothing ran, because otherwise a
+/// typo in the only workflow would be indistinguishable from "no CI config".
 fn try_read_gitea_workflows(
     repo: &gix::Repository,
     commit_sha: &str,
@@ -658,7 +695,9 @@ fn try_read_gitea_workflows(
     let tree_revspec = format!("{}:.gitea/workflows", commit_sha);
     let object_id = repo
         .rev_parse_single(tree_revspec.as_str())
-        .map_err(|_| anyhow::anyhow!("no .gitea/workflows directory"))?;
+        .map_err(|_| {
+            anyhow::Error::new(NoWorkflows("no .gitea/workflows directory"))
+        })?;
 
     let object = object_id.object()?;
     let tree = object
@@ -697,11 +736,17 @@ fn try_read_gitea_workflows(
         workflow_sources.insert(name, yml);
     }
 
+    let mut parse_errors: Vec<(String, String)> = Vec::new();
+    let mut parsed_any = false;
     for (name, yml) in &workflow_sources {
         let workflow = match gitea_actions::GiteaWorkflow::parse(yml) {
-            Ok(w) => w,
+            Ok(w) => {
+                parsed_any = true;
+                w
+            }
             Err(e) => {
                 tracing::debug!("Skipping .gitea/workflows/{} (parse error: {})", name, e);
+                parse_errors.push((name.clone(), e.to_string()));
                 continue;
             }
         };
@@ -754,7 +799,20 @@ fn try_read_gitea_workflows(
     }
 
     if all_jobs.is_empty() {
-        anyhow::bail!("no matching workflows found in .gitea/workflows/");
+        // Only when nothing ran *because* every file was unparseable does the
+        // parse error reach the user; a broken file next to working ones stays
+        // a skip. Reporting "no CI config" for a directory of typos is the
+        // silent degradation this whole path is meant to stop.
+        if !parsed_any {
+            if let Some((name, error)) = parse_errors.first() {
+                return Err(invalid_config(format!(
+                    "failed to parse .gitea/workflows/{name}: {error}"
+                )));
+            }
+        }
+        return Err(anyhow::Error::new(NoWorkflows(
+            "no matching workflows found in .gitea/workflows/",
+        )));
     }
 
     Ok(CiConfig {
@@ -1086,6 +1144,118 @@ mod matrix_tests {
             .iter()
             .any(|line| line.contains("${INPUT_TARGET}")));
         assert_eq!(job.variables.as_ref().unwrap()["INPUT_TARGET"], "staging");
+    }
+
+    /// Create a repository with one commit and return its SHA.
+    fn commit_workflow_files(dir: &std::path::Path, files: &[(&str, &str)]) -> String {
+        for (relative, contents) in files {
+            let path = dir.join(relative);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(path, contents).unwrap();
+        }
+        let git = rg_git::cli_gateway::global_gateway().as_ref().unwrap();
+        assert!(git.run(&["init"], Some(dir)).unwrap().success());
+        assert!(git
+            .run(&["config", "user.name", "CI"], Some(dir))
+            .unwrap()
+            .success());
+        assert!(git
+            .run(&["config", "user.email", "ci@example.com"], Some(dir))
+            .unwrap()
+            .success());
+        assert!(git.run(&["add", "-A"], Some(dir)).unwrap().success());
+        assert!(git
+            .run(&["commit", "-m", "workflow"], Some(dir))
+            .unwrap()
+            .success());
+        git.run(&["rev-parse", "HEAD"], Some(dir))
+            .unwrap()
+            .stdout_str()
+            .trim()
+            .to_owned()
+    }
+
+    const NATIVE_CONFIG: &str =
+        "stages: [build]\nnative:\n  stage: build\n  script: [echo native]\n";
+
+    #[test]
+    fn the_native_config_is_used_only_when_no_gitea_workflow_applies() {
+        let temp = tempfile::tempdir().unwrap();
+        let sha = commit_workflow_files(temp.path(), &[(".ironforge-ci.yml", NATIVE_CONFIG)]);
+
+        let config = read_ci_config(temp.path(), &sha, "refs/heads/main", "push").unwrap();
+        assert!(config.jobs.contains_key("native"));
+    }
+
+    /// The core of the `lib.rs` fix: a workflow that exists and fails validation
+    /// must keep its error even when a native config is present, instead of
+    /// becoming "no CI config found".
+    #[test]
+    fn a_rejected_workflow_is_not_reported_as_missing_config() {
+        let temp = tempfile::tempdir().unwrap();
+        let sha = commit_workflow_files(
+            temp.path(),
+            &[
+                (
+                    ".gitea/workflows/ci.yml",
+                    "on: push\njobs:\n  build:\n    steps:\n      - uses: actions/setup-node@v4\n",
+                ),
+                (".ironforge-ci.yml", NATIVE_CONFIG),
+            ],
+        );
+
+        let error = read_ci_config(temp.path(), &sha, "refs/heads/main", "push")
+            .expect_err("an unsupported action must be refused");
+        let message = format!("{error:#}");
+        assert!(message.contains("actions-v1"), "{message}");
+        assert!(message.contains("unsupported workflow"), "{message}");
+        assert!(!message.contains("no CI config found"), "{message}");
+    }
+
+    /// A workflow that cannot even be parsed used to be skipped, so a repository
+    /// whose only workflow was a typo looked like it had no CI at all.
+    #[test]
+    fn an_unparseable_workflow_reports_its_parse_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let sha = commit_workflow_files(
+            temp.path(),
+            &[
+                (".gitea/workflows/ci.yml", "on: push\njobs: [unclosed\n"),
+                (".ironforge-ci.yml", NATIVE_CONFIG),
+            ],
+        );
+
+        let error = read_ci_config(temp.path(), &sha, "refs/heads/main", "push")
+            .expect_err("the parse error must reach the user");
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("failed to parse .gitea/workflows/ci.yml"),
+            "{message}"
+        );
+        assert!(!message.contains("no CI config found"), "{message}");
+    }
+
+    /// A broken file next to a working one keeps the old compatibility rule: the
+    /// working workflow still runs.
+    #[test]
+    fn a_broken_workflow_file_next_to_a_working_one_is_still_skipped() {
+        let temp = tempfile::tempdir().unwrap();
+        let sha = commit_workflow_files(
+            temp.path(),
+            &[
+                (".gitea/workflows/broken.yml", "jobs: [unclosed\n"),
+                (
+                    ".gitea/workflows/ci.yml",
+                    "on: push\njobs:\n  build:\n    steps:\n      - run: echo hi\n",
+                ),
+            ],
+        );
+
+        let config = read_ci_config(temp.path(), &sha, "refs/heads/main", "push").unwrap();
+        assert_eq!(config.jobs.len(), 1);
+        assert!(config.jobs.contains_key("ci/build"));
     }
 
     #[test]
