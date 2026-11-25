@@ -100,7 +100,7 @@ git push -u cnb HEAD
 | T34 | [缺口·CI Actions] 第三方 Action：composite 展开 + 能力协商 | completed | t34-actions-composite | none | `tasks/T34.md` |
 | T35 | [缺口·HA] 滚动升级与故障恢复演练设计（零代码改动） | completed | t35-ha-drill | none | `tasks/T35.md` |
 | T36 | [缺陷·import] CNB 导入真机验证 | completed | t36-cnb-live-verify | none | `tasks/T36.md` |
-| T37 | [缺陷·Git性能] 增量 fetch 对象级差集（实测放大 ~8000×） | in_progress | t37-pack-haves-diff | T32 | `tasks/T37.md` |
+| T37 | [缺陷·Git性能] 增量 fetch 对象级差集（实测放大 ~8000×） | completed | t37-pack-haves-diff | T32 | `tasks/T37.md` |
 | T38 | [缺陷·Git性能] pack 全量进内存（large 实测 1.21 GB 驻留） | available | t38-pack-streaming | T32 | `tasks/T38.md`（待写） |
 
 ## Pre-Claim Checks
