@@ -129,11 +129,23 @@ want 不可解析这类**协议错误**发生时，`"packfile"` 头已经写出�
 旧代码能把 500 发出来）。要彻底改善，得把 section 头的写出推迟到「第一个 entry 成功
 编码」之后，那是协议层改动，不在本任务范围（见 §9 未做项）。
 
-失败时日志样例（`tracing::error!`，字段 `what` / `repo` / `error`）：
+### 4.1 端到端验证「流中途失败」
+
+把一个 300 KB 的仓库副本里的 blob 对象清空（模拟对象库损坏），再用真 git 客户端 clone：
 
 ```text
-ERROR git response stream failed repo=perf/dataset what="upload-pack v2" error=...
+客户端：Cloning into '…'...
+        remote: Enumerating objects: done.
+        fatal: early EOF
+        fatal: fetch-pack: invalid index-pack output
+
+服务端：ERROR git response stream failed repo="failuser/broken" what="upload-pack v2"
+        error=failed to write pack entry: Pack entry input iterator failed
 ```
+
+这正是任务卡接受的形态：客户端只有 early EOF，**真实原因在服务端日志里**，且状态码是
+200（headers 早已发出）。注意错误链到 gix 的 `Pack entry input iterator failed` 就断了，
+`anyhow` 的 `{:#}` 里看不到「哪个对象读失败」——这是 gix 的错误粒度，不是我们的取舍。
 
 ## 5. 超时语义变化（如实记录）
 
