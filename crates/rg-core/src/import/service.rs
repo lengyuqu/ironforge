@@ -1401,13 +1401,13 @@ async fn run_cnb_import(
             let (described, bare): (Vec<&CnbLabel>, Vec<&CnbLabel>) = labels
                 .iter()
                 .partition(|label| label.color.is_some() || label.description.is_some());
-            let github_labels: Vec<GitHubLabel> =
-                described.iter().filter_map(|label| cnb_label_to_github(label)).collect();
-            let mut count = import_github_labels(db, repo_id, &github_labels).await?;
-            let bare_names: Vec<String> = bare
+            let github_labels: Vec<GitHubLabel> = described
                 .iter()
-                .filter_map(|label| label.name.clone())
+                .filter_map(|label| cnb_label_to_github(label))
                 .collect();
+            let mut count = import_github_labels(db, repo_id, &github_labels).await?;
+            let bare_names: Vec<String> =
+                bare.iter().filter_map(|label| label.name.clone()).collect();
             count += import_label_names(db, repo_id, &bare_names).await?;
             stats.labels_imported = count;
         }
@@ -1439,10 +1439,16 @@ async fn run_cnb_import(
                         }
                     },
                 };
-                let comments = client
-                    .list_issue_comments(&source, &issue.number)
-                    .await
-                    .unwrap_or_default();
+                let comments = match client.list_issue_comments(&source, &issue.number).await {
+                    Ok(comments) => comments,
+                    Err(error) => {
+                        // Explicit: `unwrap_or_default` here meant a rate-limited
+                        // page became "this issue has no comments", and the task
+                        // still finished as `completed`.
+                        tracing::warn!(number = %issue.number, %error, "CNB: failed to fetch issue comments");
+                        Vec::new()
+                    }
+                };
 
                 let converted = cnb_issue_to_github(&detail);
                 let converted_comments: Vec<GitHubComment> =
@@ -1498,10 +1504,13 @@ async fn run_cnb_import(
                     }
                 }
             }
-            let comments = client
-                .list_pull_comments(&source, &pull.number)
-                .await
-                .unwrap_or_default();
+            let comments = match client.list_pull_comments(&source, &pull.number).await {
+                Ok(comments) => comments,
+                Err(error) => {
+                    tracing::warn!(number = %pull.number, %error, "CNB: failed to fetch pull request comments");
+                    Vec::new()
+                }
+            };
             // A pull-request discussion is a review, not an issue comment.
             // Handing these to the shared importer as `comments` wrote them to
             // `issue_comments` with the pull-request id in `issue_id`; no row in

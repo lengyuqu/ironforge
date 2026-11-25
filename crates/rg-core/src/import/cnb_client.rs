@@ -29,6 +29,11 @@ use anyhow::{Context, Result};
 
 const DEFAULT_BASE: &str = "https://api.cnb.cool";
 const PAGE_SIZE: usize = 100;
+/// CNB answers `429 {"errcode":8,"errmsg":"Too many requests..."}` once the
+/// import's N+1 requests (two list calls, one detail and one comment call per
+/// issue or pull) exceed its window. Live: 132 requests in ~30s tripped it.
+const MAX_ATTEMPTS: usize = 4;
+const RETRY_BASE_MS: u64 = 1_000;
 
 /// A repository identifier in CNB's `owner/repo` form.
 #[derive(Debug, Clone)]
@@ -209,6 +214,25 @@ fn dedupe_by_number<T>(items: Vec<T>, number: impl Fn(&T) -> String) -> Vec<T> {
         .collect()
 }
 
+/// Whether a failed request is worth sending again.
+fn retryable(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 429 | 500 | 502 | 503 | 504)
+}
+
+/// `Retry-After` in seconds, capped so a hostile or broken header cannot park
+/// the import for minutes.
+fn retry_after(response: &reqwest::Response) -> Option<std::time::Duration> {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(|seconds| std::time::Duration::from_secs(seconds.min(30)))
+}
+
 pub struct CnbClient {
     token: String,
     base: String,
@@ -249,30 +273,53 @@ impl CnbClient {
 
     async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
         let url = format!("{}{}", self.base.trim_end_matches('/'), path);
-        let response = self
-            .http
-            .get(&url)
-            .header(
-                reqwest::header::AUTHORIZATION,
-                format!("Bearer {}", self.token),
-            )
-            .header(reqwest::header::ACCEPT, "application/vnd.cnb.api+json")
-            .send()
-            .await
-            .with_context(|| format!("CNB request failed: {path}"))?;
-        let status = response.status();
-        if !status.is_success() {
+        let mut attempt = 0usize;
+        loop {
+            attempt += 1;
+            let response = self
+                .http
+                .get(&url)
+                .header(
+                    reqwest::header::AUTHORIZATION,
+                    format!("Bearer {}", self.token),
+                )
+                .header(reqwest::header::ACCEPT, "application/vnd.cnb.api+json")
+                .send()
+                .await
+                .with_context(|| format!("CNB request failed: {path}"))?;
+            let status = response.status();
+            if status.is_success() {
+                return response.json::<T>().await.with_context(|| {
+                    format!("CNB response did not match the expected shape: {path}")
+                });
+            }
+            // Rate limiting and transient server errors are the import's normal
+            // weather: it sends one detail plus one comment request per row. A
+            // 429 that is answered as a hard failure used to make the callers
+            // that use `unwrap_or_default` drop every comment on the row — data
+            // missing, task `completed`.
+            let retry_after = retry_after(&response);
+            let body = response.text().await.unwrap_or_default();
+            if retryable(status) && attempt < MAX_ATTEMPTS {
+                let delay = retry_after.unwrap_or_else(|| {
+                    std::time::Duration::from_millis(RETRY_BASE_MS << (attempt - 1))
+                });
+                tracing::warn!(
+                    %status,
+                    path,
+                    attempt,
+                    delay_ms = delay.as_millis() as u64,
+                    "CNB request failed; retrying"
+                );
+                tokio::time::sleep(delay).await;
+                continue;
+            }
             // The body explains more than the status does (a 404 names the
             // resource), but it is the source platform's text, so it is kept out
             // of what the importing user sees and only logged.
-            let body = response.text().await.unwrap_or_default();
             tracing::warn!(%status, path, body = %body.chars().take(300).collect::<String>(), "CNB API request failed");
             anyhow::bail!("CNB API error ({status}) for {path}");
         }
-        response
-            .json::<T>()
-            .await
-            .with_context(|| format!("CNB response did not match the expected shape: {path}"))
     }
 
     /// Walk a paginated list endpoint.
@@ -473,6 +520,18 @@ mod tests {
         }"#;
         let issue: CnbIssue = serde_json::from_str(payload).unwrap();
         assert_eq!(issue.label_names(), vec!["bug", "enhancement"]);
+    }
+
+    /// Live: 132 requests in ~30 seconds returned `429 errcode 8`. Those must be
+    /// retried; a 404 is a wrong URL and must not be.
+    #[test]
+    fn rate_limits_and_server_errors_are_retried_but_client_errors_are_not() {
+        assert!(retryable(reqwest::StatusCode::TOO_MANY_REQUESTS));
+        assert!(retryable(reqwest::StatusCode::BAD_GATEWAY));
+        assert!(retryable(reqwest::StatusCode::SERVICE_UNAVAILABLE));
+        assert!(!retryable(reqwest::StatusCode::NOT_FOUND));
+        assert!(!retryable(reqwest::StatusCode::UNAUTHORIZED));
+        assert!(!retryable(reqwest::StatusCode::BAD_REQUEST));
     }
 
     /// `state=all` is a 400 on this endpoint, so the client asks twice; an
