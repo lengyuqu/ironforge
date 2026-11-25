@@ -2901,6 +2901,15 @@ const DEFAULT_GIT_STREAM_TIMEOUT_SECS: u64 = 3600;
 /// The default is deliberately generous (1 hour) because cloning a genuinely
 /// large repository is long-running and must not be cut off. Override with
 /// `IRONFORGE_GIT_STREAM_TIMEOUT_SECS`; `0` disables the deadline.
+///
+/// T38 note: upload-pack responses are now written to the client while they are
+/// produced, so the status line is committed before the first pack byte exists.
+/// The deadline still bounds the server's work — when it fires the write half is
+/// dropped, the blocking pack generator fails on the closed pipe and stops — but
+/// the client no longer receives `504 GATEWAY_TIMEOUT`: it sees a truncated
+/// stream (`early EOF`). Only receive-pack, whose response is a few hundred
+/// bytes produced after the whole push is validated, can still answer with a
+/// status code.
 fn git_stream_timeout() -> std::time::Duration {
     static TIMEOUT: std::sync::LazyLock<std::time::Duration> = std::sync::LazyLock::new(|| {
         let secs = std::env::var("IRONFORGE_GIT_STREAM_TIMEOUT_SECS")
@@ -2915,6 +2924,66 @@ fn git_stream_timeout() -> std::time::Duration {
         }
     });
     *TIMEOUT
+}
+
+/// Buffer between a git handler and the HTTP body while a response is streamed.
+///
+/// This is the entire memory budget of an upload-pack response (T38): the pack
+/// is encoded straight into it and the body drains it as the client reads, so a
+/// slow client backpressures the encoder instead of growing a buffer.
+const GIT_STREAM_PIPE: usize = 64 * 1024;
+
+/// Report how a streamed git response ended.
+///
+/// Upload-pack answers `200 OK` before the pack exists, so an error can no
+/// longer become a status code — the client only sees `early EOF`. The log is
+/// the only place the real reason survives, hence `error!` rather than `debug!`.
+fn log_git_stream_outcome(
+    what: &'static str,
+    repo: &str,
+    outcome: std::result::Result<anyhow::Result<()>, tokio::time::error::Elapsed>,
+) {
+    match outcome {
+        Ok(Ok(())) => tracing::debug!(repo, what, "streamed git response finished"),
+        Ok(Err(error)) => {
+            tracing::error!(repo, what, error = %format!("{error:#}"), "git response stream failed")
+        }
+        Err(_elapsed) => tracing::warn!(
+            repo,
+            what,
+            "git response stream exceeded the deadline; body cut short"
+        ),
+    }
+}
+
+/// Turn a git handler into an HTTP response that streams its output (T38).
+///
+/// The handler runs on its own task writing into a bounded duplex; the body
+/// reads the other half, so the pack never exists in memory. The status line is
+/// `200 OK` from the start: git's own framing carries any later failure, and the
+/// client reports it as `early EOF`.
+fn streamed_git_response<F, Fut>(
+    repo_label: String,
+    what: &'static str,
+    content_type: &'static str,
+    handler: F,
+) -> Response
+where
+    F: FnOnce(tokio::io::DuplexStream) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = anyhow::Result<()>> + Send,
+{
+    let (body_read, handler_write) = tokio::io::duplex(GIT_STREAM_PIPE);
+    tokio::spawn(async move {
+        let outcome = tokio::time::timeout(git_stream_timeout(), handler(handler_write)).await;
+        log_git_stream_outcome(what, &repo_label, outcome);
+    });
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, content_type)],
+        Body::from_stream(tokio_util::io::ReaderStream::new(body_read)),
+    )
+        .into_response()
 }
 
 async fn handle_git_upload_pack(
@@ -2971,130 +3040,41 @@ async fn handle_git_upload_pack(
     let wants_v2 = git_v2::wants_protocol_v2(&headers);
 
     if wants_v2 {
-        // Protocol V2: stream the request body straight into the handler.
-        // Buffering it first (the previous `Bytes` extractor) made memory use
-        // proportional to the request size and read the whole body before the
-        // access check above could reject it.
+        // Protocol V2: stream the request body straight into the handler, and
+        // stream the response out as the handler writes it (T38). Buffering the
+        // request made memory proportional to its size; buffering the response
+        // (`read_to_end` into a Vec) made it proportional to the pack — 1.2 GB
+        // for a large clone.
         let pipe_read = crate::body_reader::BodyReader::new(body.into_data_stream());
-
-        let (buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
-        // Spawn concurrent reader to prevent duplex deadlock when pack > 64KB
-        let reader_task = tokio::spawn(async move {
-            let mut buf_reader = buf_reader;
-            let mut output = Vec::new();
-            let _ = buf_reader.read_to_end(&mut output).await;
-            output
-        });
-
-        let v2_result = tokio::time::timeout(
-            git_stream_timeout(),
-            rg_git::protocol::v2::handle_v2_http(&repo_path, pipe_read, &mut buf_writer),
-        )
-        .await;
-
-        match v2_result {
-            Ok(Ok(())) => {
-                let _ = buf_writer.flush().await;
-                drop(buf_writer);
-                let output = reader_task.await.unwrap_or_default();
-                (
-                    StatusCode::OK,
-                    [(header::CONTENT_TYPE, "application/x-git-upload-pack-result")],
-                    Body::from(output),
-                )
-                    .into_response()
-            }
-            Ok(Err(e)) => {
-                drop(buf_writer);
-                reader_task.abort();
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    [(header::CONTENT_TYPE, "text/plain")],
-                    Body::from(format!("error: {:#}", e)),
-                )
-                    .into_response()
-            }
-            Err(_elapsed) => {
-                // Dropping the future also drops the child git process
-                // (spawned with `kill_on_drop`), so it cannot outlive the
-                // request and keep burning CPU on an abandoned pack.
-                drop(buf_writer);
-                reader_task.abort();
-                tracing::warn!(
-                    owner = %owner,
-                    repo = %repo,
-                    "git upload-pack exceeded the streaming deadline"
-                );
-                (
-                    StatusCode::GATEWAY_TIMEOUT,
-                    [(header::CONTENT_TYPE, "text/plain")],
-                    Body::from("git operation timed out"),
-                )
-                    .into_response()
-            }
-        }
-    } else {
-        // Protocol V1: stream the request body, as in the V2 branch above.
-        let pipe_read = crate::body_reader::BodyReader::new(body.into_data_stream());
-
-        let (buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
-        // Spawn concurrent reader to prevent duplex deadlock when pack > 64KB
-        let reader_task = tokio::spawn(async move {
-            let mut buf_reader = buf_reader;
-            let mut output = Vec::new();
-            let _ = buf_reader.read_to_end(&mut output).await;
-            output
-        });
-
-        let v1_result = tokio::time::timeout(
-            git_stream_timeout(),
-            rg_git::protocol::upload_pack::handle_upload_pack_http(
-                &repo_path,
-                pipe_read,
-                &mut buf_writer,
-            ),
-        )
-        .await;
-
-        match v1_result {
-            Ok(Ok(())) => {
-                let _ = buf_writer.flush().await;
-                drop(buf_writer);
-                let output = reader_task.await.unwrap_or_default();
-                (
-                    StatusCode::OK,
-                    [(header::CONTENT_TYPE, "application/x-git-upload-pack-result")],
-                    Body::from(output),
-                )
-                    .into_response()
-            }
-            Ok(Err(e)) => {
-                drop(buf_writer);
-                reader_task.abort();
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    [(header::CONTENT_TYPE, "text/plain")],
-                    Body::from(format!("error: {:#}", e)),
-                )
-                    .into_response()
-            }
-            Err(_elapsed) => {
-                drop(buf_writer);
-                reader_task.abort();
-                tracing::warn!(
-                    owner = %owner,
-                    repo = %repo,
-                    "git upload-pack (v1) exceeded the streaming deadline"
-                );
-                (
-                    StatusCode::GATEWAY_TIMEOUT,
-                    [(header::CONTENT_TYPE, "text/plain")],
-                    Body::from("git operation timed out"),
-                )
-                    .into_response()
-            }
-        }
+        let repo_label = format!("{owner}/{repo}");
+        let repo_for_task = repo_path.clone();
+        return streamed_git_response(
+            repo_label,
+            "upload-pack v2",
+            "application/x-git-upload-pack-result",
+            move |writer| async move {
+                rg_git::protocol::v2::handle_v2_http(&repo_for_task, pipe_read, writer).await
+            },
+        );
     }
+
+    // Protocol V1: same shape, streamed request in and streamed response out.
+    let pipe_read = crate::body_reader::BodyReader::new(body.into_data_stream());
+    let repo_label = format!("{owner}/{repo}");
+    let repo_for_task = repo_path.clone();
+    streamed_git_response(
+        repo_label,
+        "upload-pack v1",
+        "application/x-git-upload-pack-result",
+        move |writer| async move {
+            rg_git::protocol::upload_pack::handle_upload_pack_http(
+                &repo_for_task,
+                pipe_read,
+                writer,
+            )
+            .await
+        },
+    )
 }
 
 async fn handle_git_receive_pack(
@@ -3211,7 +3191,16 @@ async fn handle_git_receive_pack(
     let pipe_read = crate::body_reader::BodyReader::new(body.into_data_stream());
 
     let (buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
-    // Spawn concurrent reader to prevent duplex deadlock when response > 64KB
+    // T38: unlike upload-pack, this side is deliberately **not** streamed.
+    //
+    // The response is the report-status of a push: a few hundred bytes, decided
+    // only after the whole pack has been read, indexed, checked against branch
+    // protection and the refs updated. Streaming it would mean committing to
+    // `200 OK` before any of that runs, so a rejected push (protected branch,
+    // non-fast-forward, hook failure) could no longer be reported as a failure.
+    // Buffering a kilobyte is the cheaper trade, and it keeps `Vec` here on
+    // purpose — do not "fix" this into a stream without moving the protocol
+    // status out of the HTTP status line first.
     let reader_task = tokio::spawn(async move {
         let mut buf_reader = buf_reader;
         let mut output = Vec::new();

@@ -76,3 +76,57 @@ async fn http_push_and_clone_round_trip_through_streamed_body() {
     );
     assert_eq!(restored, payload, "pushed payload must be byte-identical");
 }
+
+/// T38: the V1 upload-pack path streams its response body too.
+///
+/// A modern client negotiates protocol v2, so the V1 branch only runs for old
+/// clients (`-c protocol.version=1`) — which is exactly why it needs its own
+/// end-to-end test: a streaming regression there would not show up in any v2
+/// test. The payload crosses several 64 KiB duplex buffers on the way out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn http_v1_clone_streams_the_pack() {
+    let base = spawn_test_app().await;
+    let token = register_user(&base, "v1owner", "v1owner@example.com", PW).await;
+
+    let resp = reqwest::Client::new()
+        .post(format!("{}/api/v1/repos", base))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({"name": "v1streamed", "auto_init": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create repo failed: {}", resp.status());
+
+    let url = base.replacen("http://", &format!("http://v1owner:{}@", token), 1);
+    let remote = format!("{url}/v1owner/v1streamed.git");
+
+    let worktree = tempfile::tempdir().unwrap();
+    let path = worktree.path();
+    git(&["clone", &remote, &path.to_string_lossy()], None);
+    git(&["config", "user.name", "V1 Owner"], Some(path));
+    git(&["config", "user.email", "v1owner@example.com"], Some(path));
+
+    let payload = "y".repeat(400_000);
+    std::fs::write(path.join("payload.txt"), &payload).unwrap();
+    git(&["add", "payload.txt"], Some(path));
+    git(&["commit", "-m", "add payload"], Some(path));
+    git(&["push", "origin", "HEAD:main"], Some(path));
+
+    // Force the V1 negotiation (`multi_ack` / NAK then pack) for this clone.
+    let v1_dir = tempfile::tempdir().unwrap();
+    git(
+        &[
+            "-c",
+            "protocol.version=1",
+            "clone",
+            &remote,
+            &v1_dir.path().to_string_lossy(),
+        ],
+        None,
+    );
+    let restored = std::fs::read_to_string(v1_dir.path().join("payload.txt")).unwrap();
+    assert_eq!(
+        restored, payload,
+        "V1 clone must deliver the payload verbatim"
+    );
+}
