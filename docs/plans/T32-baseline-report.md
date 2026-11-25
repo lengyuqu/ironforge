@@ -160,6 +160,11 @@ LARGE 的 release 单次原始输出（`cargo test --release … perf_baseline_l
 
 ### 7.1 `ops::pack_for_wants` 不按 `haves` 剪枝（带宽放大）
 
+> **已由 T37 修复（分支 `agent/t37-pack-haves-diff`）。** 下面保留当时的实测记录作为基线；
+> 现状与做法见 `docs/plans/T37-plan.md`。修复后同一场景（medium，改 1 个 4 KiB 文件）：
+> `pack_for_wants(tip, [parent])` = **8 个对象 / 5 973 字节**（= 真实增量本身，
+> 放大 1×）；large 同样为 **8 个对象 / 11 240 字节**。
+
 `crates/rg-git/src/ops.rs::pack_for_wants_filtered` 的 `input_object_expansion` 固定为
 `TreeContents`：commit 层用 `rev_walk().with_hidden(haves)` 剪掉了历史，但被保留的
 每个 commit 仍会展开**整棵树**，于是客户端已有的 tree/blob 全部重新进 pack。
@@ -177,7 +182,9 @@ LARGE（改 1 个 8 KiB 文件）更极端：真实增量 8 个对象 / 11 240 �
 影响所有带 `haves` 的 fetch（Web UI「拉某个提交」、CI 的增量 checkout、客户端
 `git fetch`）。`git-pack-objects` 的做法是 `TreeAdditionsComparedToAncestor`；测试
 fixture 为了造出真实增量，走的就是这个模式（`perf_fixture::incremental_pack`）。
-**本任务不改实现**，这是一条独立的优化任务。
+
+**T37 已修复**：`pack_for_wants_filtered` 现在对 walk 出来的 commit 用该模式做对象级差集，
+详见 `docs/plans/T37-plan.md`。shallow 加深路径保持旧的整树展开。
 
 ### 7.2 pack 全量进内存（与「内存 <50MB」定位冲突）
 

@@ -262,8 +262,9 @@ fn measure_push_incremental(
 ) -> OpResult {
     // Everything up to `parent_tip` is what the target must already have;
     // only the last commit's pack is timed. The incremental pack is the real
-    // delta (new commit + the trees on its spine + one blob), not the
-    // whole-tree re-send that `ops::pack_for_wants` produces.
+    // delta (new commit + the trees on its spine + one blob), produced
+    // independently of `ops::pack_for_wants` so the timed push hands
+    // `receive-pack` a realistic amount of data.
     let history = rg_git::ops::pack_for_wants(
         &dataset.repo_path,
         std::slice::from_ref(&dataset.parent_tip),
@@ -274,8 +275,8 @@ fn measure_push_incremental(
     let increment = perf_fixture::incremental_pack(&dataset.repo_path, &dataset.tip)
         .expect("failed to build the incremental pack");
     // What the server's own `upload-pack` would send for the same one-file
-    // fetch: `ops::pack_for_wants` expands the commit with `TreeContents`, so
-    // it does not prune objects the client already has. Recorded, not fixed.
+    // fetch. Before T37 this was the whole work tree (20 224 objects on
+    // medium); it is now the object-level delta and tracks `increment`.
     let server_side_increment = rg_git::ops::pack_for_wants(
         &dataset.repo_path,
         std::slice::from_ref(&dataset.tip),

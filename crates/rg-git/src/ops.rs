@@ -937,10 +937,78 @@ pub fn generate_pack_filtered_with_tips(
     requested: &HashSet<gix::hash::ObjectId>,
     tips: &HashSet<gix::hash::ObjectId>,
 ) -> anyhow::Result<Vec<u8>> {
+    generate_pack_with(
+        repo,
+        input_ids,
+        filter,
+        requested,
+        tips,
+        PackObjectExpansion::TreeContents,
+    )
+}
+
+/// How the inputs handed to [`generate_pack_with`] become pack objects.
+#[derive(Clone, Copy)]
+enum PackObjectExpansion<'a> {
+    /// Every input's full contents. Cloning semantics: the client owns
+    /// nothing, so everything reachable from each commit is sent.
+    TreeContents,
+    /// Only what a client holding the walk's hidden tips (the `have` lines)
+    /// cannot already have. Each commit is expanded as the diff against its
+    /// parents instead of as its whole tree, so a one-file change ships a
+    /// one-file delta rather than the entire work tree (T37).
+    ///
+    /// `conservative` inputs are expanded in full anyway: nothing in the walk
+    /// proves the client already has their contents (annotated tag objects,
+    /// trees a partial clone asked for by name).
+    Incremental {
+        conservative: &'a [gix::hash::ObjectId],
+    },
+}
+
+/// Count the pack objects for `input_ids` under `expansion`.
+///
+/// `db` must be an odb handle with pack unloading prevented; see
+/// [`generate_pack_with`] for why.
+fn count_pack_objects(
+    db: &gix::odb::Handle,
+    input_ids: Vec<gix::hash::ObjectId>,
+    expansion: gix::odb::pack::data::output::count::objects::ObjectExpansion,
+) -> anyhow::Result<Vec<gix::odb::pack::data::output::Count>> {
     use gix::odb::pack::data::output;
     use gix::progress::Discard;
 
     let should_interrupt = std::sync::atomic::AtomicBool::new(false);
+    // gix-pack 0.77 narrowed the iterator item error to `gix::Error`
+    // (gix-error), so the ids are boxed with that error type.
+    let input: Box<dyn Iterator<Item = Result<gix::hash::ObjectId, gix::Error>> + Send> =
+        Box::new(input_ids.into_iter().map(Ok));
+    let (counts, _outcome) = output::count::objects(
+        db.clone(),
+        input,
+        &Discard,
+        &should_interrupt,
+        output::count::objects::Options {
+            thread_limit: None,
+            chunk_size: 10,
+            input_object_expansion: expansion,
+        },
+    )
+    .map_err(|error| anyhow::anyhow!("failed to count pack objects: {error}"))?;
+    Ok(counts)
+}
+
+fn generate_pack_with(
+    repo: &gix::Repository,
+    input_ids: Vec<gix::hash::ObjectId>,
+    filter: Option<ObjectFilter>,
+    requested: &HashSet<gix::hash::ObjectId>,
+    tips: &HashSet<gix::hash::ObjectId>,
+    expansion: PackObjectExpansion<'_>,
+) -> anyhow::Result<Vec<u8>> {
+    use gix::odb::pack::data::output;
+    use gix::progress::Discard;
+
     // `repo.objects` is a memory `Proxy` which does not implement
     // `gix_pack::Find`; unwrap down to the `Cache` (which does) for the
     // pack pipeline while writes elsewhere keep using the proxy.
@@ -952,23 +1020,44 @@ pub fn generate_pack_filtered_with_tips(
     // panics ("BUG: handle must be configured to `prevent_pack_unload()`")
     // and — with `panic = "abort"` — takes the whole server process down.
     db.prevent_pack_unload();
-    // gix-pack 0.77 narrowed the iterator item error to `gix::Error`
-    // (gix-error), so the ids are boxed with that error type.
-    let input: Box<dyn Iterator<Item = Result<gix::hash::ObjectId, gix::Error>> + Send> =
-        Box::new(input_ids.into_iter().map(Ok));
 
-    let (mut counts, _outcome) = output::count::objects(
-        db.clone(),
-        input,
-        &Discard,
-        &should_interrupt,
-        output::count::objects::Options {
-            thread_limit: None,
-            chunk_size: 10,
-            input_object_expansion: output::count::objects::ObjectExpansion::TreeContents,
-        },
-    )
-    .map_err(|error| anyhow::anyhow!("failed to count pack objects: {error}"))?;
+    let mut counts = match expansion {
+        PackObjectExpansion::TreeContents => count_pack_objects(
+            &db,
+            input_ids,
+            output::count::objects::ObjectExpansion::TreeContents,
+        )?,
+        PackObjectExpansion::Incremental { conservative } => {
+            let incremental: Vec<gix::hash::ObjectId> = input_ids
+                .into_iter()
+                .filter(|id| !conservative.contains(id))
+                .collect();
+            // `TreeAdditionsComparedToAncestor` compares each input commit with
+            // its parents (merges: with every parent, unioned) and fully
+            // expands only parentless commits. It does not itself walk the
+            // ancestor chain, so the walk being pruned by `haves` is exactly
+            // the input it wants.
+            let mut counts = count_pack_objects(
+                &db,
+                incremental,
+                output::count::objects::ObjectExpansion::TreeAdditionsComparedToAncestor,
+            )?;
+            if !conservative.is_empty() {
+                let anchored = count_pack_objects(
+                    &db,
+                    conservative.to_vec(),
+                    output::count::objects::ObjectExpansion::TreeContents,
+                )?;
+                // Both passes can name the same object (a tag's target commit
+                // may also be walk-reachable); a pack entry must appear once.
+                let covered: HashSet<gix::hash::ObjectId> =
+                    anchored.iter().map(|count| count.id).collect();
+                counts.retain(|count| !covered.contains(&count.id));
+                counts.extend(anchored);
+            }
+            counts
+        }
+    };
 
     if let Some(filter) = filter {
         // An object whose header cannot be read is kept: sending too much is
@@ -1065,11 +1154,17 @@ pub fn pack_universe(repo_path: &Path) -> anyhow::Result<Vec<u8>> {
 /// packs everything reachable from `wants` minus everything reachable from
 /// `haves`.
 ///
+/// Pruning happens at two levels. The commit walk stops at `haves`
+/// (`rev_walk().with_hidden`), and each surviving commit contributes only the
+/// tree/blob delta against its parents rather than its whole work tree — the
+/// same object-level difference `pack-objects` computes (T37). See
+/// [`PackObjectExpansion::Incremental`].
+///
 /// `shallow_boundaries` carries the **new** shallow boundary set when the
 /// client is deepening (or unshallowing). In that mode the traversal stops at
 /// those boundaries instead of at `haves`, and each boundary commit's tree
 /// contents are added explicitly (the client owns the boundary commit but not
-/// its trees).
+/// its trees), so this mode keeps the whole-tree expansion.
 ///
 /// `shallow_mode` disambiguates an empty `shallow_boundaries`:
 /// - `false` — ordinary fetch: `haves` prune the walk.
@@ -1080,6 +1175,8 @@ pub fn pack_universe(repo_path: &Path) -> anyhow::Result<Vec<u8>> {
 ///   `want == have` (git sends the tip as both) the walk degenerates to empty
 ///   and the client fails with `remote did not send all necessary objects`.
 ///   So no pruning is applied and the full history from `wants` is sent.
+///   (The tree deltas stay valid: a shallow client does own the full trees of
+///   the commits it holds, so diffing against them is safe.)
 pub fn pack_for_wants(
     repo_path: &Path,
     wants: &[String],
@@ -1112,7 +1209,13 @@ pub fn pack_for_wants_opts(
 ///
 /// A `want` may name a blob or tree directly: that is how a partial clone
 /// lazily fetches what it left out, and such a want is packed as-is rather
-/// than walked as history.
+/// than walked as history. A blob stays exactly that one object; a tree (and an
+/// annotated tag) is expanded in full, because the walk says nothing about
+/// what the client already holds for it.
+///
+/// The filter runs after the object-level delta is computed, never before: the
+/// delta says "these objects changed", the filter says "the client only wants
+/// some kinds", and the second can only narrow the first.
 pub fn pack_for_wants_filtered(
     repo_path: &Path,
     wants: &[String],
@@ -1137,7 +1240,12 @@ pub fn pack_for_wants_filtered(
     };
 
     let mut starts = Vec::with_capacity(wants.len());
-    let mut extra_inputs = Vec::new();
+    // Inputs whose contents the walk does not vouch for: the client may not
+    // have them, so they keep the full expansion (see
+    // `PackObjectExpansion::Incremental`).
+    let mut anchored_inputs = Vec::new();
+    // A blob named by a want is the whole request; it expands to itself.
+    let mut plain_inputs = Vec::new();
     let mut requested = HashSet::new();
     for want in wants {
         let id = repo
@@ -1145,9 +1253,14 @@ pub fn pack_for_wants_filtered(
             .with_context(|| format!("failed to resolve want '{want}'"))?
             .detach();
         match repo.find_object(id)?.kind {
-            gix::object::Kind::Tag => extra_inputs.push(id),
-            gix::object::Kind::Blob | gix::object::Kind::Tree => {
-                extra_inputs.push(id);
+            gix::object::Kind::Tag => anchored_inputs.push(id),
+            gix::object::Kind::Tree => {
+                anchored_inputs.push(id);
+                requested.insert(id);
+                continue;
+            }
+            gix::object::Kind::Blob => {
+                plain_inputs.push(id);
                 requested.insert(id);
                 continue;
             }
@@ -1188,12 +1301,23 @@ pub fn pack_for_wants_filtered(
             inputs.push(peel_to_commit(boundary)?);
         }
     }
-    inputs.extend(extra_inputs);
+    inputs.extend(anchored_inputs.iter().copied());
+    inputs.extend(plain_inputs);
     // Only the commits the client asked for are tips. Everything else in
     // `inputs` came from walking their history, and `object:type` filters drop
     // those (git keeps exactly the wanted commit plus the objects of its type).
     let tips: HashSet<gix::hash::ObjectId> = starts.into_iter().collect();
-    generate_pack_filtered_with_tips(&repo, inputs, filter, &requested, &tips)
+    // A shallow client owns the boundary commits but not their trees, and its
+    // `have` lines do not bound what it holds, so the tree-diff path cannot
+    // reason about it. Keep the previous whole-tree expansion for that mode.
+    let expansion = if shallow_boundaries.is_empty() {
+        PackObjectExpansion::Incremental {
+            conservative: &anchored_inputs,
+        }
+    } else {
+        PackObjectExpansion::TreeContents
+    };
+    generate_pack_with(&repo, inputs, filter, &requested, &tips, expansion)
 }
 
 /// gix-native replacement for `git index-pack --fix-thin --stdin`: ingests a
