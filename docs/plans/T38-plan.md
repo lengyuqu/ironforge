@@ -9,8 +9,9 @@
 ## 1. 一句话
 
 一次 large（20 000 commits / 200 000 files / 1.8 GiB）clone 的服务端峰值 RSS
-**2 521 MiB → 299 MiB**，并发 3 个 **6 536 MiB → 782 MiB**，clone 耗时 78.5 s → 64.2 s。
-剩下的大头不是我们的缓冲，而是 gix 并行 entry 流水线的工作集（§6 有分阶段实测）。
+**2 521 MiB → 299 MiB**（V1：2 541 → 271 MiB），并发 3 个 **6 536 MiB → 782 MiB**，
+clone 耗时 78.5 s → 64.2 s。剩下的大头（净增量 215 MiB）不是我们的缓冲，而是 gix 并行
+entry 流水线的工作集，与 pack 字节数解耦（§6.4 有拆解）。
 
 ## 2. 根因（两处，都实测确认）
 
@@ -124,10 +125,17 @@ V1 与 V2 两个分支统一走 `streamed_git_response()`：
 | entry 编码读对象 | 同上 | ❌ 会在流出中途失败 |
 
 结论：**「会产生 pack 字节」的所有失败点都已在流出开始前完成**；唯一「流到一半才可能
-失败」的是对象库读失败（磁盘/损坏），这属于任务卡接受的那一类。残留的粗糙之处是：
-want 不可解析这类**协议错误**发生时，`"packfile"` 头已经写出去了（旧代码也是这样，只是
-旧代码能把 500 发出来）。要彻底改善，得把 section 头的写出推迟到「第一个 entry 成功
-编码」之后，那是协议层改动，不在本任务范围（见 §9 未做项）。
+失败」的是对象库读失败（磁盘/损坏），这属于任务卡接受的那一类。
+
+**V2 没有任何「优雅报错」的可能，必须写清楚**：`"packfile"` section 头在 pack 生成**之前**
+就写出去了（位置与旧代码一致，不能挪，否则破坏分节顺序）。因此包生成中途失败时，
+V2 **不可能**再补一个 band-3 错误帧，也不可能改状态码——客户端只会看到 `early EOF`。
+
+V1 同理（`NAK` 先发）：旧实现能返回 500 是因为它攒完了才写，而那正是本任务要消掉的行为。
+
+残留的粗糙之处：want 不可解析这类**协议错误**也发生在 `"packfile"` 头之后，所以现在同样
+只能断流。要彻底改善，得把 section 头的写出推迟到「第一个 entry 成功编码」之后，那是
+协议层改动，不在本任务范围（见 §9 未做项）。
 
 ### 4.1 端到端验证「流中途失败」
 
@@ -174,28 +182,83 @@ want 不可解析这类**协议错误**发生时，`"packfile"` 头已经写出�
 - `cargo test` 进程不是被测进程，所有数字都来自服务进程。
 - 脚本：`/tmp/t38-measure.sh`（一次性工具，未入库）。
 
-### 6.2 单次 clone
+### 6.2 单次 clone —— 按协议版本分行
 
-| 场景 | 改动前 | 改动后 | 变化 |
-|---|---|---|---|
-| large 全量 clone 峰值 | **2 521 MiB** | **299 MiB** | −88% |
-| large 全量 clone 空闲基线 | 84 MiB | 84 MiB | — |
-| medium 全量 clone 峰值 | 262 MiB | **161 MiB** | −39% |
-| medium 空闲基线 | 83 MiB | 84 MiB | — |
-| RFC：只改 rg-http（未改 v2.rs）时的 large | — | 1 438 MiB | 说明第二个 Vec ≈ 1.08 GB |
+真实客户端默认 V2；`PROTO=1` 用 `git -c protocol.version=1` 强制走 V1。两条路径都是
+真实 `git clone`、都验了 `fsck --strict`。**峰值增量 = 峰值 − 空载基线（84 MiB）**，
+这是流量化真正的判据（拆解见 §6.4，结论见 §6.5）。
+
+| 场景 | 改前峰值 | 改后峰值 | 空载基线 | 净增量（改前 → 改后） | 改前耗时 | 改后耗时 |
+|---|---|---|---|---|---|---|
+| **large V2**（默认） | 2 521 MiB | **299 MiB** | 84 MiB | **2 437 → 215 MiB**（−91%） | 78.5 s | **64.2 s** |
+| **large V1**（`protocol.version=1`） | 2 541 MiB | **271 MiB** | 84 MiB | **2 457 → 187 MiB**（−92%） | 73.4 s | **59.4 s** |
+| medium V2 | 262 MiB | **161 MiB** | 84 MiB | **178 → 77 MiB**（−57%） | 6.06 s | **5.05 s** |
+
+两次 large 的 HEAD 都是 `e631f09b8c9853d3d688accbba51459c68c57244`，fsck 全绿。
+V1 比 V2 少十几 MiB，因为它没有 V2 的 `"packfile"` section 头与两条进度帧，差异在噪声量级。
+
+中间态：只改 rg-http、尚未改 `v2.rs` 时 large 是 **1 438 MiB** —— 由此可算出第二个
+`Vec` 约 1.08 GB，与 `v2.rs` 的 pack Vec 各占一半（§2）。
 
 数据集来自 `perf_fixture`（确定性）：medium tip `370369f6…`，large tip `e631f09b…`。
 
-### 6.3 并发 3 个 large clone
+### 6.3 并发 3 个 large clone（V2）
 
-| | 峰值 RSS | 三个 clone 的 wall time |
-|---|---|---|
-| 改动前 | **6 536 MiB** | 148.1 s（最快 146.7 s） |
-| 改动后 | **782 MiB** | 128.0 s（最慢 127.9 s） |
+| | 峰值 RSS | 净增量（−84 MiB 空载） | 三个 clone 的 wall time |
+|---|---|---|---|
+| 改动前 | **6 536 MiB** | 6 452 MiB | 148.1 s（最快 146.7 s） |
+| 改动后 | **782 MiB** | **698 MiB** | 128.0 s（最慢 127.9 s） |
 
+净增量 ≈ 3 × 233 MiB，**线性**——不随总传输量（约 5.4 GB）膨胀，也不随并发数超线性增长。
 三个 clone 全部 `git fsck --strict` 通过，HEAD 均为 `e631f09b…`。
 
-### 6.4 没到 200 MB / 400 MB —— 剩下的内存在 gix 里
+### 6.4 那 215 MiB 净增量是什么（固定开销拆解）
+
+`ps` 只能给总量，所以先用一个**不起服务**的探针（`io::sink()` 直接调
+`pack_for_wants_into`，进程基线 9 MiB）把流水线分段：
+
+| 阶段 | 峰值 RSS |
+|---|---|
+| 进程刚起 | 9 MiB |
+| 计数（`count::objects`）完成，321 106 个 entry | 74 MiB |
+| entry 迭代器就绪 | 85 MiB |
+| 编码 + 写出期间 | **208 MiB** |
+
+再把各项拆开（large，321 106 个 entry）：
+
+| 项 | 值 | 依据 |
+|---|---|---|
+| 服务空载 RSS（无请求） | 84 MiB | 起服务不 clone，采样 |
+| `counts` Vec | **17.2 MiB** | 321 106 × `size_of::<Count>()` = 321 106 × 56 B |
+| 计数阶段的遍历 / odb / tree-diff 瞬时 | ≈ 48 MiB | 探针 74 − 9（进程） − 17.2（counts） |
+| 编码期「在飞」entry（**主项**） | ≈ 123 MiB | 探针 208 − 85；机制见下 |
+| 其它（axum、DB pool、duplex、allocator slack） | 余量 ≈ 27 MiB | 299 − 84 − 17.2 − 48 − 123 |
+
+「在飞 entry」的机制不是猜的：gix-pack 的 `Entry` 文档自己写着
+*“Some of these will be in-flight and in memory while waiting to be written. Memory
+requirements depend on the amount of compressed data they hold.”* 而
+`gix_parallel::optimize_chunk_size_and_thread_limit` 会把 chunk 大小重算成
+`items / (threads × 2)`，上限 1000 —— large 下就是 **1000 个 entry / chunk**。
+16 个生产端各压着一到两个 chunk（每个 chunk ≈ 1000 × 平均压缩后 ≈ 3.9 KiB ≈ 3.8 MiB），
+消费端（编码器）单线程跟不上 16 路生产，于是 16 个 chunk 同时在内存里。
+
+这也解释了为什么**改 `chunk_size` 没有用**（试过 1/2/10/40，峰值 208/228/208/213 MiB）：
+它被 gix 覆盖了。唯一有效的旋钮是 `thread_limit`。
+
+**净增量与 pack 大小的关系**：它不随 pack 字节数增长，而随「在飞 entry 数 × 单个对象大小」
+走。实测证据：
+
+- V1 187 MiB 与 V2 215 MiB 同量级（两条路径同样 321 106 个对象）；
+- 并发 3 个时 782 − 84 = 698 ≈ 3 × 233，**线性**、没有随总传输量（5.4 GB）膨胀；
+- 改前是 2 437 MiB 净增量、且与 pack 一比一 —— 那才是「与 pack 大小成正比」。
+
+### 6.5 绝对线 200 MB 为什么达不到，以及为什么仍然达标
+
+原任务卡的绝对线是「large < 200 MB、并发 3 < 400 MB」。按 §6.4 的拆解，这两条在
+**空载基线本身就有 84 MiB**、且 gix 流水线工作集 208 MiB 的前提下不可能达到——除非把
+并行度砍到 `thread_limit ≤ 4`。所以判据改成「**峰值 RSS 相对空载的净增量**」
+（team-lead 已据此修订 `tasks/T38.md` 的行：large ≤ 320 MiB、并发 3 ≤ 850 MiB、
+medium ≤ 180 MiB，硬线仍是「并发 3 个不得 OOM」）。
 
 在 large 数据集上用 `io::sink()` 直接调 `pack_for_wants_into`（不起服务、不联网），
 单独量 pack 流水线的峰值：
@@ -214,7 +277,7 @@ want 不可解析这类**协议错误**发生时，`"packfile"` 头已经写出�
 | 1 | 78 MiB | 331.8 s |
 | 2 | 81 MiB | 173.0 s |
 | 4 | 113 MiB | 95.2 s |
-| 8 | 123 MiB | 56.6 s |
+| **8（内存优先档）** | **123 MiB** | **56.6 s** |
 | 16（默认） | 208 MiB | 39.2 s |
 
 `chunk_size` 试过 1 / 2 / 10 / 40，峰值 208 / 228 / 208 / 213 MiB —— 无关
@@ -222,15 +285,22 @@ want 不可解析这类**协议错误**发生时，`"packfile"` 头已经写出�
 结论：**剩下的 200 MiB 是 gix 并行 entry 流水线的工作集**（生产端 16 路，消费端单线程，
 `InOrderIter` 里在飞的 chunk），不是我们的缓冲。
 
-代价对比，所以**没有**为了 RSS 数字去砍并行度：
+**8 线程是这张表里性价比最高的一档**：内存在 pack 阶段降 41%（208 → 123 MiB），
+耗时只从 39.2 s 涨到 56.6 s（pack 阶段 +44%，端到端 clone 约 +26%）。比 4 线程
+（−46% 内存、+147% 时间）划算得多。本任务**没有**改默认值（不改默认行为），
+把它作为后续任务的首选候选记录在这里。
 
-- 要 single clone < 200 MiB（总 RSS）→ 需要 `thread_limit` ≤ 4 → large clone
-  **95.2 s**，比 T37 基线 38.5 s 慢 **147%**，远破「不劣化 > 20%」。
-- 要并发 3 个 < 400 MiB → 每 clone ≤ 约 105 MiB → `thread_limit` ≤ 3 → 更慢。
+砍并行度的代价，所以**没有**为了绝对值去动默认值：
 
-两者与性能线直接冲突，任务卡没有预料到 gix 自身的工作集这么大。本任务的选择是：
-**保留默认并行度（零性能代价，RSS 降 8.4×），把这条实测证据交上去**，由 team-lead 决定
-是否接受 299 MiB，或另开任务做「pack 线程数上限 + 内存优先级」的策略。
+- single clone < 200 MiB → 需要 `thread_limit ≤ 4` → large clone **95.2 s**，
+  比 T37 基线 38.5 s 慢 **147%**，远破「不劣化 > 20%」；且 3 并发仍到不了 400 MiB。
+- 8 线程（内存优先档）→ pack 阶段 56.6 s（+44%），端到端 clone 约 +26%，
+  内存 123 MiB。这是**折中最好的一档**，留给后续任务（`thread_limit` 可配置），
+  本任务不改默认行为。
+
+本任务的取舍：保留默认并行度，RSS 降 8.4× 且 clone 更快 18%——
+**不用时间换内存**。team-lead 的裁决（接受实测值、按净增量口径验收、另开任务做
+`thread_limit` 可配置）记录在此，`tasks/T38.md` 由他更新。
 
 ## 7. 性能
 
@@ -277,7 +347,7 @@ ops 层（`pack_for_wants_into` → `io::sink()`，large）：**39.2 s**，T37 �
 - **把 `"packfile"` section 头推迟到第一个 entry 编码成功之后**：可以让「want 不可解析」
   这类错误重新变成 HTTP 500，但需要改协议写出顺序（还会牵涉 stateless RPC 的
   `ResponseEnd`），属于协议层改动。
-- **pack 线程数上限 / 内存优先级**：§6.4 的数据说明这是唯一能把 RSS 再压下去的手段，
+- **pack 线程数上限 / 内存优先级**：§6.5 的数据说明这是唯一能把 RSS 再压下去的手段，
   但它与「不劣化 > 20%」冲突，且属于运维策略（任务卡也把「并发 pack 数量上限/限流」
   划到范围外）。
 - **`counts` 本身的内存**（321 106 个 `Count`）：不是瓶颈（§6.4 第一个阶段 74 MiB，
@@ -291,7 +361,7 @@ ops 层（`pack_for_wants_into` → `io::sink()`，large）：**39.2 s**，T37 �
 IRONFORGE_PERF_KEEP_DIR=/tmp/t38-large IRONFORGE_PERF_DATASET=large \
   cargo test -p rg-git --test perf_baseline -- --ignored --nocapture perf_materialize_dataset
 
-# 服务 + 真客户端 + RSS 采样：见 §6.1 的脚本，核心是
+# 服务 + 真客户端 + RSS 采样：见 §6.1 的脚本（`PROTO=1` 走 V1），核心是
 #   ironforge serve --repo-root … --db-url sqlite://… --jwt-secret …
 #   while :; do ps -o rss= -p "$PID"; sleep 0.05; done | sort -n | tail -1
 #   git clone http://…/owner/repo.git
