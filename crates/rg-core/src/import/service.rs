@@ -1453,7 +1453,21 @@ async fn run_cnb_import(
                 let converted = cnb_issue_to_github(&detail);
                 let converted_comments: Vec<GitHubComment> =
                     comments.iter().map(cnb_comment_to_github).collect();
-                let empty_user_map = HashMap::new();
+                // The other importers attribute source users to the importing
+                // user (see `map_users`). An empty map made every author fall
+                // back to user id 1, which is the first account on the instance
+                // — not necessarily the person who ran the migration (measured:
+                // importing as user 2 still wrote author_id 1 everywhere).
+                let mut author_names = std::collections::HashSet::new();
+                if let Some(author) = &detail.author {
+                    author_names.insert(author.username.clone());
+                }
+                for comment in &comments {
+                    if let Some(author) = &comment.author {
+                        author_names.insert(author.username.clone());
+                    }
+                }
+                let user_map = map_users(task, &author_names)?;
                 let empty_milestone_map = HashMap::new();
                 if let Err(error) = import_github_issue(
                     db,
@@ -1462,7 +1476,7 @@ async fn run_cnb_import(
                     &task.target_name,
                     &converted,
                     &converted_comments,
-                    &empty_user_map,
+                    &user_map,
                     &empty_milestone_map,
                 )
                 .await
@@ -1521,7 +1535,16 @@ async fn run_cnb_import(
             // without touching the shared importer.
             let reviews: Vec<GitHubReview> = comments.iter().map(cnb_comment_to_review).collect();
             let converted = cnb_pull_to_github(&pull);
-            let empty_user_map = HashMap::new();
+            let mut author_names = std::collections::HashSet::new();
+            if let Some(author) = &pull.author {
+                author_names.insert(author.username.clone());
+            }
+            for comment in &comments {
+                if let Some(author) = &comment.author {
+                    author_names.insert(author.username.clone());
+                }
+            }
+            let user_map = map_users(task, &author_names)?;
             let empty_milestone_map = HashMap::new();
             if let Err(error) = import_github_pr(
                 db,
@@ -1529,7 +1552,7 @@ async fn run_cnb_import(
                 &converted,
                 &[],
                 &reviews,
-                &empty_user_map,
+                &user_map,
                 &empty_milestone_map,
             )
             .await
