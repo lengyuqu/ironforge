@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
-use tokio::io::{split, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{split, AsyncRead, AsyncWrite, BufReader};
 
 use crate::pkt_line::{read_pkt_line, write_flush, write_pkt_line, PktLine};
 use crate::sideband;
@@ -784,7 +784,7 @@ async fn handle_fetch<W: AsyncWrite + Unpin>(
     done: bool,
     _client_caps: &[String],
 ) -> Result<()> {
-    use sideband::{write_sideband_data, write_sideband_flush, write_sideband_progress};
+    use sideband::{write_sideband_flush, write_sideband_progress};
 
     validate_fetch_features(shallow, filter)?;
     let shallow_update = build_shallow_update(repo_path, wants, shallow)?;
@@ -841,35 +841,57 @@ async fn handle_fetch<W: AsyncWrite + Unpin>(
     // Send packfile section header
     write_pkt_line(writer, &PktLine::text("packfile")).await?;
 
-    // Generate packfile for the requested objects, excluding known haves
-    let pack_data = generate_packfile(
-        repo_path,
-        wants,
-        haves,
-        shallow_update.as_ref(),
-        filter.as_deref(),
-    )
+    // T38: the pack is encoded on a blocking thread and streamed into the
+    // sideband as it is produced. Collecting it first (`Vec<u8>` from the
+    // encoder) held 1.2 GB for a 1.8 GiB pack, which is what made a couple of
+    // concurrent clones an OOM away from taking the whole server down.
+    //
+    // Everything that can fail *before* a pack byte exists — filter validation,
+    // shallow boundary resolution, want resolution in the walk — still runs
+    // before or inside this call's setup. A failure after this point truncates
+    // the response; `stream_pack` logs it, and the client reports `early EOF`.
+    let boundaries: Vec<String> = shallow_update
+        .as_ref()
+        .map(|update| update.boundaries.clone())
+        .unwrap_or_default();
+    // A present `shallow_update` means the client asked to change depth. When
+    // its new boundary set is empty that is a full `--unshallow`, and the
+    // client's `have` lines must not prune the history it is requesting.
+    let shallow_mode = shallow_update.is_some();
+    let repo_dir = repo_path.to_path_buf();
+    let wants_owned = wants.to_vec();
+    let haves_owned = haves.to_vec();
+    let filter_spec = filter.clone();
+
+    // Send progress
+    write_sideband_progress(writer, "Enumerating objects: done.\n").await?;
+
+    let pack_size = super::upload_pack::stream_pack(writer, use_sideband, move |out| {
+        generate_packfile_into(
+            &repo_dir,
+            &wants_owned,
+            &haves_owned,
+            &boundaries,
+            shallow_mode,
+            filter_spec.as_deref(),
+            out,
+        )?;
+        Ok(())
+    })
     .await?;
 
     if use_sideband {
-        // Send progress
-        write_sideband_progress(writer, "Enumerating objects: done.\n").await?;
-
-        // Send packfile through sideband channel 1
-        write_sideband_data(writer, &pack_data).await?;
-
         // Send done progress
         write_sideband_progress(writer, "Done.\n").await?;
 
         // End sideband with flush
         write_sideband_flush(writer).await?;
     } else {
-        writer.write_all(&pack_data).await?;
         write_flush(writer).await?;
     }
 
     tracing::info!(
-        pack_size = pack_data.len(),
+        pack_size,
         wants = wants.len(),
         haves = haves.len(),
         "Sent V2 fetch packfile"
@@ -1150,13 +1172,18 @@ fn get_object_size(repo_path: &Path, oid: &str) -> Result<u64> {
 /// applied by pruning that object list (`blob:none`, `blob:limit=<n>`,
 /// `tree:0`); a spec we do not recognise sends the full pack, which is always
 /// protocol-correct (just not bandwidth-optimal).
-async fn generate_packfile(
+///
+/// Writes into `out` instead of returning a buffer: the caller runs this on a
+/// blocking thread and streams the result (T38).
+fn generate_packfile_into<W: std::io::Write>(
     repo_path: &Path,
     wants: &[String],
     haves: &[String],
-    shallow_update: Option<&ShallowUpdate>,
+    boundaries: &[String],
+    shallow_mode: bool,
     filter: Option<&str>,
-) -> Result<Vec<u8>> {
+    out: W,
+) -> Result<W> {
     let object_filter = filter.and_then(crate::ops::ObjectFilter::parse);
     if let (Some(spec), None) = (filter, object_filter.as_ref()) {
         // Protocol-correct either way: git clients accept a full pack for any
@@ -1168,28 +1195,15 @@ async fn generate_packfile(
             "partial clone filter not implemented by this server; sending the full pack"
         );
     }
-    let boundaries: Vec<String> = shallow_update
-        .map(|update| update.boundaries.clone())
-        .unwrap_or_default();
-    // A present `shallow_update` means the client asked to change depth. When
-    // its new boundary set is empty that is a full `--unshallow`, and the
-    // client's `have` lines must not prune the history it is requesting.
-    let shallow_mode = shallow_update.is_some();
-    let repo_dir = repo_path.to_path_buf();
-    let wants = wants.to_vec();
-    let haves = haves.to_vec();
-    tokio::task::spawn_blocking(move || {
-        crate::ops::pack_for_wants_filtered(
-            &repo_dir,
-            &wants,
-            &haves,
-            &boundaries,
-            shallow_mode,
-            object_filter,
-        )
-    })
-    .await
-    .map_err(|error| anyhow::anyhow!("pack generation task failed: {error}"))?
+    crate::ops::pack_for_wants_filtered_into(
+        repo_path,
+        wants,
+        haves,
+        boundaries,
+        shallow_mode,
+        object_filter,
+        out,
+    )
 }
 
 #[cfg(test)]

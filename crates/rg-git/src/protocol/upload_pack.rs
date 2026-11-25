@@ -5,12 +5,154 @@
 //! 2. Single bidirectional stream (SSH mode) — via `handle_upload_pack_stream`
 
 use anyhow::{Context, Result};
+use std::io::{self, Write};
 use std::path::Path;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tracing;
 
 use crate::pkt_line::{read_pkt_line, write_flush, write_pkt_line, PktLine};
 use crate::sideband;
+
+/// Bytes handed from the pack encoder to the socket in one go.
+///
+/// One band byte plus this payload must fit a pkt-line, so it is
+/// `MAX_PKT_LINE_LEN - 1` — the same chunk size `write_sideband_data` uses,
+/// which keeps the framing on the wire identical to the buffered path.
+const PACK_CHUNK: usize = crate::pkt_line::MAX_PKT_LINE_LEN - 1;
+
+/// How many `PACK_CHUNK`s may sit between the encoder and the socket.
+///
+/// This is the whole memory budget of a streamed pack (4 × 64 KiB): a slow
+/// client fills the queue and the producer parks inside `blocking_send`, so the
+/// transfer is backpressured instead of buffered. Never make this unbounded.
+const PACK_QUEUE_DEPTH: usize = 4;
+
+/// [`std::io::Write`] that hands fixed-size chunks to the async side.
+///
+/// Used inside `spawn_blocking`, so `blocking_send` is allowed (it panics only
+/// on async worker threads).
+struct PackSink {
+    sender: tokio::sync::mpsc::Sender<Vec<u8>>,
+    buffer: Vec<u8>,
+}
+
+impl PackSink {
+    fn new(sender: tokio::sync::mpsc::Sender<Vec<u8>>) -> Self {
+        Self {
+            sender,
+            buffer: Vec::with_capacity(PACK_CHUNK),
+        }
+    }
+
+    fn hand_off(&mut self) -> io::Result<()> {
+        if self.buffer.is_empty() {
+            return Ok(());
+        }
+        let chunk = std::mem::replace(&mut self.buffer, Vec::with_capacity(PACK_CHUNK));
+        self.sender.blocking_send(chunk).map_err(|_| {
+            // The response stream is gone (client hung up, request cancelled).
+            // Failing here is what stops pack generation early instead of
+            // computing a pack nobody will read.
+            io::Error::new(io::ErrorKind::BrokenPipe, "pack stream consumer is gone")
+        })
+    }
+}
+
+impl Write for PackSink {
+    fn write(&mut self, mut data: &[u8]) -> io::Result<usize> {
+        let total = data.len();
+        while !data.is_empty() {
+            let space = PACK_CHUNK - self.buffer.len();
+            let take = space.min(data.len());
+            self.buffer.extend_from_slice(&data[..take]);
+            data = &data[take..];
+            if self.buffer.len() == PACK_CHUNK {
+                self.hand_off()?;
+            }
+        }
+        Ok(total)
+    }
+
+    /// gix flushes once the pack trailer is written; that is when the last
+    /// partial chunk leaves.
+    fn flush(&mut self) -> io::Result<()> {
+        self.hand_off()
+    }
+}
+
+/// Run `generate` on a blocking thread and stream its output to `writer`.
+///
+/// `generate` is the pack pipeline: it gets a [`Write`] and must write the
+/// pack into it. Chunks cross a bounded channel, so peak memory for the pack is
+/// `PACK_QUEUE_DEPTH * PACK_CHUNK` regardless of repository size (T38: a large
+/// clone used to hold the whole 1.2 GB pack in a `Vec`).
+///
+/// With `sideband` each chunk is wrapped in a band-1 pkt-line; without it the
+/// raw pack is copied out (V1 clients that did not request sideband).
+///
+/// Returns the pack byte count. The producer's `JoinHandle` is always awaited:
+/// a panic there is reported as an error instead of surfacing to the client as
+/// a bare "early EOF" with nothing in the logs.
+pub(crate) async fn stream_pack<W, F>(writer: &mut W, sideband: bool, generate: F) -> Result<u64>
+where
+    W: AsyncWrite + Unpin,
+    F: FnOnce(&mut dyn Write) -> Result<()> + Send + 'static,
+{
+    let (sender, mut receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(PACK_QUEUE_DEPTH);
+    let producer = tokio::task::spawn_blocking(move || -> Result<()> {
+        let mut sink = PackSink::new(sender);
+        generate(&mut sink)?;
+        sink.flush()?;
+        Ok(())
+    });
+
+    let pumped = pump_pack_chunks(&mut receiver, writer, sideband).await;
+    // Drop the receiver before awaiting the producer: if the pump stopped early
+    // the encoder must see a closed channel, not block on a full one forever.
+    drop(receiver);
+    let joined = producer.await;
+
+    match (pumped, joined) {
+        (Ok(bytes), Ok(Ok(()))) => Ok(bytes),
+        (Ok(_), Ok(Err(error))) => Err(error),
+        (Ok(_), Err(join_error)) => {
+            Err(anyhow::anyhow!("pack generation task failed: {join_error}"))
+        }
+        // The client is gone; that is the error worth reporting. Keep the
+        // producer's own failure in the log so a real object-store problem is
+        // not hidden behind a broken pipe.
+        (Err(pump_error), Ok(Err(producer_error))) => {
+            tracing::warn!(%producer_error, "pack generation failed after the response stream broke");
+            Err(pump_error)
+        }
+        (Err(pump_error), Ok(Ok(()))) => Err(pump_error),
+        (Err(pump_error), Err(join_error)) => {
+            tracing::warn!(%join_error, "pack generation task ended abnormally after the response stream broke");
+            Err(pump_error)
+        }
+    }
+}
+
+/// Move pack chunks from the encoder to `writer`, framing them when needed.
+async fn pump_pack_chunks<W: AsyncWrite + Unpin>(
+    receiver: &mut tokio::sync::mpsc::Receiver<Vec<u8>>,
+    writer: &mut W,
+    sideband: bool,
+) -> Result<u64> {
+    let mut written = 0u64;
+    while let Some(chunk) = receiver.recv().await {
+        written += chunk.len() as u64;
+        if sideband {
+            let mut payload = Vec::with_capacity(chunk.len() + 1);
+            payload.push(1u8); // band 1: pack data
+            payload.extend_from_slice(&chunk);
+            write_pkt_line(writer, &PktLine::Data(payload)).await?;
+        } else {
+            writer.write_all(&chunk).await?;
+        }
+    }
+    Ok(written)
+}
 
 /// Handle upload-pack with separate reader and writer (HTTP mode).
 /// This sends the ref advertisement, negotiates, and sends the packfile.
@@ -367,6 +509,10 @@ fn build_ref_advertisement(ref_list: &[(String, String)], service: &str) -> Vec<
 ///
 /// Falls back to `pack_universe` only when the client sent no `want` lines
 /// (the negotiation did not narrow the request).
+///
+/// The pack is generated on a blocking thread and streamed chunk by chunk
+/// (T38); it is never collected into a `Vec`, so the response no longer costs
+/// one byte of RAM per byte of pack.
 async fn send_packfile<W: AsyncWrite + Unpin>(
     repo_path: &Path,
     wants: &[String],
@@ -377,28 +523,25 @@ async fn send_packfile<W: AsyncWrite + Unpin>(
     let repo_dir = repo_path.to_path_buf();
     let wants_owned = wants.to_vec();
     let haves_owned = haves.to_vec();
-    let pack_data = tokio::task::spawn_blocking(move || {
+    let pack_size = stream_pack(writer, use_sideband, move |out| {
         if wants_owned.is_empty() {
-            return crate::ops::pack_universe(&repo_dir);
+            crate::ops::pack_universe_into(&repo_dir, out)?;
+            return Ok(());
         }
         // V1 has no shallow/partial-clone negotiation here, so both are empty.
-        crate::ops::pack_for_wants(&repo_dir, &wants_owned, &haves_owned, &[])
+        crate::ops::pack_for_wants_into(&repo_dir, &wants_owned, &haves_owned, &[], out)?;
+        Ok(())
     })
-    .await
-    .map_err(|error| anyhow::anyhow!("pack generation task failed: {error}"))??;
+    .await?;
 
-    let pack_size = pack_data.len();
     tracing::info!(
         pack_size,
         wants = wants.len(),
         haves = haves.len(),
-        "Packfile generated successfully"
+        "Packfile generated and streamed"
     );
 
     if use_sideband {
-        // Send packfile data through sideband-64k (band 1)
-        sideband::write_sideband_data(writer, &pack_data).await?;
-
         // Send "Done." progress message (band 2)
         sideband::write_sideband_progress(writer, "Done.\n").await?;
 
@@ -406,7 +549,6 @@ async fn send_packfile<W: AsyncWrite + Unpin>(
         sideband::write_sideband_flush(writer).await?;
     } else {
         // Send raw packfile without sideband
-        writer.write_all(&pack_data).await?;
         writer.flush().await?;
     }
 
@@ -512,5 +654,90 @@ mod haves_tests {
         let sha = git(&["rev-parse", "HEAD"], Some(path));
         let pack = crate::ops::pack_for_wants(&bare, &[sha], &[], &[]).unwrap();
         assert!(pack_object_count(&pack) >= 3, "commit + tree + blob");
+    }
+}
+
+/// T38: the streamed pack must produce byte-for-byte the same wire form as the
+/// buffered writer it replaces. Framing is where a streaming rewrite silently
+/// breaks a client, so it is pinned here without involving a pack at all.
+#[cfg(test)]
+mod streaming_tests {
+    use super::*;
+    use crate::sideband::write_sideband_data;
+
+    fn payload(len: usize) -> Vec<u8> {
+        (0..len).map(|index| (index % 251) as u8).collect()
+    }
+
+    /// Write `source` in deliberately awkward pieces, so the sink's buffering is
+    /// what decides the pkt-line boundaries.
+    fn write_in_irregular_chunks(out: &mut dyn Write, source: &[u8]) -> Result<()> {
+        const SIZES: [usize; 5] = [7, 4096, PACK_CHUNK, 1, 999];
+        let mut offset = 0;
+        let mut index = 0;
+        while offset < source.len() {
+            let size = SIZES[index % SIZES.len()].min(source.len() - offset);
+            out.write_all(&source[offset..offset + size])?;
+            offset += size;
+            index += 1;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn sideband_framing_matches_the_buffered_writer() {
+        // Three full chunks plus a tail: covers the boundary cases.
+        let data = payload(PACK_CHUNK * 3 + 1234);
+
+        let mut buffered = Vec::new();
+        write_sideband_data(&mut buffered, &data).await.unwrap();
+
+        let mut streamed = Vec::new();
+        let source = data.clone();
+        let written = stream_pack(&mut streamed, true, move |out| {
+            write_in_irregular_chunks(out, &source)
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(written, data.len() as u64);
+        assert_eq!(
+            streamed, buffered,
+            "streamed sideband framing differs from write_sideband_data"
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_stream_is_the_pack_verbatim() {
+        let data = payload(PACK_CHUNK + 17);
+        let mut streamed = Vec::new();
+        let source = data.clone();
+        let written = stream_pack(&mut streamed, false, move |out| {
+            write_in_irregular_chunks(out, &source)
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(written, data.len() as u64);
+        assert_eq!(
+            streamed, data,
+            "the non-sideband stream must be the raw pack"
+        );
+    }
+
+    /// A generator that fails must be reported, and the error must be the
+    /// generator's, not a framing artefact.
+    #[tokio::test]
+    async fn generator_failure_is_reported() {
+        let mut streamed = Vec::new();
+        let error = stream_pack(&mut streamed, true, |_out| {
+            anyhow::bail!("object store went away")
+        })
+        .await
+        .expect_err("a failing generator must fail the stream");
+        assert!(
+            format!("{error:#}").contains("object store went away"),
+            "unexpected error: {error:#}"
+        );
     }
 }

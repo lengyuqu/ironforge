@@ -901,11 +901,29 @@ fn parse_filter_spec(spec: &str, out: &mut Vec<FilterComponent>) -> Option<bool>
 /// its full tree contents) and tag objects, which are included verbatim.
 /// Callers pre-compute the commit list via `rev_walk` negotiation, mirroring
 /// `pack-objects --revs` with `^have` exclusions.
+///
+/// The pack is written into a `Vec` for callers that need the bytes in memory.
+/// Protocol paths should use [`generate_pack_into`] and stream instead.
 pub fn generate_pack(
     repo: &gix::Repository,
     input_ids: Vec<gix::hash::ObjectId>,
 ) -> anyhow::Result<Vec<u8>> {
-    generate_pack_filtered(repo, input_ids, None, &HashSet::new())
+    let mut out = Vec::new();
+    generate_pack_into(repo, input_ids, &mut out)?;
+    Ok(out)
+}
+
+/// [`generate_pack`] writing into any [`std::io::Write`] (T38).
+///
+/// Nothing is buffered here: gix' encoder hands each entry straight to `out`, so
+/// peak memory is the encoder's per-object bookkeeping rather than the whole
+/// pack. Returns the writer so callers can finish it (flush, `into_inner`, …).
+pub fn generate_pack_into<W: std::io::Write>(
+    repo: &gix::Repository,
+    input_ids: Vec<gix::hash::ObjectId>,
+    out: W,
+) -> anyhow::Result<W> {
+    generate_pack_filtered_into(repo, input_ids, None, &HashSet::new(), out)
 }
 
 /// [`generate_pack`] that leaves out the objects `filter` rejects.
@@ -926,6 +944,18 @@ pub fn generate_pack_filtered(
     generate_pack_filtered_with_tips(repo, input_ids, filter, requested, &HashSet::new())
 }
 
+/// [`generate_pack_filtered`] writing into any [`std::io::Write`] (T38); see
+/// [`generate_pack_into`] for why protocol paths prefer this.
+pub fn generate_pack_filtered_into<W: std::io::Write>(
+    repo: &gix::Repository,
+    input_ids: Vec<gix::hash::ObjectId>,
+    filter: Option<ObjectFilter>,
+    requested: &HashSet<gix::hash::ObjectId>,
+    out: W,
+) -> anyhow::Result<W> {
+    generate_pack_filtered_with_tips_into(repo, input_ids, filter, requested, &HashSet::new(), out)
+}
+
 /// Same as the wrapper above, but the caller decides which inputs are tips.
 ///
 /// `object:type` filters keep tip commits and drop the historical ones, so the
@@ -937,6 +967,20 @@ pub fn generate_pack_filtered_with_tips(
     requested: &HashSet<gix::hash::ObjectId>,
     tips: &HashSet<gix::hash::ObjectId>,
 ) -> anyhow::Result<Vec<u8>> {
+    let mut out = Vec::new();
+    generate_pack_filtered_with_tips_into(repo, input_ids, filter, requested, tips, &mut out)?;
+    Ok(out)
+}
+
+/// [`generate_pack_filtered_with_tips`] writing into any [`std::io::Write`].
+pub fn generate_pack_filtered_with_tips_into<W: std::io::Write>(
+    repo: &gix::Repository,
+    input_ids: Vec<gix::hash::ObjectId>,
+    filter: Option<ObjectFilter>,
+    requested: &HashSet<gix::hash::ObjectId>,
+    tips: &HashSet<gix::hash::ObjectId>,
+    out: W,
+) -> anyhow::Result<W> {
     generate_pack_with(
         repo,
         input_ids,
@@ -944,6 +988,7 @@ pub fn generate_pack_filtered_with_tips(
         requested,
         tips,
         PackObjectExpansion::TreeContents,
+        out,
     )
 }
 
@@ -964,6 +1009,60 @@ enum PackObjectExpansion<'a> {
     Incremental {
         conservative: &'a [gix::hash::ObjectId],
     },
+}
+
+/// Thread budget for the pack pipeline, from `IRONFORGE_PACK_THREADS`.
+///
+/// Unset — the default — leaves gix to use every core, which is the behaviour
+/// this server has always had. The knob exists because the pipeline's working
+/// set is roughly `threads x chunk of in-flight entries` (T38 measured ~208 MiB
+/// at 16 threads and ~123 MiB at 8 for a 20 000-commit repository), and a small
+/// host may prefer the slower, smaller setting. See `docs/plans/T38-plan.md`.
+///
+/// Read per call rather than cached: a pack takes seconds, one `getenv` does not
+/// matter, and it keeps the value testable.
+fn pack_thread_limit() -> Option<usize> {
+    let limit = parse_pack_threads(std::env::var("IRONFORGE_PACK_THREADS").ok().as_deref());
+    // Say once, at the first pack, what the pipeline is actually using: the
+    // only other way to find out is to read RSS curves and time them.
+    static ANNOUNCED: std::sync::Once = std::sync::Once::new();
+    ANNOUNCED.call_once(|| {
+        let cores = std::thread::available_parallelism().map_or(0, |n| n.get());
+        match limit {
+            Some(threads) => tracing::info!(
+                threads,
+                cores,
+                "pack pipeline thread budget set by IRONFORGE_PACK_THREADS"
+            ),
+            None => tracing::info!(
+                cores,
+                "pack pipeline uses every available core (IRONFORGE_PACK_THREADS unset)"
+            ),
+        }
+    });
+    limit
+}
+
+/// `None` means "let gix use every core".
+///
+/// `0`, an empty value and anything unparsable fall back to the default with a
+/// warning instead of being taken literally: silently encoding a pack on one
+/// thread would look like a mysterious 8x slowdown rather than a typo.
+fn parse_pack_threads(raw: Option<&str>) -> Option<usize> {
+    let raw = raw?;
+    match raw.trim().parse::<usize>() {
+        Ok(threads) if threads > 0 => Some(threads),
+        _ => {
+            static WARNED: std::sync::Once = std::sync::Once::new();
+            WARNED.call_once(|| {
+                tracing::warn!(
+                    value = raw,
+                    "IRONFORGE_PACK_THREADS must be a positive integer; using all cores"
+                );
+            });
+            None
+        }
+    }
 }
 
 /// Count the pack objects for `input_ids` under `expansion`.
@@ -989,7 +1088,7 @@ fn count_pack_objects(
         &Discard,
         &should_interrupt,
         output::count::objects::Options {
-            thread_limit: None,
+            thread_limit: pack_thread_limit(),
             chunk_size: 10,
             input_object_expansion: expansion,
         },
@@ -998,14 +1097,16 @@ fn count_pack_objects(
     Ok(counts)
 }
 
-fn generate_pack_with(
+/// `out` receives the pack stream as it is encoded; see [`generate_pack_into`].
+fn generate_pack_with<W: std::io::Write>(
     repo: &gix::Repository,
     input_ids: Vec<gix::hash::ObjectId>,
     filter: Option<ObjectFilter>,
     requested: &HashSet<gix::hash::ObjectId>,
     tips: &HashSet<gix::hash::ObjectId>,
     expansion: PackObjectExpansion<'_>,
-) -> anyhow::Result<Vec<u8>> {
+    out: W,
+) -> anyhow::Result<W> {
     use gix::odb::pack::data::output;
     use gix::progress::Discard;
 
@@ -1084,15 +1185,18 @@ fn generate_pack_with(
         Box::new(Discard),
         output::entry::iter_from_counts::Options {
             allow_thin_pack: false,
+            thread_limit: pack_thread_limit(),
             ..Default::default()
         },
     )
     .map_err(|error| anyhow::anyhow!("failed to start pack entry iteration: {error}"))?;
 
-    let mut pack = Vec::new();
+    let mut pack = out;
     {
         use gix::parallel::InOrderIter;
         let in_order = InOrderIter::from(entries);
+        // `W: Write` is all gix needs; the pack is emitted entry by entry, so a
+        // network sink keeps peak memory flat instead of holding the whole pack.
         let mut writer = output::bytes::FromEntriesIter::new(
             in_order,
             &mut pack,
@@ -1110,6 +1214,13 @@ fn generate_pack_with(
 /// gix-native replacement for `git pack-objects --all --stdout`: packs every
 /// object reachable from every ref. Callers: the V1 upload-pack empty-`want` fallback (`protocol/upload_pack.rs:371`) and `fork_repo` (`rg-core/src/repo/service.rs:1241`, non-protocol — shallow/filter/haves do not apply there).
 pub fn pack_universe(repo_path: &Path) -> anyhow::Result<Vec<u8>> {
+    let mut out = Vec::new();
+    pack_universe_into(repo_path, &mut out)?;
+    Ok(out)
+}
+
+/// [`pack_universe`] writing into any [`std::io::Write`] (T38).
+pub fn pack_universe_into<W: std::io::Write>(repo_path: &Path, out: W) -> anyhow::Result<W> {
     let repo = open_repo(repo_path)?;
     let mut inputs: Vec<gix::hash::ObjectId> = Vec::new();
     let mut walk_tips: Vec<gix::hash::ObjectId> = Vec::new();
@@ -1147,7 +1258,7 @@ pub fn pack_universe(repo_path: &Path) -> anyhow::Result<Vec<u8>> {
             .collect();
         inputs.extend(commits);
     }
-    generate_pack(&repo, inputs)
+    generate_pack_into(&repo, inputs, out)
 }
 
 /// gix-native replacement for `git pack-objects --revs --stdout [--thin]`:
@@ -1183,7 +1294,27 @@ pub fn pack_for_wants(
     haves: &[String],
     shallow_boundaries: &[String],
 ) -> anyhow::Result<Vec<u8>> {
-    pack_for_wants_opts(repo_path, wants, haves, shallow_boundaries, false)
+    let mut out = Vec::new();
+    pack_for_wants_into(repo_path, wants, haves, shallow_boundaries, &mut out)?;
+    Ok(out)
+}
+
+/// [`pack_for_wants`] writing into any [`std::io::Write`] (T38).
+///
+/// This is the streaming entry point: the pack never exists in one buffer, so a
+/// clone's peak memory does not scale with the repository. Errors raised here
+/// (unresolvable want, unreadable object) can surface after the caller has
+/// already started writing bytes, because that is the whole point — see
+/// `protocol::upload_pack` for how the HTTP layer handles the resulting
+/// truncated response.
+pub fn pack_for_wants_into<W: std::io::Write>(
+    repo_path: &Path,
+    wants: &[String],
+    haves: &[String],
+    shallow_boundaries: &[String],
+    out: W,
+) -> anyhow::Result<W> {
+    pack_for_wants_opts_into(repo_path, wants, haves, shallow_boundaries, false, out)
 }
 
 /// [`pack_for_wants`] with an explicit `shallow_mode` flag; see that function
@@ -1195,13 +1326,35 @@ pub fn pack_for_wants_opts(
     shallow_boundaries: &[String],
     shallow_mode: bool,
 ) -> anyhow::Result<Vec<u8>> {
-    pack_for_wants_filtered(
+    let mut out = Vec::new();
+    pack_for_wants_opts_into(
+        repo_path,
+        wants,
+        haves,
+        shallow_boundaries,
+        shallow_mode,
+        &mut out,
+    )?;
+    Ok(out)
+}
+
+/// [`pack_for_wants_opts`] writing into any [`std::io::Write`].
+pub fn pack_for_wants_opts_into<W: std::io::Write>(
+    repo_path: &Path,
+    wants: &[String],
+    haves: &[String],
+    shallow_boundaries: &[String],
+    shallow_mode: bool,
+    out: W,
+) -> anyhow::Result<W> {
+    pack_for_wants_filtered_into(
         repo_path,
         wants,
         haves,
         shallow_boundaries,
         shallow_mode,
         None,
+        out,
     )
 }
 
@@ -1224,6 +1377,29 @@ pub fn pack_for_wants_filtered(
     shallow_mode: bool,
     filter: Option<ObjectFilter>,
 ) -> anyhow::Result<Vec<u8>> {
+    let mut out = Vec::new();
+    pack_for_wants_filtered_into(
+        repo_path,
+        wants,
+        haves,
+        shallow_boundaries,
+        shallow_mode,
+        filter,
+        &mut out,
+    )?;
+    Ok(out)
+}
+
+/// [`pack_for_wants_filtered`] writing into any [`std::io::Write`] (T38).
+pub fn pack_for_wants_filtered_into<W: std::io::Write>(
+    repo_path: &Path,
+    wants: &[String],
+    haves: &[String],
+    shallow_boundaries: &[String],
+    shallow_mode: bool,
+    filter: Option<ObjectFilter>,
+    out: W,
+) -> anyhow::Result<W> {
     let repo = open_repo(repo_path)?;
     let peel_to_commit = |spec: &str| -> anyhow::Result<gix::hash::ObjectId> {
         let id = repo
@@ -1317,7 +1493,7 @@ pub fn pack_for_wants_filtered(
     } else {
         PackObjectExpansion::TreeContents
     };
-    generate_pack_with(&repo, inputs, filter, &requested, &tips, expansion)
+    generate_pack_with(&repo, inputs, filter, &requested, &tips, expansion, out)
 }
 
 /// gix-native replacement for `git index-pack --fix-thin --stdin`: ingests a
@@ -2607,5 +2783,36 @@ mod tree_listing_tests {
         )
         .is_err());
         assert!(read_blobs(temp.path(), &[]).unwrap().is_empty());
+    }
+}
+
+/// T38: `IRONFORGE_PACK_THREADS` parsing. The variable only trades speed for
+/// memory, so the contract that matters is that a bad value never silently
+/// degrades into a one-thread pack.
+#[cfg(test)]
+mod pack_threads_tests {
+    use super::parse_pack_threads;
+
+    #[test]
+    fn unset_keeps_the_historical_behaviour() {
+        assert_eq!(parse_pack_threads(None), None);
+    }
+
+    #[test]
+    fn positive_values_are_forwarded() {
+        assert_eq!(parse_pack_threads(Some("1")), Some(1));
+        assert_eq!(parse_pack_threads(Some("8")), Some(8));
+        assert_eq!(parse_pack_threads(Some(" 16 ")), Some(16));
+    }
+
+    #[test]
+    fn zero_empty_and_garbage_fall_back_to_all_cores() {
+        // Not `Some(0)`: gix reads 0 as "all cores" too, but going through the
+        // warning path is what makes a typo visible in the logs.
+        assert_eq!(parse_pack_threads(Some("0")), None);
+        assert_eq!(parse_pack_threads(Some("")), None);
+        assert_eq!(parse_pack_threads(Some("   ")), None);
+        assert_eq!(parse_pack_threads(Some("eight")), None);
+        assert_eq!(parse_pack_threads(Some("-2")), None);
     }
 }

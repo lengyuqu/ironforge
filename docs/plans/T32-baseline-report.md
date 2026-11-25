@@ -198,6 +198,18 @@ fixture 为了造出真实增量，走的就是这个模式（`perf_fixture::inc
 再加上索引/写入时的额外缓冲。这与项目「单二进制、内存 <50 MB」的定位直接冲突，是 LARGE
 档最值得跟进的一条。**只记录，不修。**
 
+> **T38 回填（分支 `agent/t38-pack-streaming`）。** 上面「1.21 GB」这个数字**只计了
+> 一份**，是从代码推断出来的；T38 起真实服务 + 真 `git clone` 实测，large clone 的
+> 服务端峰值是 **2 521 MiB**，因为同时存在**两份** 1.21 GB：
+> 1. `protocol/v2.rs::handle_fetch` 里 `generate_packfile()` 返回的 pack `Vec`
+>    （真实 clone 走 protocol v2，这一份是本报告的盲区）；
+> 2. `rg-http` 的 `duplex` + `read_to_end` 把整个响应又收了一份。
+>
+> T38 把两处都改成流式（gix 本来就支持任意 `io::Write`）：峰值 **2 521 → 299 MiB**，
+> 并发 3 个 large clone **6 536 → 782 MiB**，clone 耗时反而降 18%。剩下约 215 MiB 的
+> 净增量是 gix 并行 entry 流水线的工作集，与 pack 字节数解耦。详见
+> `docs/plans/T38-plan.md`。
+
 ### 7.3 根目录 tree 列表是递归全量遍历
 
 `ops::list_tree_files` 用显式栈递归展开整个子树，并对每个 entry 调 `find_header`
