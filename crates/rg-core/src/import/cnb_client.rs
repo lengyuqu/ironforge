@@ -6,10 +6,12 @@
 //! from the live API instead:
 //!
 //! ```text
-//! GET https://api.cnb.cool/{owner}/{repo}/-/issues          → [ {...}, ... ]
+//! GET https://api.cnb.cool/{owner}/{repo}/-/issues?state=open|closed  → [ {...}, ... ]
 //! GET https://api.cnb.cool/{owner}/{repo}/-/issues/{number} → { ..., "body": "..." }
 //! GET https://api.cnb.cool/{owner}/{repo}/-/issues/{n}/comments
-//! GET https://api.cnb.cool/{owner}/{repo}/-/pulls
+//! GET https://api.cnb.cool/{owner}/{repo}/-/pulls?state=all
+//! GET https://api.cnb.cool/{owner}/{repo}/-/pulls/{n}/reviews
+//! GET https://api.cnb.cool/{owner}/{repo}/-/labels
 //! ```
 //!
 //! Three things differ from every other source and each one has cost a real
@@ -28,6 +30,14 @@ use anyhow::{Context, Result};
 
 const DEFAULT_BASE: &str = "https://api.cnb.cool";
 const PAGE_SIZE: usize = 100;
+/// CNB answers `429 {"errcode":8,"errmsg":"Too many requests..."}` once the
+/// import's N+1 requests (two list calls, one detail and one comment call per
+/// issue or pull) exceed its window. Live: 132 requests in ~30s tripped it, and
+/// two imports at once still hit the limit after six attempts — one pull body
+/// was lost that way. Eight attempts cover ~90s of backoff, longer than a
+/// concurrent import takes to finish and release the window.
+const MAX_ATTEMPTS: usize = 8;
+const RETRY_BASE_MS: u64 = 1_000;
 
 /// A repository identifier in CNB's `owner/repo` form.
 #[derive(Debug, Clone)]
@@ -51,11 +61,16 @@ pub struct CnbUser {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct CnbLabel {
-    #[serde(default)]
-    pub name: Option<String>,
     /// Some endpoints send labels as bare strings instead of objects.
     #[serde(default)]
     pub id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// `#RRGGBB`, with the leading `#`.
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -92,16 +107,16 @@ impl CnbIssue {
 
     /// Label names, accepting both `{"name": "bug"}` and `"bug"`.
     pub fn label_names(&self) -> Vec<String> {
-        self.labels
-            .iter()
-            .filter_map(|value| match value {
-                serde_json::Value::String(name) => Some(name.clone()),
-                serde_json::Value::Object(map) => {
-                    map.get("name").and_then(|v| v.as_str()).map(str::to_string)
-                }
-                _ => None,
-            })
+        self.label_objects()
+            .into_iter()
+            .filter_map(|label| label.name)
             .collect()
+    }
+
+    /// Labels with the colour and description CNB sends, so the imported label
+    /// list matches the source instead of a wall of grey.
+    pub fn label_objects(&self) -> Vec<CnbLabel> {
+        label_objects_from(&self.labels)
     }
 }
 
@@ -109,6 +124,24 @@ impl CnbIssue {
 pub struct CnbComment {
     #[serde(default)]
     pub id: Option<String>,
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub author: Option<CnbUser>,
+    #[serde(default)]
+    pub created_at: String,
+}
+
+/// A formal review verdict, from `GET /pulls/{number}/reviews`.
+///
+/// CNB lowercases the verdict (`"approved"`), unlike GitHub's `APPROVED`;
+/// [`crate::import::service`] maps it to the shared vocabulary.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct CnbReview {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub state: String,
     #[serde(default)]
     pub body: Option<String>,
     #[serde(default)]
@@ -161,23 +194,65 @@ impl CnbPull {
     }
 
     pub fn label_names(&self) -> Vec<String> {
-        label_names_from(&self.labels)
+        self.label_objects()
+            .into_iter()
+            .filter_map(|label| label.name)
+            .collect()
+    }
+
+    pub fn label_objects(&self) -> Vec<CnbLabel> {
+        label_objects_from(&self.labels)
     }
 }
 
-/// Accept both `{"name": "bug"}` and `"bug"`; a client that only handles one
-/// shape drops every label silently.
-fn label_names_from(labels: &[serde_json::Value]) -> Vec<String> {
+/// Accept both `{"name": "bug", "color": "#ff0000"}` and `"bug"`; a client that
+/// only handles one shape drops every label silently.
+fn label_objects_from(labels: &[serde_json::Value]) -> Vec<CnbLabel> {
     labels
         .iter()
         .filter_map(|value| match value {
-            serde_json::Value::String(name) => Some(name.clone()),
-            serde_json::Value::Object(map) => {
-                map.get("name").and_then(|v| v.as_str()).map(str::to_string)
-            }
+            serde_json::Value::String(name) => Some(CnbLabel {
+                id: None,
+                name: Some(name.clone()),
+                description: None,
+                color: None,
+            }),
+            serde_json::Value::Object(_) => serde_json::from_value(value.clone()).ok(),
             _ => None,
         })
         .collect()
+}
+
+/// Keep the first row per number.
+///
+/// An item that changes state between the `open` and `closed` calls would
+/// otherwise be returned twice; the shared importer creates by number, so the
+/// second copy always fails and the failure count lies about the source.
+fn dedupe_by_number<T>(items: Vec<T>, number: impl Fn(&T) -> String) -> Vec<T> {
+    let mut seen = std::collections::HashSet::new();
+    items
+        .into_iter()
+        .filter(|item| seen.insert(number(item)))
+        .collect()
+}
+
+/// Whether a failed request is worth sending again.
+fn retryable(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 429 | 500 | 502 | 503 | 504)
+}
+
+/// `Retry-After` in seconds, capped so a hostile or broken header cannot park
+/// the import for minutes.
+fn retry_after(response: &reqwest::Response) -> Option<std::time::Duration> {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(|seconds| std::time::Duration::from_secs(seconds.min(30)))
 }
 
 pub struct CnbClient {
@@ -220,30 +295,53 @@ impl CnbClient {
 
     async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
         let url = format!("{}{}", self.base.trim_end_matches('/'), path);
-        let response = self
-            .http
-            .get(&url)
-            .header(
-                reqwest::header::AUTHORIZATION,
-                format!("Bearer {}", self.token),
-            )
-            .header(reqwest::header::ACCEPT, "application/vnd.cnb.api+json")
-            .send()
-            .await
-            .with_context(|| format!("CNB request failed: {path}"))?;
-        let status = response.status();
-        if !status.is_success() {
+        let mut attempt = 0usize;
+        loop {
+            attempt += 1;
+            let response = self
+                .http
+                .get(&url)
+                .header(
+                    reqwest::header::AUTHORIZATION,
+                    format!("Bearer {}", self.token),
+                )
+                .header(reqwest::header::ACCEPT, "application/vnd.cnb.api+json")
+                .send()
+                .await
+                .with_context(|| format!("CNB request failed: {path}"))?;
+            let status = response.status();
+            if status.is_success() {
+                return response.json::<T>().await.with_context(|| {
+                    format!("CNB response did not match the expected shape: {path}")
+                });
+            }
+            // Rate limiting and transient server errors are the import's normal
+            // weather: it sends one detail plus one comment request per row. A
+            // 429 that is answered as a hard failure used to make the callers
+            // that use `unwrap_or_default` drop every comment on the row — data
+            // missing, task `completed`.
+            let retry_after = retry_after(&response);
+            let body = response.text().await.unwrap_or_default();
+            if retryable(status) && attempt < MAX_ATTEMPTS {
+                let delay = retry_after.unwrap_or_else(|| {
+                    std::time::Duration::from_millis(RETRY_BASE_MS << (attempt - 1))
+                });
+                tracing::warn!(
+                    %status,
+                    path,
+                    attempt,
+                    delay_ms = delay.as_millis() as u64,
+                    "CNB request failed; retrying"
+                );
+                tokio::time::sleep(delay).await;
+                continue;
+            }
             // The body explains more than the status does (a 404 names the
             // resource), but it is the source platform's text, so it is kept out
             // of what the importing user sees and only logged.
-            let body = response.text().await.unwrap_or_default();
             tracing::warn!(%status, path, body = %body.chars().take(300).collect::<String>(), "CNB API request failed");
             anyhow::bail!("CNB API error ({status}) for {path}");
         }
-        response
-            .json::<T>()
-            .await
-            .with_context(|| format!("CNB response did not match the expected shape: {path}"))
     }
 
     /// Walk a paginated list endpoint.
@@ -271,16 +369,39 @@ impl CnbClient {
         Ok(all)
     }
 
-    /// Every issue, whatever its state (same default-open trap as pulls).
+    /// Every issue, whatever its state.
+    ///
+    /// Unlike `/pulls`, CNB's issue list does **not** accept `state=all`: it
+    /// answers `400 {"errmsg":"bad request"}`. Omitting the parameter is not a
+    /// way out either — it silently means `open`, so a repository whose issues
+    /// are mostly closed (31 of 32 on the live test repo) imports a fraction
+    /// and reports success. Only `open` and `closed` are accepted, so this
+    /// asks twice and merges.
     pub async fn list_issues(&self, repo: &CnbRepo) -> Result<Vec<CnbIssue>> {
-        self.paginate(&format!("/{}/-/issues?state=all", repo.path()))
-            .await
+        let mut all = Vec::new();
+        for state in ["open", "closed"] {
+            let batch = self
+                .paginate(&format!("/{}/-/issues?state={state}", repo.path()))
+                .await?;
+            all.extend(batch);
+        }
+        Ok(dedupe_by_number(all, |issue| issue.number.clone()))
     }
 
     /// Fetch one issue, which is where its `body` lives.
     pub async fn get_issue(&self, repo: &CnbRepo, number: &str) -> Result<CnbIssue> {
         self.get_json(&format!("/{}/-/issues/{number}", repo.path()))
             .await
+    }
+
+    /// Every label defined on the repository, including ones no issue uses.
+    ///
+    /// `/-/labels` exists and paginates (it answers `repo-notes:r` permission);
+    /// `/-/issues/labels` is the one that 404s. Deriving the label set from the
+    /// issues alone drops unused labels and their colours, which a migrated
+    /// repository then cannot recreate from its own data.
+    pub async fn list_labels(&self, repo: &CnbRepo) -> Result<Vec<CnbLabel>> {
+        self.paginate(&format!("/{}/-/labels", repo.path())).await
     }
 
     pub async fn list_issue_comments(
@@ -304,12 +425,34 @@ impl CnbClient {
             .await
     }
 
+    /// Fetch one pull request, which is where its `body` lives.
+    ///
+    /// The list endpoint sends `"body": ""` for every pull — the key exists, so
+    /// "is it null?" does not detect the omission — while the detail endpoint
+    /// carries the real text. Its payload has no `created_at`/`updated_at`,
+    /// though, so callers must keep the list row and take only the body.
+    pub async fn get_pull(&self, repo: &CnbRepo, number: &str) -> Result<CnbPull> {
+        self.get_json(&format!("/{}/-/pulls/{number}", repo.path()))
+            .await
+    }
+
     pub async fn list_pull_comments(
         &self,
         repo: &CnbRepo,
         number: &str,
     ) -> Result<Vec<CnbComment>> {
         self.paginate(&format!("/{}/-/pulls/{number}/comments", repo.path()))
+            .await
+    }
+
+    /// Formal review verdicts on a pull request.
+    ///
+    /// The client used to state that CNB "has no review-list endpoint" and
+    /// imported only comments. `GET /pulls/{number}/reviews` exists (captured
+    /// from zdzso/agent2ssh#3: two `{"state": "approved"}` rows), so approvals
+    /// were being dropped on every migration.
+    pub async fn list_pull_reviews(&self, repo: &CnbRepo, number: &str) -> Result<Vec<CnbReview>> {
+        self.paginate(&format!("/{}/-/pulls/{number}/reviews", repo.path()))
             .await
     }
 }
@@ -381,6 +524,25 @@ mod tests {
         );
     }
 
+    /// Captured from `cnb/feedback/-/labels`: the object carries a colour and a
+    /// description. Deriving labels from issue names alone threw both away and
+    /// painted every label the same grey.
+    #[test]
+    fn labels_carry_the_colour_and_description_the_api_sends() {
+        let payload = r##"{
+            "number": "5534", "title": "t", "state": "open",
+            "labels": [
+                {"id": "1838192555308494848", "name": "feature request", "description": "", "color": "#E8FCF4"},
+                {"id": "1845752338999881728", "name": "已解决:待发布", "description": "released next", "color": "#E8FCF4"}
+            ]
+        }"##;
+        let issue: CnbIssue = serde_json::from_str(payload).unwrap();
+        let labels = issue.label_objects();
+        assert_eq!(labels[0].name.as_deref(), Some("feature request"));
+        assert_eq!(labels[0].color.as_deref(), Some("#E8FCF4"));
+        assert_eq!(labels[1].description.as_deref(), Some("released next"));
+    }
+
     /// Both shapes appear in the wild; a client that only handles objects drops
     /// every label silently.
     #[test]
@@ -391,6 +553,86 @@ mod tests {
         }"#;
         let issue: CnbIssue = serde_json::from_str(payload).unwrap();
         assert_eq!(issue.label_names(), vec!["bug", "enhancement"]);
+    }
+
+    /// Live: 132 requests in ~30 seconds returned `429 errcode 8`. Those must be
+    /// retried; a 404 is a wrong URL and must not be.
+    #[test]
+    fn rate_limits_and_server_errors_are_retried_but_client_errors_are_not() {
+        assert!(retryable(reqwest::StatusCode::TOO_MANY_REQUESTS));
+        assert!(retryable(reqwest::StatusCode::BAD_GATEWAY));
+        assert!(retryable(reqwest::StatusCode::SERVICE_UNAVAILABLE));
+        assert!(!retryable(reqwest::StatusCode::NOT_FOUND));
+        assert!(!retryable(reqwest::StatusCode::UNAUTHORIZED));
+        assert!(!retryable(reqwest::StatusCode::BAD_REQUEST));
+    }
+
+    /// `state=all` is a 400 on this endpoint, so the client asks twice; an
+    /// issue that flips state between those calls must not be imported twice.
+    #[test]
+    fn duplicates_across_the_two_state_calls_are_collapsed() {
+        let items = vec!["11".to_string(), "12".to_string(), "11".to_string()];
+        assert_eq!(
+            dedupe_by_number(items, |number| number.clone()),
+            vec!["11".to_string(), "12".to_string()]
+        );
+    }
+
+    /// Captured from `GET /zdzso/agent2ssh/-/pulls/3/reviews`: CNB lowercases
+    /// the verdict and omits `submitted_at` (the field is `created_at`).
+    #[test]
+    fn a_review_payload_from_the_live_api_parses() {
+        let payload = r#"[
+            {
+                "id": "2120215139786158080",
+                "state": "approved",
+                "body": "",
+                "author": {"username": "cnb.lengyuqu", "nickname": "太难了", "is_npc": false},
+                "created_at": "2026-11-10T18:00:55Z"
+            }
+        ]"#;
+        let reviews: Vec<CnbReview> = serde_json::from_str(payload).expect("CNB reviews parse");
+        assert_eq!(reviews.len(), 1);
+        assert_eq!(reviews[0].state, "approved");
+        assert_eq!(reviews[0].body.as_deref(), Some(""));
+        assert_eq!(
+            reviews[0].author.as_ref().map(|a| a.username.as_str()),
+            Some("cnb.lengyuqu")
+        );
+    }
+
+    /// Captured from `GET /lengyuqu/ironforge/-/pulls/66`. The detail payload has
+    /// the real body and full refs, and — unlike the list row — has no
+    /// `created_at`/`updated_at`, which is why the importer keeps the list row
+    /// and takes only the body.
+    #[test]
+    fn a_pull_detail_payload_from_the_live_api_parses() {
+        let payload = r###"{
+            "number": "66",
+            "state": "closed",
+            "title": "chore(deps): upgrade jsonwebtoken to 10.3.0",
+            "body": "## 现状问题\n...",
+            "is_merged": true,
+            "is_wip": false,
+            "merged_by": {"username": "cnb.lengyuqu", "nickname": "太难了", "is_npc": false},
+            "head": {"ref": "refs/heads/auto/jwt-cve-25537-9fce", "sha": "1160da2f66e72cb695bd25d50a5034eeb8d7f88e"},
+            "base": {"ref": "refs/heads/main", "sha": "669b196d508c56e09af6691813658e9a1f3b0c93"},
+            "labels": [],
+            "author": {"username": "CodeBuddy", "nickname": "临时免费，节后再说", "is_npc": true},
+            "closed_at": "2026-11-24T15:59:05Z"
+        }"###;
+        let pull: CnbPull = serde_json::from_str(payload).expect("CNB pull must parse");
+        assert_eq!(pull.number_as_i64(), 66);
+        assert_eq!(pull.state, "closed");
+        assert!(pull.is_merged);
+        assert_eq!(pull.body.as_deref(), Some("## 现状问题\n..."));
+        assert_eq!(
+            pull.head.as_ref().map(|head| head.r#ref.as_str()),
+            Some("refs/heads/auto/jwt-cve-25537-9fce")
+        );
+        // The detail payload does not send these; they stay empty.
+        assert!(pull.created_at.is_empty());
+        assert!(pull.updated_at.is_empty());
     }
 
     #[test]

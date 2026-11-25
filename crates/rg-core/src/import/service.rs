@@ -27,7 +27,8 @@ use rg_db::ops::{
 
 use crate::error::{CoreError, CoreResult};
 use crate::import::cnb_client::{
-    parse_cnb_url, CnbClient, CnbComment, CnbIssue, CnbPull, CnbPullRef, CnbUser,
+    parse_cnb_url, CnbClient, CnbComment, CnbIssue, CnbLabel, CnbPull, CnbPullRef, CnbReview,
+    CnbUser,
 };
 use crate::import::github_client::{
     GitHubClient, GitHubComment, GitHubIssue, GitHubLabel, GitHubMilestone, GitHubPR, GitHubRef,
@@ -1331,9 +1332,9 @@ async fn import_github_releases(
 ///
 /// CNB pulls carry merge state outside `state` (`state: closed` plus
 /// `is_merged`), call a draft "wip", and send full refs — all translated in
-/// [`cnb_pull_to_github`]. Reviews are not imported: CNB exposes a
-/// `review_count` but has no review-list endpoint, so a review would be a
-/// guess.
+/// [`cnb_pull_to_github`]. Pull-request discussion comments and formal review
+/// verdicts both land in `pr_reviews`: comments as `action: comment`, verdicts
+/// from `GET /pulls/{number}/reviews` mapped from CNB's lowercase states.
 async fn run_cnb_import(
     db: &DatabaseConnection,
     task: &ImportTask,
@@ -1371,20 +1372,44 @@ async fn run_cnb_import(
         update_stage(db, task.id, "importing", 20, "Repository cloned").await?;
     }
 
-    // Step 2: issues (and the labels they carry — CNB has no repository-level
-    // label list endpoint; its `/issues/labels` answers 404)
+    // Step 2: issues (and the labels they carry)
     if task.import_issues || task.import_labels {
         update_stage(db, task.id, "importing", 30, "Fetching issues...").await?;
         let issues = client.list_issues(&source).await?;
 
         if task.import_labels {
-            let mut names: Vec<String> = issues
+            // `/-/labels` is the repository's own label set: it includes labels
+            // no issue currently uses, and carries the colour and description.
+            // Deriving labels from the issues alone loses both. The endpoint is
+            // not critical — an instance that lacks it still gets the labels
+            // that are actually in use.
+            let mut labels = match client.list_labels(&source).await {
+                Ok(labels) => labels,
+                Err(error) => {
+                    tracing::warn!(%error, "CNB: failed to list repository labels");
+                    Vec::new()
+                }
+            };
+            for issue in &issues {
+                labels.extend(issue.label_objects());
+            }
+            let labels = dedupe_labels(labels);
+            // Object-shaped labels carry a colour and description; bare-string
+            // ones can only contribute a name. Importing them through the
+            // matching helper preserves both instead of flattening every label
+            // to the same grey.
+            let (described, bare): (Vec<&CnbLabel>, Vec<&CnbLabel>) = labels
                 .iter()
-                .flat_map(|issue| issue.label_names())
+                .partition(|label| label.color.is_some() || label.description.is_some());
+            let github_labels: Vec<GitHubLabel> = described
+                .iter()
+                .filter_map(|label| cnb_label_to_github(label))
                 .collect();
-            names.sort();
-            names.dedup();
-            stats.labels_imported = import_label_names(db, repo_id, &names).await?;
+            let mut count = import_github_labels(db, repo_id, &github_labels).await?;
+            let bare_names: Vec<String> =
+                bare.iter().filter_map(|label| label.name.clone()).collect();
+            count += import_label_names(db, repo_id, &bare_names).await?;
+            stats.labels_imported = count;
         }
 
         if task.import_issues {
@@ -1401,10 +1426,12 @@ async fn run_cnb_import(
                 .await?;
 
                 // The list endpoint omits `body`; the text only exists on the
-                // single-issue endpoint.
-                let detail = match issue.body {
-                    Some(_) => issue.clone(),
-                    None => match client.get_issue(&source, &issue.number).await {
+                // single-issue endpoint. An empty string counts as missing too:
+                // the pull-request list uses `""` rather than omitting the key,
+                // so "Some" alone is not a reliable test.
+                let detail = match issue.body.as_deref().map(str::is_empty) {
+                    Some(false) => issue.clone(),
+                    _ => match client.get_issue(&source, &issue.number).await {
                         Ok(detail) => detail,
                         Err(error) => {
                             tracing::warn!(number = %issue.number, %error, "CNB: failed to fetch issue body");
@@ -1412,15 +1439,35 @@ async fn run_cnb_import(
                         }
                     },
                 };
-                let comments = client
-                    .list_issue_comments(&source, &issue.number)
-                    .await
-                    .unwrap_or_default();
+                let comments = match client.list_issue_comments(&source, &issue.number).await {
+                    Ok(comments) => comments,
+                    Err(error) => {
+                        // Explicit: `unwrap_or_default` here meant a rate-limited
+                        // page became "this issue has no comments", and the task
+                        // still finished as `completed`.
+                        tracing::warn!(number = %issue.number, %error, "CNB: failed to fetch issue comments");
+                        Vec::new()
+                    }
+                };
 
                 let converted = cnb_issue_to_github(&detail);
                 let converted_comments: Vec<GitHubComment> =
                     comments.iter().map(cnb_comment_to_github).collect();
-                let empty_user_map = HashMap::new();
+                // The other importers attribute source users to the importing
+                // user (see `map_users`). An empty map made every author fall
+                // back to user id 1, which is the first account on the instance
+                // — not necessarily the person who ran the migration (measured:
+                // importing as user 2 still wrote author_id 1 everywhere).
+                let mut author_names = std::collections::HashSet::new();
+                if let Some(author) = &detail.author {
+                    author_names.insert(author.username.clone());
+                }
+                for comment in &comments {
+                    if let Some(author) = &comment.author {
+                        author_names.insert(author.username.clone());
+                    }
+                }
+                let user_map = map_users(task, &author_names)?;
                 let empty_milestone_map = HashMap::new();
                 if let Err(error) = import_github_issue(
                     db,
@@ -1429,7 +1476,7 @@ async fn run_cnb_import(
                     &task.target_name,
                     &converted,
                     &converted_comments,
-                    &empty_user_map,
+                    &user_map,
                     &empty_milestone_map,
                 )
                 .await
@@ -1458,22 +1505,71 @@ async fn run_cnb_import(
             )
             .await?;
 
-            let comments = client
-                .list_pull_comments(&source, &pull.number)
-                .await
-                .unwrap_or_default();
-            let converted_comments: Vec<GitHubComment> =
-                comments.iter().map(cnb_comment_to_github).collect();
-            let converted = cnb_pull_to_github(pull);
-            let empty_user_map = HashMap::new();
+            // The list endpoint sends `"body": ""` for every pull request; the
+            // text only exists on the single-pull endpoint. Unlike the issue
+            // detail payload, this one has no `created_at`/`updated_at`, so the
+            // list row is kept and only the body is taken from the detail.
+            let mut pull = pull.clone();
+            if pull.body.as_deref().unwrap_or("").is_empty() {
+                match client.get_pull(&source, &pull.number).await {
+                    Ok(detail) => pull.body = detail.body,
+                    Err(error) => {
+                        tracing::warn!(number = %pull.number, %error, "CNB: failed to fetch pull request body");
+                    }
+                }
+            }
+            let comments = match client.list_pull_comments(&source, &pull.number).await {
+                Ok(comments) => comments,
+                Err(error) => {
+                    tracing::warn!(number = %pull.number, %error, "CNB: failed to fetch pull request comments");
+                    Vec::new()
+                }
+            };
+            // A pull-request discussion is a review, not an issue comment.
+            // Handing these to the shared importer as `comments` wrote them to
+            // `issue_comments` with the pull-request id in `issue_id`; no row in
+            // `issues` has that id, so they were orphans the statistics counted
+            // and nothing could read — the exact defect the GitLab migration
+            // found. Passing them as `COMMENTED` reviews lands them in
+            // `pr_reviews` with `action = comment`, where a discussion belongs,
+            // without touching the shared importer.
+            let mut reviews: Vec<GitHubReview> =
+                comments.iter().map(cnb_comment_to_review).collect();
+            // The verdicts are a separate endpoint; without this call every
+            // approval on every migrated pull was silently absent (the old
+            // comment claimed the endpoint did not exist).
+            let verdicts = match client.list_pull_reviews(&source, &pull.number).await {
+                Ok(verdicts) => verdicts,
+                Err(error) => {
+                    tracing::warn!(number = %pull.number, %error, "CNB: failed to fetch pull request reviews");
+                    Vec::new()
+                }
+            };
+            reviews.extend(verdicts.iter().map(cnb_review_to_github));
+            let converted = cnb_pull_to_github(&pull);
+            let mut author_names = std::collections::HashSet::new();
+            if let Some(author) = &pull.author {
+                author_names.insert(author.username.clone());
+            }
+            for comment in &comments {
+                if let Some(author) = &comment.author {
+                    author_names.insert(author.username.clone());
+                }
+            }
+            for verdict in &verdicts {
+                if let Some(author) = &verdict.author {
+                    author_names.insert(author.username.clone());
+                }
+            }
+            let user_map = map_users(task, &author_names)?;
             let empty_milestone_map = HashMap::new();
             if let Err(error) = import_github_pr(
                 db,
                 repo_id,
                 &converted,
-                &converted_comments,
                 &[],
-                &empty_user_map,
+                &reviews,
+                &user_map,
                 &empty_milestone_map,
             )
             .await
@@ -1481,6 +1577,7 @@ async fn run_cnb_import(
                 tracing::warn!(number = %pull.number, %error, "CNB: failed to import pull request");
             } else {
                 stats.prs_imported += 1;
+                stats.pr_reviews_imported += reviews.len();
             }
         }
     }
@@ -1498,6 +1595,81 @@ fn cnb_user(user: Option<&CnbUser>) -> Option<GitHubUser> {
     })
 }
 
+/// A comment on a pull request, as the `pr_reviews` row it becomes.
+///
+/// `COMMENTED` is the review state the shared importer maps to `action =
+/// comment`; the comment's own timestamp is carried as `submitted_at`.
+fn cnb_comment_to_review(comment: &CnbComment) -> GitHubReview {
+    GitHubReview {
+        id: comment
+            .id
+            .as_deref()
+            .and_then(|id| id.parse().ok())
+            .unwrap_or(0),
+        user: cnb_user(comment.author.as_ref()),
+        state: "COMMENTED".to_string(),
+        body: comment.body.clone(),
+        submitted_at: Some(comment.created_at.clone()),
+    }
+}
+
+/// One row per label name; the repository-level definition comes first, so it
+/// wins over the same label seen on an issue.
+fn dedupe_labels(labels: Vec<CnbLabel>) -> Vec<CnbLabel> {
+    let mut seen = std::collections::HashSet::new();
+    labels
+        .into_iter()
+        .filter(|label| match label.name.as_deref() {
+            Some(name) if !name.is_empty() => seen.insert(name.to_string()),
+            _ => false,
+        })
+        .collect()
+}
+
+/// Map a CNB label onto the shared shape, keeping its colour and description.
+fn cnb_label_to_github(label: &CnbLabel) -> Option<GitHubLabel> {
+    let name = label.name.as_deref().filter(|name| !name.is_empty())?;
+    Some(GitHubLabel {
+        id: label
+            .id
+            .as_deref()
+            .and_then(|id| id.parse().ok())
+            .unwrap_or(0),
+        name: name.to_string(),
+        color: label
+            .color
+            .clone()
+            .filter(|color| !color.is_empty())
+            .unwrap_or_else(|| "ededed".to_string()),
+        description: label.description.clone().filter(|text| !text.is_empty()),
+    })
+}
+
+/// Map a CNB review verdict onto the shared review shape.
+///
+/// CNB sends `"approved"`; the shared importer keys off GitHub's uppercase
+/// vocabulary. An unknown state becomes a comment rather than a verdict, so a
+/// future CNB state cannot accidentally count as an approval.
+fn cnb_review_to_github(review: &CnbReview) -> GitHubReview {
+    let state = match review.state.to_ascii_lowercase().as_str() {
+        "approved" => "APPROVED",
+        "changes_requested" | "requested_changes" | "rejected" => "CHANGES_REQUESTED",
+        "dismissed" => "DISMISSED",
+        _ => "COMMENTED",
+    };
+    GitHubReview {
+        id: review
+            .id
+            .as_deref()
+            .and_then(|id| id.parse().ok())
+            .unwrap_or(0),
+        user: cnb_user(review.author.as_ref()),
+        state: state.to_string(),
+        body: review.body.clone(),
+        submitted_at: Some(review.created_at.clone()),
+    }
+}
+
 /// Map a CNB issue onto the shared issue shape.
 ///
 /// CNB has no milestone, so `milestone` stays `None`; labels are synthesised
@@ -1509,14 +1681,9 @@ fn cnb_issue_to_github(issue: &CnbIssue) -> GitHubIssue {
         body: issue.body.clone(),
         state: issue.state.clone(),
         labels: issue
-            .label_names()
-            .into_iter()
-            .map(|name| GitHubLabel {
-                id: 0,
-                name,
-                color: "ededed".to_string(),
-                description: None,
-            })
+            .label_objects()
+            .iter()
+            .filter_map(cnb_label_to_github)
             .collect(),
         milestone: None,
         user: cnb_user(issue.author.as_ref()),
@@ -1548,14 +1715,9 @@ fn cnb_pull_to_github(pull: &CnbPull) -> GitHubPR {
         head: cnb_ref(pull.head.as_ref()),
         base: cnb_ref(pull.base.as_ref()),
         labels: pull
-            .label_names()
-            .into_iter()
-            .map(|name| GitHubLabel {
-                id: 0,
-                name,
-                color: "ededed".to_string(),
-                description: None,
-            })
+            .label_objects()
+            .iter()
+            .filter_map(cnb_label_to_github)
             .collect(),
         milestone: None,
         created_at: pull.created_at.clone(),
@@ -1960,10 +2122,24 @@ pub async fn start_import(
 ) -> CoreResult<ImportTask> {
     let now = Utc::now();
     // Gitea goes through the GitHub importer, so it supports metadata too.
-    // CNB has issues and labels but no milestone concept, and its pull requests
-    // have not been verified against a live instance — so it is listed for the
-    // metadata it can actually deliver today.
+    // CNB delivers issues, labels, pull requests and their discussion comments
+    // (verified against the live API) but has no milestone concept, and this
+    // importer has no release or wiki path for it. `supports_metadata` gates the
+    // whole group, so the unsupported flags are cleared here — storing them as
+    // requested while `run_cnb_import` ignores them would report a migration
+    // that never happened. Clearing beats erroring: the dialog sends these on by
+    // default, so rejecting would fail every CNB import out of the box.
     let supports_metadata = matches!(platform.as_str(), "github" | "gitlab" | "gitea" | "cnb");
+    let (import_wiki, import_releases, import_milestones) = if platform == "cnb" {
+        if import_wiki || import_releases || import_milestones {
+            tracing::info!(
+                "CNB import: milestones, releases and wiki are not supported; the requested flags are cleared"
+            );
+        }
+        (false, false, false)
+    } else {
+        (import_wiki, import_releases, import_milestones)
+    };
     // The column has always been called `auth_token_encrypted`; until now the
     // caller's string went straight in.
     let auth_token = match auth_token {
@@ -2061,6 +2237,72 @@ mod tests {
             "http://localhost:8929/api/v4"
         );
         assert!(gitlab_api_base("no-scheme/group/project").is_err());
+    }
+
+    /// CNB's lowercase verdicts must become the shared uppercase states; an
+    /// unknown value must not be treated as an approval.
+    #[test]
+    fn cnb_review_states_map_to_the_shared_vocabulary() {
+        let review = |state: &str| CnbReview {
+            id: Some("2120215139786158080".to_string()),
+            state: state.to_string(),
+            body: Some(String::new()),
+            author: None,
+            created_at: "2026-11-10T18:00:55Z".to_string(),
+        };
+        assert_eq!(cnb_review_to_github(&review("approved")).state, "APPROVED");
+        assert_eq!(
+            cnb_review_to_github(&review("changes_requested")).state,
+            "CHANGES_REQUESTED"
+        );
+        assert_eq!(
+            cnb_review_to_github(&review("dismissed")).state,
+            "DISMISSED"
+        );
+        assert_eq!(
+            cnb_review_to_github(&review("commented")).state,
+            "COMMENTED"
+        );
+        assert_eq!(
+            cnb_review_to_github(&review("something-new")).state,
+            "COMMENTED"
+        );
+    }
+
+    /// A label defined on the repository and the same label seen on an issue
+    /// must become one row, with the colour CNB sent rather than `ededed`.
+    #[test]
+    fn cnb_label_colours_survive_and_duplicates_collapse() {
+        let from_repo = CnbLabel {
+            id: Some("1838192555308494848".to_string()),
+            name: Some("bug".to_string()),
+            description: Some(String::new()),
+            color: Some("#FCEEE8".to_string()),
+        };
+        let from_issue = CnbLabel {
+            id: Some("1838192555308494848".to_string()),
+            name: Some("bug".to_string()),
+            description: None,
+            color: Some("#FCEEE8".to_string()),
+        };
+        let bare_string = CnbLabel {
+            id: None,
+            name: Some("enhancement".to_string()),
+            description: None,
+            color: None,
+        };
+        let labels = dedupe_labels(vec![from_repo, from_issue, bare_string]);
+        assert_eq!(labels.len(), 2);
+
+        let bug = cnb_label_to_github(&labels[0]).expect("has a name");
+        assert_eq!(bug.color, "#FCEEE8");
+        // An empty description is absence, not an empty string to display.
+        assert_eq!(bug.description, None);
+
+        // A bare-string label has no colour to keep, so the shared importer's
+        // default applies.
+        let enhancement = cnb_label_to_github(&labels[1]).expect("has a name");
+        assert_eq!(enhancement.color, "ededed");
     }
 
     /// The API base comes from the repository URL the user pasted. Ports and
