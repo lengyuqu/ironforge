@@ -578,13 +578,8 @@ require an {ACTIONS_V1_CAPABILITY} runner, which is not implemented"
                 subdir,
                 git_ref,
             } => {
-                let action_dir = self.ensure_remote(&owner, &repo, &git_ref)?;
-                let dir = if subdir.is_empty() {
-                    action_dir
-                } else {
-                    action_dir.join(&subdir)
-                };
-                let source = DirectorySource::new(dir.clone());
+                let dir = self.ensure_remote(&owner, &repo, &git_ref, &subdir)?;
+                let source = DirectorySource::new(dir);
                 let manifest = read_manifest(&source, "")?;
                 Ok(ResolvedAction {
                     reference: uses.to_string(),
@@ -597,12 +592,43 @@ require an {ACTIONS_V1_CAPABILITY} runner, which is not implemented"
         }
     }
 
-    /// Return the cache directory for a remote Action, cloning it on a miss.
-    fn ensure_remote(&self, owner: &str, repo: &str, git_ref: &str) -> Result<PathBuf> {
-        let dir = self.cache_root.join(owner).join(repo).join(git_ref);
-        if manifest_file(&dir).is_some() {
-            return Ok(dir);
+    /// Return the directory containing a remote Action's manifest, cloning the
+    /// repository on a miss.
+    ///
+    /// `subdir` is part of the hit test: `owner/repo/sub@ref` keeps its manifest
+    /// in the checkout's `sub/`, so testing the repository root would re-clone
+    /// the same commit on every run.
+    fn ensure_remote(
+        &self,
+        owner: &str,
+        repo: &str,
+        git_ref: &str,
+        subdir: &str,
+    ) -> Result<PathBuf> {
+        let root = self.cache_root.join(owner).join(repo).join(git_ref);
+        let action_dir = if subdir.is_empty() {
+            root.clone()
+        } else {
+            root.join(subdir)
+        };
+        if manifest_file(&action_dir).is_some() {
+            return Ok(action_dir);
         }
+        if root.is_dir() {
+            // Already cloned at some point: the reference simply points at a
+            // directory without a manifest. Re-cloning cannot fix that.
+            return Err(fail(
+                ActionErrorKind::ManifestMissing,
+                if subdir.is_empty() {
+                    format!("action '{owner}/{repo}@{git_ref}' has no action.yml or action.yaml")
+                } else {
+                    format!(
+                        "action '{owner}/{repo}/{subdir}@{git_ref}' has no action.yml or action.yaml"
+                    )
+                },
+            ));
+        }
+
         let Some(base) = self.remote_base.as_deref() else {
             return Err(fail(
                 ActionErrorKind::Unsupported,
@@ -647,13 +673,13 @@ configured; remote actions require an {ACTIONS_V1_CAPABILITY} runner, which is n
             return Err(fail(kind, clone_error_message(kind, owner, repo, git_ref)));
         }
 
-        if let Some(parent) = dir.parent() {
+        if let Some(parent) = root.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        match std::fs::rename(&tmp, &dir) {
+        match std::fs::rename(&tmp, &root) {
             Ok(()) => {}
             // Another pipeline won the race; its copy is as good as ours.
-            Err(_) if manifest_file(&dir).is_some() => {
+            Err(_) if root.is_dir() => {
                 let _ = std::fs::remove_dir_all(&tmp);
             }
             Err(error) => {
@@ -665,13 +691,19 @@ configured; remote actions require an {ACTIONS_V1_CAPABILITY} runner, which is n
             }
         }
 
-        if manifest_file(&dir).is_none() {
+        if manifest_file(&action_dir).is_none() {
             return Err(fail(
                 ActionErrorKind::ManifestMissing,
-                format!("action '{owner}/{repo}@{git_ref}' has no action.yml or action.yaml"),
+                if subdir.is_empty() {
+                    format!("action '{owner}/{repo}@{git_ref}' has no action.yml or action.yaml")
+                } else {
+                    format!(
+                        "action '{owner}/{repo}/{subdir}@{git_ref}' has no action.yml or action.yaml"
+                    )
+                },
             ));
         }
-        Ok(dir)
+        Ok(action_dir)
     }
 }
 

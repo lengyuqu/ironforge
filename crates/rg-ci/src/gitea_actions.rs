@@ -260,11 +260,13 @@ impl GiteaWorkflow {
     /// Action cache.
     pub fn expand_composite_actions(&mut self, fetcher: &ActionFetcher) -> Result<()> {
         // Sorted so that a workflow with several bad Actions reports the same
-        // one on every run.
+        // one on every run. Expansion runs on a copy so a failure leaves the
+        // caller's workflow untouched.
         let mut job_names = self.jobs.keys().cloned().collect::<Vec<_>>();
         job_names.sort();
+        let mut jobs = self.jobs.clone();
         for job_name in job_names {
-            let Some(job) = self.jobs.get_mut(&job_name) else {
+            let Some(job) = jobs.get_mut(&job_name) else {
                 continue;
             };
             let mut expander = CompositeExpander {
@@ -273,16 +275,15 @@ impl GiteaWorkflow {
                 mappings: Vec::new(),
             };
             let mut expanded = Vec::new();
-            // Clone rather than `mem::take`: a failure must leave the caller's
-            // workflow untouched, not half-emptied.
-            for step in job.steps.clone() {
+            for step in &job.steps {
                 expander
-                    .expand(None, step, 1, &mut expanded)
+                    .expand(None, step.clone(), 1, &mut expanded)
                     .with_context(|| format!("job '{job_name}'"))?;
             }
             expander.apply_output_mappings(&mut expanded)?;
             job.steps = expanded;
         }
+        self.jobs = jobs;
         Ok(())
     }
 
@@ -916,8 +917,16 @@ impl<'a> InstantiatedAction<'a> {
             env.insert(key.clone(), substitute(value));
         }
         // GitHub exposes inputs as `INPUT_<NAME>` too; a composite that uses
-        // shell-style access keeps working.
+        // shell-style access keeps working. Only values that survive the
+        // converter's unquoted `export K=V` line are injected — anything with a
+        // space or shell metacharacter would turn the generated script into a
+        // syntax error, and quoting here would change how `$VAR` in an existing
+        // `env:` value expands. Textual `${{ inputs.x }}` substitution in `run`
+        // already covers those values.
         for (key, value) in &self.inputs {
+            if !is_safe_env_value(value) {
+                continue;
+            }
             env.entry(format!(
                 "INPUT_{}",
                 key.to_ascii_uppercase().replace('-', "_")
@@ -1001,6 +1010,14 @@ fn is_safe_output_name(name: &str) -> bool {
         && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+}
+
+/// Whether a value can be emitted as `export NAME=value` without breaking the
+/// generated script. See the `INPUT_*` injection in `InstantiatedAction`.
+fn is_safe_env_value(value: &str) -> bool {
+    value.chars().all(|c| {
+        c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '@' | '+' | ',' | '=')
+    })
 }
 
 fn environment_name(value: &YamlValue) -> Option<String> {    match value {

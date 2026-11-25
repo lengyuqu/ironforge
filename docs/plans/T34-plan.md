@@ -214,7 +214,9 @@ struct InstantiatedAction<'a> {
 - 替换发生在子 step 的 `run`、`env` 值、`with` 值里：
   `${{ inputs.x }}`、`${{inputs.x}}`、`${{ inputs['x'] }}`、`${{ inputs["x"] }}`、
   `${{ github.action_path }}`。未提供的 input 解析为空串（GitHub 语义）。
-- 同时注入 `INPUT_<NAME>` 环境变量（GitHub 也这么做），保留 shell 风格访问。
+- 同时注入 `INPUT_<NAME>` 环境变量（GitHub 也这么做），保留 shell 风格访问。注入只针对能安全放进
+  转换器现有的**未加引号** `export K=V` 行的值；含空格或 shell 元字符的值不注入（文本替换仍然生效），
+  否则生成的脚本会直接语法错误，而给 `export` 加引号会改变既有 `env:` 值里 `$VAR` 的展开语义。
 - `id`：调用者有 `id` 时，内层 id 变成 `<caller id>.<inner id>`。Gitea 的 step id 作用域是 job，
   同一个 Action 被调用两次会撞 id；命名空间化让输出映射和后续引用都能唯一解析。这是本实现
   相对 GitHub 的一处**有意偏离**，只影响展开后的内部 id，不影响 workflow 可见的
@@ -294,6 +296,8 @@ impl RunnerCapabilities {
 | 多行 composite output | 现有扁平执行器只提供 `step-<index>.outputs` 文件；heredoc 值需要结构化 step 执行（CI-202 stage B） |
 | 远程 ref 为裸 commit SHA | `git clone --branch` 只接受分支/标签。SHA 固定属于 ActionResolver 阶段（ADR §2.3.3） |
 | 递归拉取 submodule | ADR §2.3.5：默认不递归，需显式策略 |
+| 子 step 的 `working-directory` / `continue-on-error` | 现有扁平 step 模型不携带这两个字段，展开时忽略；属于结构化 step（CI-202 stage B）的范围 |
+| 多行输入值导出为 `INPUT_*` | 见 §4.1：为避免破坏现有未加引号的 `export` 行，只注入 shell 安全的值 |
 
 ## 7. 接线（需要协调者裁决）
 
@@ -338,6 +342,7 @@ match try_read_gitea_workflows(&repo, commit_sha, ref_name, event) {
 | 附加 | outputs 映射 | `composite_outputs_are_published_on_the_calling_step` |
 | 附加 | docker fail closed | `a_docker_action_is_refused_and_names_actions_v1` |
 | 附加 | 未缓存远程 + 无 base → fail closed | `an_uncached_remote_action_fails_closed_without_a_remote_source` |
+| 附加 | 已缓存远程（含 subdir）→ 不联网 | `a_cached_remote_action_resolves_without_network` |
 | 附加 | 真实 commit 树（生产读取路径） | `a_local_composite_is_expanded_from_the_workflow_commit` |
 | 附加 | 真实网络获取（默认 ignore） | `fetches_a_real_remote_action_from_the_configured_base` |
 

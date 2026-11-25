@@ -256,6 +256,10 @@ jobs:
         with:
           greeting: hello
           who: ironforge
+      - uses: ./inputs
+        with:
+          greeting: hey
+          who: iron forge
 "#,
     );
 
@@ -266,12 +270,20 @@ jobs:
         vec![
             "echo \"hi world\"".to_string(),
             "echo \"hello ironforge\"".to_string(),
+            "echo \"hey iron forge\"".to_string(),
         ]
     );
     let env = &wf.jobs["build"].steps[0].env;
     assert_eq!(env["IRONFORGE_ACTION_PATH"], "/workspace/inputs");
     assert_eq!(env["INPUT_GREETING"], "hi");
     assert_eq!(env["INPUT_WHO"], "world");
+    // A value with a space would break the converter's unquoted `export K=V`,
+    // so it is only substituted into the script, not exported.
+    assert!(
+        !wf.jobs["build"].steps[2].env.contains_key("INPUT_WHO"),
+        "unsafe env value must not be exported: {:?}",
+        wf.jobs["build"].steps[2].env
+    );
 }
 
 /// 8. Regression: checkout and cache keep their native adapters, and expansion
@@ -394,6 +406,36 @@ jobs:
     let message = format!("{error:#}");
     assert!(message.contains("not cached"), "{message}");
     assert!(message.contains("actions-v1"), "{message}");
+}
+
+/// A pre-populated cache entry resolves without any network: `owner/repo/sub@v1`
+/// is looked up under `{cache}/{owner}/{repo}/{ref}/{sub}`.
+#[test]
+fn a_cached_remote_action_resolves_without_network() {
+    let cache = tempfile::tempdir().unwrap();
+    let action_dir = cache.path().join("owner/repo/v1/sub");
+    std::fs::create_dir_all(&action_dir).unwrap();
+    std::fs::write(
+        action_dir.join("action.yml"),
+        "name: cached\nruns:\n  using: composite\n  steps:\n    - run: echo cached\n      shell: bash\n",
+    )
+    .unwrap();
+
+    let fetcher = ActionFetcher::for_directory(fixtures_root(), cache.path());
+    let mut wf = workflow(
+        r#"
+on: push
+jobs:
+  build:
+    steps:
+      - uses: owner/repo/sub@v1
+"#,
+    );
+    wf.expand_composite_actions(&fetcher).unwrap();
+    assert_eq!(
+        runs(&wf.jobs["build"].steps),
+        vec!["echo cached".to_string()]
+    );
 }
 
 /// Real network fetch, opt-in. Set `IRONFORGE_ACTION_REMOTE_BASE` to a git host,
