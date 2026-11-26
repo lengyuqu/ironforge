@@ -40,7 +40,7 @@
   <title>{t('auth.forgot.title')} · IronForge</title>
 </svelte:head>
 
-<div class="login-page">
+<div class="page-container auth-page">
   <div class="login-card surface">
     <div class="login-header">
       <BrandMark size={40} />

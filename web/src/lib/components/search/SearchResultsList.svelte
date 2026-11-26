@@ -163,21 +163,21 @@
   }
 
   .state-badge-open {
-    background: #2da44e20;
+    background: var(--green-subtle);
     color: var(--green);
-    border: 1px solid #2da44e40;
+    border: 1px solid color-mix(in srgb, var(--green) 35%, transparent);
   }
 
   .state-badge-closed {
-    background: #8250df20;
+    background: var(--purple-subtle);
     color: var(--purple);
-    border: 1px solid #8250df40;
+    border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent);
   }
 
   .state-badge-merged {
-    background: #8250df20;
+    background: var(--purple-subtle);
     color: var(--purple);
-    border: 1px solid #8250df40;
+    border: 1px solid color-mix(in srgb, var(--purple) 35%, transparent);
   }
 
   .issue-badge {
@@ -240,8 +240,8 @@
   }
 
   :global(.search-highlight) {
-    background: #fef08a;
-    color: #1a1a2e;
+    background: var(--highlight-bg);
+    color: var(--highlight-fg);
     padding: 1px 3px;
     border-radius: 2px;
     font-weight: 600;

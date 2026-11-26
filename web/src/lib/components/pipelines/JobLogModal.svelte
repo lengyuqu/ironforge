@@ -248,7 +248,7 @@
     margin: 0;
     font-size: 12px;
     line-height: 1.5;
-    background: #1a1a2e;
+    background: var(--bg-terminal);
     color: var(--text-primary);
     border-radius: 0 0 var(--radius-lg) var(--radius-lg);
     white-space: pre-wrap;

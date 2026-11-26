@@ -118,7 +118,7 @@
 </SectionCard>
 
 <style>
-  .claims { margin: 0 0 10px; padding: 8px 12px; border-left: 3px solid var(--yellow, #d29922); background: var(--bg-secondary); font-size: 12px; }
+  .claims { margin: 0 0 10px; padding: 8px 12px; border-left: 3px solid var(--yellow); background: var(--bg-secondary); font-size: 12px; }
   .muted { color: var(--text-muted); font-size: 13px; margin: 4px 0; }
   .list { list-style: none; margin: 0; padding: 0; }
   .list > li { padding: 10px 0; border-top: 1px solid var(--border-light); }
@@ -128,7 +128,7 @@
   .text { overflow-wrap: anywhere; min-width: 0; }
   .pre { white-space: pre-wrap; }
   .auth { font-size: 11px; padding: 0 6px; border: 1px dashed var(--border); border-radius: 4px; color: var(--text-muted); }
-  .stale { font-size: 12px; color: var(--yellow, #d29922); font-weight: 600; }
+  .stale { font-size: 12px; color: var(--yellow); font-weight: 600; }
   .when { margin-left: auto; font-size: 12px; color: var(--text-muted); }
   .kv { display: grid; grid-template-columns: fit-content(55%) minmax(0, 1fr); overflow-wrap: anywhere; gap: 2px 14px; margin: 6px 0 0; font-size: 13px; }
   dt { color: var(--text-secondary); }

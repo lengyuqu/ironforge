@@ -96,6 +96,7 @@
 <style>
   .pagination {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 4px;
     padding: 12px 0;

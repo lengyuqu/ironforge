@@ -177,7 +177,7 @@
 
   .inline-actions { display: flex; gap: 8px; margin-top: 16px; }
 
-  .group-sync { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-subtle, #2a2a2a); }
+  .group-sync { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
   .group-sync h4 { margin: 0 0 6px; font-size: 14px; }
   .group-sync .hint { margin: 0 0 10px; font-size: 12px; opacity: 0.75; }
 

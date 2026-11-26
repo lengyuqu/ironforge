@@ -71,7 +71,7 @@
   <title>{t('auth.reset.title')} · IronForge</title>
 </svelte:head>
 
-<div class="reset-page">
+<div class="page-container auth-page">
   <div class="reset-card surface">
     <div class="reset-header">
       <h1>{t('auth.reset.title')}</h1>

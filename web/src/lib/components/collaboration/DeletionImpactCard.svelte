@@ -94,7 +94,7 @@
 
 <style>
   .muted { color: var(--text-muted); font-size: 12px; margin: 6px 0; }
-  .preview { margin: 0 0 10px; padding: 8px 12px; border-left: 3px solid var(--yellow, #d29922); background: var(--bg-secondary); font-size: 12px; }
+  .preview { margin: 0 0 10px; padding: 8px 12px; border-left: 3px solid var(--yellow); background: var(--bg-secondary); font-size: 12px; }
   table { border-collapse: collapse; font-size: 13px; margin-bottom: 12px; min-width: 240px; }
   th { text-align: left; color: var(--text-secondary); padding: 4px 12px 4px 0; border-bottom: 1px solid var(--border); }
   td { padding: 4px 12px 4px 0; border-bottom: 1px solid var(--border-light); }

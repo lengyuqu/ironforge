@@ -25,8 +25,8 @@
     border-bottom: 1px solid;
     z-index: var(--z-banner);
   }
-  .info { background: rgba(46, 164, 255, 0.15); color: #6db7ff; border-bottom-color: color-mix(in srgb, var(--accent) 40%, transparent); }
-  .warning { background: rgba(255, 211, 88, 0.12); color: #f2cc60; border-bottom-color: color-mix(in srgb, var(--yellow) 50%, transparent); }
+  .info { background: var(--accent-subtle); color: var(--accent-hover); border-bottom-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+  .warning { background: var(--yellow-subtle); color: var(--yellow); border-bottom-color: color-mix(in srgb, var(--yellow) 50%, transparent); }
   .error { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); border-bottom-color: color-mix(in srgb, var(--red) 45%, transparent); }
   .banner-text { flex: 1; }
   .banner-close {
