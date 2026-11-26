@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { setRepoContext } from '$lib/stores/repoContext.svelte';
@@ -12,8 +12,8 @@
 
   let { children }: Props = $props();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
 
   let repoInfo = $state<RepoInfo | null>(null);
   let loadedScope = '';
@@ -21,7 +21,7 @@
 
   // Derive the active tab and whether the page uses the full-bleed file editor.
   let subpath = $derived.by(() => {
-    const segments = $page.url.pathname.split('/').filter(Boolean);
+    const segments = page.url.pathname.split('/').filter(Boolean);
     return segments.slice(2).join('/');
   });
 

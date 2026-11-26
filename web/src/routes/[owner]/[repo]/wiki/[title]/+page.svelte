@@ -4,9 +4,10 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { wiki } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { renderMarkdown } from '$lib/utils/markdown';
   import type { WikiPage, WikiPageSummary } from '$lib/types/entities';
   import WikiSidebar from '$lib/components/wiki/WikiSidebar.svelte';
@@ -14,10 +15,11 @@
   import WikiHistoryPanel from '$lib/components/wiki/WikiHistoryPanel.svelte';
 
   const t = createT();
+  const latest = createLatest();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
-  let title = $derived($page.params.title!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
+  let title = $derived(page.params.title!);
   let wikiPage = $state<WikiPage | null>(null);
   let allPages = $state<WikiPageSummary[]>([]);
   let loading = $state(true);
@@ -27,22 +29,31 @@
   let toc = $state<{ id: string; text: string; level: number }[]>([]);
   let showHistory = $state(false);
 
-  $effect(() => { loadPage(); });
+  $effect(() => { void loadPage(); });
 
   async function loadPage() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqTitle = title;
+    const isCurrent = latest.begin();
     try {
       loading = true;
+      error = '';
       const [pageData, pages] = await Promise.all([
-        wiki.get(owner, repo, title),
-        wiki.list(owner, repo),
+        wiki.get(reqOwner, reqRepo, reqTitle),
+        wiki.list(reqOwner, reqRepo),
       ]);
+      if (!isCurrent()) return;
       wikiPage = pageData;
       allPages = pages;
       renderContent(pageData.content);
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 
@@ -210,7 +221,7 @@
     font-size: 13px; font-family: var(--font-mono);
   }
   :global(.wiki-main .markdown-body pre) {
-    background: #1a1a2e; color: var(--text-primary); padding: 14px; border-radius: 6px;
+    background: var(--bg-terminal); color: var(--text-primary); padding: 14px; border-radius: 6px;
     overflow-x: auto; font-size: 13px; line-height: 1.5;
   }
   :global(.wiki-main .markdown-body pre code) { background: none; padding: 0; }

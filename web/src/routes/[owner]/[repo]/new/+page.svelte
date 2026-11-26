@@ -1,16 +1,16 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import FileEditor from '$lib/components/FileEditor.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
 
   const t = createT();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
-  let path = $derived($page.url.searchParams.get('path') || '');
-  let branch = $derived($page.url.searchParams.get('ref') || 'main');
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
+  let path = $derived(page.url.searchParams.get('path') || '');
+  let branch = $derived(page.url.searchParams.get('ref') || 'main');
 
   function encodeRepoPath(pathValue: string): string {
     return pathValue.split('/').map(encodeURIComponent).join('/');

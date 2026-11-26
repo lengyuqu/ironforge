@@ -2,7 +2,7 @@
   // Package upload page — orchestration layer: auth guard and routing.
   // The whole upload flow (format/file/metadata/publish) lives inside
   // PackageUploadForm.
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import PackageUploadForm from '$lib/components/packages/PackageUploadForm.svelte';
@@ -10,8 +10,8 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
 
   // F-003: Auth guard
   $effect(() => {

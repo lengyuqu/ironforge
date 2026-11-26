@@ -6,30 +6,41 @@
   import type { RepoCommitEntry } from '$lib/types/entities';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT, formatDate } from '$lib/i18n';
-  import { page } from '$app/stores';
+  import { createLatest } from '$lib/utils/latest';
+  import { page } from '$app/state';
   import { buildBlobHref, buildHistoryHref } from '$lib/utils/repoUrls';
 
   const t = createT();
+  const latest = createLatest();
   
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
   // Optional filters from the URL: ?ref=<branch|tag|sha>&path=<file or directory>.
   // Without a ref the server resolves HEAD (the default branch).
-  let refName = $derived($page.url.searchParams.get('ref') || '');
-  let filterPath = $derived($page.url.searchParams.get('path') || '');
+  let refName = $derived(page.url.searchParams.get('ref') || '');
+  let filterPath = $derived(page.url.searchParams.get('path') || '');
   
   let commits = $state<RepoCommitEntry[]>([]);
   let loading = $state(true);
   let error = $state('');
 
   $effect(() => {
-    if (!owner || !repo) return;
+    const reqOwner = owner;
+    const reqRepo = repo;
+    if (!reqOwner || !reqRepo) {
+      latest.invalidate();
+      return;
+    }
+    const reqRef = refName;
+    const reqPath = filterPath;
+    const isCurrent = latest.begin();
 
     loading = true;
     error = '';
-    
-    repos.log(owner, repo, refName || undefined, filterPath || undefined)
+
+    repos.log(reqOwner, reqRepo, reqRef || undefined, reqPath || undefined)
       .then(r => {
+        if (!isCurrent()) return;
         if (r && r.commits && Array.isArray(r.commits)) {
           commits = r.commits;
         } else {
@@ -37,10 +48,13 @@
         }
       })
       .catch((e) => {
+        if (!isCurrent()) return;
         error = toErrorMessage(e, t('errors.load_failed'));
       })
       .finally(() => {
-        loading = false;
+        if (isCurrent()) {
+          loading = false;
+        }
       });
   });
 </script>

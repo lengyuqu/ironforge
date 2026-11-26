@@ -3,41 +3,64 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
-  import { page } from '$app/stores';
-  import { onMount } from 'svelte';
+  import { page } from '$app/state';
   import { wiki } from '$lib/api/client.svelte';
   import type { WikiRevision } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
 
   const t = createT();
+  const historyLatest = createLatest();
+  const revisionLatest = createLatest();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
-  let title = $derived($page.params.title!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
+  let title = $derived(page.params.title!);
   let revisions = $state<WikiRevision[]>([]);
   let currentRev = $state<WikiRevision | null>(null);
   let loading = $state(true);
   let error = $state('');
   let viewingRev = $state(false);
 
-  onMount(() => loadHistory());
+  $effect(() => {
+    void loadHistory();
+  });
 
   async function loadHistory() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqTitle = title;
+    revisionLatest.invalidate();
+    closeRevision();
+    const isCurrent = historyLatest.begin();
     try {
       loading = true;
-      revisions = await wiki.listRevisions(owner, repo, title);
+      error = '';
+      const list = await wiki.listRevisions(reqOwner, reqRepo, reqTitle);
+      if (!isCurrent()) return;
+      revisions = list;
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 
   async function viewRevision(rev: WikiRevision) {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqTitle = title;
+    const isCurrent = revisionLatest.begin();
     try {
-      currentRev = await wiki.getRevision(owner, repo, title, rev.id);
+      const data = await wiki.getRevision(reqOwner, reqRepo, reqTitle, rev.id);
+      if (!isCurrent()) return;
+      currentRev = data;
       viewingRev = true;
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     }
   }

@@ -4,7 +4,7 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { boards } from '$lib/api/client.svelte';
   import type { Board, BoardFull } from '$lib/types/entities';
   import BoardSwitcher from '$lib/components/boards/BoardSwitcher.svelte';
@@ -12,11 +12,14 @@
   import ColumnCreateForm from '$lib/components/boards/ColumnCreateForm.svelte';
   import BoardColumn from '$lib/components/boards/BoardColumn.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
 
   const t = createT();
+  const boardsLatest = createLatest();
+  const boardLatest = createLatest();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
 
   let boardList = $state<Board[]>([]);
   let activeBoardId = $state<number | null>(null);
@@ -28,27 +31,45 @@
   let showAddColumn = $state(false);
 
   $effect(() => {
-    loadBoards();
+    void loadBoards();
   });
 
   async function loadBoards() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    boardLatest.invalidate();
+    const isCurrent = boardsLatest.begin();
     loading = true;
     error = '';
     try {
-      boardList = await boards.list(owner, repo);
+      const list = await boards.list(reqOwner, reqRepo);
+      if (!isCurrent()) return;
+      boardList = list;
       if (boardList.length > 0) {
-        activeBoardId = activeBoardId ?? boardList[0].id;
+        activeBoardId = boardList.some((b) => b.id === activeBoardId) ? activeBoardId : boardList[0].id;
         await loadBoard(activeBoardId!);
+        if (!isCurrent()) return;
+      } else {
+        activeBoardId = null;
+        activeBoard = null;
       }
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 
   async function loadBoard(id: number) {
-    activeBoard = await boards.get(owner, repo, id);
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const isCurrent = boardLatest.begin();
+    const board = await boards.get(reqOwner, reqRepo, id);
+    if (!isCurrent()) return;
+    activeBoard = board;
   }
 
   async function handleSelectBoard(id: number) {

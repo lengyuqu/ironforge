@@ -5,19 +5,21 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import ReleaseForm from '$lib/components/releases/ReleaseForm.svelte';
   import { releases } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { toErrorMessage } from '$lib/utils/error';
   import type { Release } from '$lib/types/entities';
 
   const t = createT();
+  const latest = createLatest();
 
-  const owner = $derived($page.params.owner!);
-  const repo = $derived($page.params.repo!);
-  const releaseId = $derived(parseInt($page.params.id!, 10));
+  const owner = $derived(page.params.owner!);
+  const repo = $derived(page.params.repo!);
+  const releaseId = $derived(parseInt(page.params.id!, 10));
 
   let loading = $state(true);
   let error = $state('');
@@ -26,22 +28,33 @@
 
   $effect(() => {
     if (!Number.isFinite(releaseId) || releaseId <= 0) {
+      latest.invalidate();
       notFound = true;
       loading = false;
       return;
     }
-    loadRelease();
+    notFound = false;
+    void loadRelease();
   });
 
   async function loadRelease() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqReleaseId = releaseId;
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     try {
-      release = await releases.get(owner, repo, releaseId);
+      const data = await releases.get(reqOwner, reqRepo, reqReleaseId);
+      if (!isCurrent()) return;
+      release = data;
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed', 'Load failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

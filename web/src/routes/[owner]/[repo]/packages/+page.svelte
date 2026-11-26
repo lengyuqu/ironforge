@@ -2,16 +2,18 @@
   import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { packages, type PackageSummaryResponse } from '$lib/api/client.svelte';
   import PackageList from '$lib/components/packages/PackageList.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { PACKAGE_FORMATS, packageFormatOptionLabel } from '$lib/packageFormats';
 
   const t = createT();
+  const latest = createLatest();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
   let formatFilter = $state<string>('');
   let searchQuery = $state<string>('');
   let packageList = $state<PackageSummaryResponse[]>([]);
@@ -21,27 +23,37 @@
   let totalPages = $state(1);
 
   $effect(() => {
-    loadPackages();
+    void loadPackages();
   });
 
   async function loadPackages() {
+    const reqOwner = owner!;
+    const reqRepo = repo!;
+    const reqFormat = formatFilter || undefined;
+    const reqPage = currentPage;
+    const reqSearch = searchQuery;
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     try {
       const res = await packages.list(
-        owner!,
-        repo!,
-        formatFilter || undefined,
-        currentPage,
+        reqOwner,
+        reqRepo,
+        reqFormat,
+        reqPage,
         20,
-        searchQuery,
+        reqSearch,
       );
+      if (!isCurrent()) return;
       packageList = res.data;
       totalPages = res.pagination.total_pages;
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

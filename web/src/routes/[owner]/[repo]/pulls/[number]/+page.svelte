@@ -4,7 +4,7 @@
   //   PrReviewersBox / PrMergeBox / PrTimeline / PrThreads / PrDiffView / PrReviewForm
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import AttachmentPanel from '$lib/components/AttachmentPanel.svelte';
   import PrReviewersBox from '$lib/components/pulls/PrReviewersBox.svelte';
   import PrMilestoneBox from '$lib/components/pulls/PrMilestoneBox.svelte';
@@ -18,15 +18,17 @@
   import PrHeader from '$lib/components/pulls/PrHeader.svelte';
   import type { MergeQueueEntry, PrDiff } from '$lib/api/pulls';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import type { PrTimelineEvent, PrReview, PullRequest, ReviewComment } from '$lib/types/entities';
 
   const t = createT();
+  const latest = createLatest();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
-  let number = $derived(parseInt($page.params.number!));
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
+  let number = $derived(parseInt(page.params.number!));
   let pr = $state<PullRequest | null>(null);
   let diffData = $state<PrDiff | null>(null);
   let reviewList = $state<PrReview[]>([]);
@@ -39,20 +41,26 @@
   let updatingDraft = $state(false);
 
   $effect(() => {
-    loadPR();
+    void loadPR();
   });
 
   async function loadPR() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqNumber = number;
+    const isCurrent = latest.begin();
     try {
       loading = true;
+      error = '';
       const [prData, diffResult, reviewResult, commentsResult, timelineResult, queueResult] = await Promise.all([
-        pulls.get(owner, repo, number),
-        pulls.diff(owner, repo, number).catch(() => null),
-        reviews.list(owner, repo, number).catch(() => []),
-        reviews.comments(owner, repo, number).catch(() => []),
-        reviews.timeline(owner, repo, number).catch(() => []),
-        pulls.mergeQueue(owner, repo).catch(() => []),
+        pulls.get(reqOwner, reqRepo, reqNumber),
+        pulls.diff(reqOwner, reqRepo, reqNumber).catch(() => null),
+        reviews.list(reqOwner, reqRepo, reqNumber).catch(() => []),
+        reviews.comments(reqOwner, reqRepo, reqNumber).catch(() => []),
+        reviews.timeline(reqOwner, reqRepo, reqNumber).catch(() => []),
+        pulls.mergeQueue(reqOwner, reqRepo).catch(() => []),
       ]);
+      if (!isCurrent()) return;
       pr = prData;
       diffData = diffResult;
       reviewList = reviewResult || [];
@@ -60,9 +68,12 @@
       timeline = timelineResult || [];
       mergeQueue = queueResult || [];
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e);
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

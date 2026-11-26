@@ -5,9 +5,10 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { repos } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { toErrorMessage } from '$lib/utils/error';
   import { buildTreeHref } from '$lib/utils/repoUrls';
   import type { BlobContent } from '$lib/types/entities';
@@ -18,13 +19,14 @@
   import BlobBlameView from '$lib/components/repo/BlobBlameView.svelte';
 
   const t = createT();
+  const latest = createLatest();
   const MAX_EDITABLE_SIZE = 1024 * 1024;
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
-  let filePath = $derived($page.params.path!);
-  let queryRef = $derived($page.url.searchParams.get('ref') || '');
-  let blameMode = $derived($page.url.searchParams.get('blame') === '1');
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
+  let filePath = $derived(page.params.path!);
+  let queryRef = $derived(page.url.searchParams.get('ref') || '');
+  let blameMode = $derived(page.url.searchParams.get('blame') === '1');
 
   let blobData = $state<BlobContent | null>(null);
   let ref = $state('');
@@ -48,26 +50,35 @@
       loadKey = nextKey;
       viewMode = 'rendered';
       deleteOpen = false;
-      loadBlob(nextRef);
+      void loadBlob(nextRef);
     }
   });
 
   async function loadBlob(activeRef: string) {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqPath = filePath;
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     try {
-      blobData = await repos.blob(owner, repo, filePath, activeRef || undefined);
+      const data = await repos.blob(reqOwner, reqRepo, reqPath, activeRef || undefined);
+      if (!isCurrent()) return;
+      blobData = data;
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed', 'Load failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 
   // Blame lives in the URL so the view is shareable; toggling it must not
   // reload the blob, so it stays out of loadKey.
   function toggleBlame() {
-    const url = new URL($page.url);
+    const url = new URL(page.url);
     if (blameMode) url.searchParams.delete('blame');
     else url.searchParams.set('blame', '1');
     goto(`${url.pathname}${url.search}`, { replaceState: true, noScroll: true, keepFocus: true });

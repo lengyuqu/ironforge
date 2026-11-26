@@ -4,11 +4,12 @@
   // the browser components. README detection probes common filenames.
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { repos } from '$lib/api/client.svelte';
   import { getRepoContext } from '$lib/stores/repoContext.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { toErrorMessage } from '$lib/utils/error';
   import { buildRepoQuery } from '$lib/utils/repoUrls';
   import type { Branch, RepoCommitEntry, RepoInfo, RepoTreeEntry } from '$lib/types/entities';
@@ -20,13 +21,15 @@
 
   const t = createT();
   const repoCtx = getRepoContext();
+  const dataLatest = createLatest();
+  const readmeLatest = createLatest();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
   let ref = $state('');
   let path = $state('');
-  let queryRef = $derived($page.url.searchParams.get('ref') || '');
-  let queryPath = $derived($page.url.searchParams.get('path') || '');
+  let queryRef = $derived(page.url.searchParams.get('ref') || '');
+  let queryPath = $derived(page.url.searchParams.get('path') || '');
   let entries = $state<RepoTreeEntry[]>([]);
   let branches = $state<Branch[]>([]);
   let commits = $state<RepoCommitEntry[]>([]);
@@ -51,20 +54,27 @@
       ref = queryRef;
       path = queryPath;
     }
-    loadData();
+    void loadData();
   });
 
   async function loadData() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqRef = ref;
+    const reqPath = path;
+    readmeLatest.invalidate();
+    const isCurrent = dataLatest.begin();
     loading = true;
     error = '';
     readmeContent = null;
     try {
       const [treeData, branchData, logData, repoData] = await Promise.all([
-        repos.tree(owner, repo, ref || undefined, path || undefined),
-        repos.branches(owner, repo),
-        repos.log(owner, repo, ref || undefined, path || undefined),
-        repos.get(owner, repo),
+        repos.tree(reqOwner, reqRepo, reqRef || undefined, reqPath || undefined),
+        repos.branches(reqOwner, reqRepo),
+        repos.log(reqOwner, reqRepo, reqRef || undefined, reqPath || undefined),
+        repos.get(reqOwner, reqRepo),
       ]);
+      if (!isCurrent()) return;
       entries = treeData.entries || [];
       branches = branchData || [];
       commits = (logData.commits || []).slice(0, 5);
@@ -72,25 +82,34 @@
       repoCtx?.setRepoInfo(repoData);
 
       // Load README when at root
-      if (!path) {
-        loadReadme();
+      if (!reqPath) {
+        void loadReadme();
       }
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed', 'Load failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 
   async function loadReadme() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqRef = ref;
+    const reqEntries = entries;
+    const isCurrent = readmeLatest.begin();
     readmeLoading = true;
     try {
       // Try common README filenames
       const readmeNames = ['README.md', 'README.markdown', 'README', 'readme.md', 'Readme.md'];
       for (const name of readmeNames) {
-        const entry = entries.find((e) => e.name === name);
+        const entry = reqEntries.find((e) => e.name === name);
         if (entry) {
-          const data = await repos.blob(owner, repo, name, ref || undefined);
+          const data = await repos.blob(reqOwner, reqRepo, name, reqRef || undefined);
+          if (!isCurrent()) return;
           readmeContent = data.content;
           break;
         }
@@ -98,7 +117,9 @@
     } catch {
       // No README found — that's OK
     } finally {
-      readmeLoading = false;
+      if (isCurrent()) {
+        readmeLoading = false;
+      }
     }
   }
 

@@ -1,10 +1,11 @@
 <script lang="ts">
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import AttachmentPanel from '$lib/components/AttachmentPanel.svelte';
   import { issues, type ReactionSummary } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { toErrorMessage } from '$lib/utils/error';
   import type { Issue, IssueComment } from '$lib/types/entities';
   import CommentCard from '$lib/components/issues/CommentCard.svelte';
@@ -14,10 +15,11 @@
   import IssueCommentForm from '$lib/components/issues/IssueCommentForm.svelte';
 
   const t = createT();
+  const latest = createLatest();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
-  let number = $derived(Number($page.params.number));
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
+  let number = $derived(Number(page.params.number));
 
   let issue = $state<Issue | null>(null);
   let commentList = $state<IssueComment[]>([]);
@@ -27,17 +29,23 @@
   let commentReactions = $state<Record<number, ReactionSummary[]>>({});
 
   $effect(() => {
-    loadIssue();
+    void loadIssue();
   });
 
   async function loadIssue() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqNumber = number;
+    const isCurrent = latest.begin();
     try {
       loading = true;
+      error = '';
       const [issueData, commentsData, reactionsData] = await Promise.all([
-        issues.get(owner, repo, number),
-        issues.comments(owner, repo, number),
-        issues.listReactions(owner, repo, number).catch(() => [] as ReactionSummary[]),
+        issues.get(reqOwner, reqRepo, reqNumber),
+        issues.comments(reqOwner, reqRepo, reqNumber),
+        issues.listReactions(reqOwner, reqRepo, reqNumber).catch(() => [] as ReactionSummary[]),
       ]);
+      if (!isCurrent()) return;
       issue = issueData;
       commentList = commentsData || [];
       issueReactions = reactionsData || [];
@@ -46,16 +54,20 @@
       const reactionEntries = await Promise.all(
         commentIds.map(async (id) => {
           const rows = await issues
-            .listCommentReactions(owner, repo, id)
+            .listCommentReactions(reqOwner, reqRepo, id)
             .catch(() => [] as ReactionSummary[]);
           return [id, rows || []] as const;
         }),
       );
+      if (!isCurrent()) return;
       commentReactions = Object.fromEntries(reactionEntries);
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed', 'Load failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

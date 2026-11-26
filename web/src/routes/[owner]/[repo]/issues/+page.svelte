@@ -1,29 +1,40 @@
 <script lang="ts">
   import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-  import { page } from '$app/stores';
+  import Pagination from '$lib/components/Pagination.svelte';
+  import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import { issues, type IssueConfig, type IssueTemplate } from '$lib/api/client.svelte';
   import type { Issue } from '$lib/types/entities';
-import IssueFilterTabs from '$lib/components/issues/IssueFilterTabs.svelte';
-import IssueList from '$lib/components/issues/IssueList.svelte';
-import IssueTemplateChooser from '$lib/components/issues/IssueTemplateChooser.svelte';
-import IssueCreateForm from '$lib/components/issues/IssueCreateForm.svelte';
-import { milestones } from '$lib/api/client.svelte';
-import type { Milestone } from '$lib/types/entities';
-import { createT } from '$lib/i18n';
+  import IssueFilterTabs from '$lib/components/issues/IssueFilterTabs.svelte';
+  import IssueList from '$lib/components/issues/IssueList.svelte';
+  import IssueTemplateChooser from '$lib/components/issues/IssueTemplateChooser.svelte';
+  import IssueCreateForm from '$lib/components/issues/IssueCreateForm.svelte';
+  import { milestones } from '$lib/api/client.svelte';
+  import type { Milestone } from '$lib/types/entities';
+  import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
+  import { buildQueryHref, readEnumParam, readPageParam } from '$lib/utils/urlQuery';
 
   const t = createT();
+  const PER_PAGE = 20;
+  const ISSUE_STATES = ['open', 'closed', 'all'] as const;
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
 
   let issueList = $state<Issue[]>([]);
   let loading = $state(true);
   let error = $state('');
-  let filterState = $state('open');
+  let filterState = $derived(readEnumParam(page.url, 'state', 'open', ISSUE_STATES));
   // Milestone filter (M2-2 A1): '' = no constraint, 'none' = no milestone, else String(id).
-  let milestoneFilter = $state('');
+  let milestoneFilter = $derived(page.url.searchParams.get('milestone') ?? '');
+  let currentPage = $derived(readPageParam(page.url));
+  let total = $state(0);
   let milestoneList = $state<Milestone[]>([]);
+
+  const issuesLatest = createLatest();
+  const milestonesLatest = createLatest();
 
   let showCreate = $state(false);
   let showChooser = $state(false);
@@ -40,31 +51,86 @@ import { createT } from '$lib/i18n';
   let draftKey = $state(0);
 
   $effect(() => {
-    loadIssues();
-    loadMilestones();
+    void loadIssues();
+  });
+
+  $effect(() => {
+    void loadMilestones();
   });
 
   async function loadIssues() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqState = filterState;
+    const reqMilestone = milestoneFilter;
+    const reqPage = currentPage;
+    const isCurrent = issuesLatest.begin();
     try {
       loading = true;
       error = '';
-      issueList = (
-        await issues.list(owner, repo, filterState, undefined, undefined, undefined, undefined, milestoneFilter || undefined)
-      ).data;
+      const res = await issues.list(
+        reqOwner,
+        reqRepo,
+        reqState,
+        reqPage,
+        PER_PAGE,
+        undefined,
+        undefined,
+        reqMilestone || undefined,
+      );
+      if (!isCurrent()) return;
+      issueList = res.data;
+      total = res.pagination?.total ?? res.data.length;
+      if (reqPage > 1 && res.data.length === 0 && total > 0) {
+        void goto(buildQueryHref(page.url, { page: null }), {
+          replaceState: true,
+          keepFocus: true,
+          noScroll: true,
+        });
+      }
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 
   async function loadMilestones() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const isCurrent = milestonesLatest.begin();
     try {
-      milestoneList = await milestones.list(owner, repo);
+      const list = await milestones.list(reqOwner, reqRepo);
+      if (!isCurrent()) return;
+      milestoneList = list;
     } catch {
+      if (!isCurrent()) return;
       // Milestone filter is progressive enhancement — hide the row on failure.
       milestoneList = [];
     }
+  }
+
+  function changeFilter(next: string) {
+    void goto(buildQueryHref(page.url, { state: next === 'open' ? null : next, page: null }), {
+      keepFocus: true,
+      noScroll: true,
+    });
+  }
+
+  function changeMilestone(next: string) {
+    void goto(buildQueryHref(page.url, { milestone: next || null, page: null }), {
+      keepFocus: true,
+      noScroll: true,
+    });
+  }
+
+  function changePage(nextPage: number) {
+    void goto(buildQueryHref(page.url, { page: nextPage === 1 ? null : nextPage }), {
+      keepFocus: true,
+    });
   }
 
   async function openCreate() {
@@ -146,16 +212,10 @@ import { createT } from '$lib/i18n';
 <div class="gh-toolbar issues-toolbar">
   <IssueFilterTabs
     filter={filterState}
-    onFilterChange={(next) => {
-      filterState = next;
-      loadIssues();
-    }}
+    onFilterChange={changeFilter}
     milestones={milestoneList}
     milestoneFilter={milestoneFilter}
-    onMilestoneChange={(next) => {
-      milestoneFilter = next;
-      loadIssues();
-    }}
+    onMilestoneChange={changeMilestone}
   />
   <button class="btn-primary" onclick={openCreate}>
     {t('issues.new')}
@@ -192,6 +252,8 @@ import { createT } from '$lib/i18n';
 {/if}
 
 <IssueList {owner} {repo} issues={issueList} {loading} filter={filterState} />
+
+<Pagination {total} page={currentPage} perPage={PER_PAGE} onPageChange={changePage} />
 
 <style>
   .issues-toolbar {

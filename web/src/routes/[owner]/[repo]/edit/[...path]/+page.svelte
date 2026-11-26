@@ -1,14 +1,15 @@
 <script lang="ts">
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
-  import { onMount } from 'svelte';
+  import { page } from '$app/state';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import FileEditor from '$lib/components/FileEditor.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
 
   const t = createT();
+  const latest = createLatest();
   const MAX_EDITABLE_SIZE = 1024 * 1024;
 
   type BlobData = {
@@ -20,10 +21,10 @@
     is_binary?: boolean;
   };
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
-  let path = $derived($page.params.path!);
-  let branch = $derived($page.url.searchParams.get('ref') || 'main');
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
+  let path = $derived(page.params.path!);
+  let branch = $derived(page.url.searchParams.get('ref') || 'main');
 
   let blobData = $state<BlobData | null>(null);
   let loading = $state(true);
@@ -59,15 +60,32 @@
         : '',
   );
 
-  onMount(async () => {
+  $effect(() => {
+    void loadBlob();
+  });
+
+  async function loadBlob() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqPath = path;
+    const reqBranch = branch;
+    const isCurrent = latest.begin();
+    loading = true;
+    error = '';
+    blobData = null;
     try {
-      blobData = await repos.blob(owner, repo, path, branch);
+      const data = await repos.blob(reqOwner, reqRepo, reqPath, reqBranch);
+      if (!isCurrent()) return;
+      blobData = data;
     } catch (err) {
+      if (!isCurrent()) return;
       error = err instanceof Error ? err.message : String(err);
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
-  });
+  }
 
   async function saveFile(payload: { path: string; content: string; message: string; branch: string; sha?: string }) {
     await repos.saveContent(owner, repo, path, {

@@ -3,16 +3,18 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { wiki } from '$lib/api/client.svelte';
   import type { WikiPageSummary } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
 
   const t = createT();
+  const latest = createLatest();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
   let pageList = $state<WikiPageSummary[]>([]);
   let loading = $state(true);
   let error = $state('');
@@ -20,16 +22,25 @@
   let newTitle = $state('');
   let newContent = $state('');
 
-  $effect(() => { loadPages(); });
+  $effect(() => { void loadPages(); });
 
   async function loadPages() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const isCurrent = latest.begin();
     try {
       loading = true;
-      pageList = await wiki.list(owner, repo);
+      error = '';
+      const list = await wiki.list(reqOwner, reqRepo);
+      if (!isCurrent()) return;
+      pageList = list;
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

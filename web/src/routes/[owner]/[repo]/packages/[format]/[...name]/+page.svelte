@@ -3,7 +3,7 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import {
     packages,
     type PackageDetailResponse,
@@ -11,14 +11,16 @@
   } from '$lib/api/client.svelte';
   import PackageVersions from '$lib/components/packages/PackageVersions.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { packageFormatLabel } from '$lib/packageFormats';
 
   const t = createT();
+  const latest = createLatest();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
-  let format = $derived($page.params.format!);
-  let name = $derived($page.params.name!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
+  let format = $derived(page.params.format!);
+  let name = $derived(page.params.name!);
 
   let packageInfo = $state<PackageDetailResponse | null>(null);
   let versions = $state<PackageVersionResponse[]>([]);
@@ -26,23 +28,32 @@
   let error = $state('');
 
   $effect(() => {
-    loadPackage();
+    void loadPackage();
   });
 
   async function loadPackage() {
+    const reqOwner = owner!;
+    const reqRepo = repo!;
+    const reqFormat = format!;
+    const reqName = name!;
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     try {
       const [info, versionRes] = await Promise.all([
-        packages.get(owner!, repo!, format!, name!),
-        packages.getVersions(owner!, repo!, format!, name!),
+        packages.get(reqOwner, reqRepo, reqFormat, reqName),
+        packages.getVersions(reqOwner, reqRepo, reqFormat, reqName),
       ]);
+      if (!isCurrent()) return;
       packageInfo = info;
       versions = versionRes.versions || [];
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 </script>

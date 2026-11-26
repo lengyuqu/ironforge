@@ -3,19 +3,21 @@
   // status list, commit info (via log lookup) and GPG signature.
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { repos } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { toErrorMessage } from '$lib/utils/error';
   import type { CombinedCommitStatus, CommitStatus, RepoCommitEntry } from '$lib/types/entities';
   import CommitInfoCard from '$lib/components/repo/CommitInfoCard.svelte';
   import StatusChecksPanel from '$lib/components/repo/StatusChecksPanel.svelte';
 
   const t = createT();
+  const latest = createLatest();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
-  let sha = $derived($page.params.sha!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
+  let sha = $derived(page.params.sha!);
 
   let loading = $state(true);
   let error = $state('');
@@ -26,29 +28,41 @@
 
   $effect(() => {
     if (owner && repo && sha) {
-      loadData();
+      void loadData();
+    } else {
+      latest.invalidate();
     }
   });
 
   async function loadData() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqSha = sha;
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
+    commitInfo = null;
+    combinedStatus = null;
+    statuses = [];
+    gpgSignature = null;
 
     try {
       const [combinedResult, statusesResult] = await Promise.all([
-        repos.getCombinedStatus(owner, repo, sha),
-        repos.listCommitStatuses(owner, repo, sha)
+        repos.getCombinedStatus(reqOwner, reqRepo, reqSha),
+        repos.listCommitStatuses(reqOwner, reqRepo, reqSha)
       ]);
+      if (!isCurrent()) return;
 
       combinedStatus = combinedResult;
       statuses = statusesResult;
 
       // Try to get commit info from log
       try {
-        const logResult = await repos.log(owner, repo, sha);
+        const logResult = await repos.log(reqOwner, reqRepo, reqSha);
+        if (!isCurrent()) return;
         if (logResult.commits && logResult.commits.length > 0) {
           const commit = logResult.commits.find(
-            (c) => c.sha.startsWith(sha) || sha.startsWith(c.sha)
+            (c) => c.sha.startsWith(reqSha) || reqSha.startsWith(c.sha)
           );
           if (commit) {
             commitInfo = commit;
@@ -58,31 +72,38 @@
           }
         }
       } catch (logErr) {
+        if (!isCurrent()) return;
         // Log endpoint might not support querying by sha, that's okay
         console.warn('Could not fetch commit info from log:', logErr);
       }
 
       // Fetch GPG signature
       try {
-        gpgSignature = await repos.commitSignature(owner, repo, sha);
+        const sig = await repos.commitSignature(reqOwner, reqRepo, reqSha);
+        if (!isCurrent()) return;
+        gpgSignature = sig;
       } catch {
+        if (!isCurrent()) return;
         /* GPG not available */
       }
 
       // If we couldn't get commit info, create a minimal version from sha
       if (!commitInfo) {
         commitInfo = {
-          sha,
-          message: sha,
+          sha: reqSha,
+          message: reqSha,
           author: 'Unknown',
           date: new Date().toISOString()
         };
       }
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed', 'Load failed'));
       console.error('Error loading commit status:', e);
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 </script>

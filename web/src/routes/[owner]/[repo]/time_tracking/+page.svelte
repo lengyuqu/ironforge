@@ -1,18 +1,22 @@
 <script lang="ts">
   import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { issues, timeTracking } from '$lib/api/client.svelte';
   import type { Issue, TimeEntry } from '$lib/types/entities';
   import IssueSelector from '$lib/components/issues/IssueSelector.svelte';
   import TimeEntryForm from '$lib/components/issues/TimeEntryForm.svelte';
   import TimeEntryList from '$lib/components/issues/TimeEntryList.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
 
   const t = createT();
+  const issuesLatest = createLatest();
+  const entriesLatest = createLatest();
+  const totalLatest = createLatest();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
 
   // Issue selector
   let issueList = $state<Issue[]>([]);
@@ -28,18 +32,27 @@
 
   let error = $state('');
 
-  $effect(() => { loadIssues(); });
+  $effect(() => { void loadIssues(); });
 
   async function loadIssues() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    entriesLatest.invalidate();
+    totalLatest.invalidate();
+    const isCurrent = issuesLatest.begin();
     issueLoading = true;
     error = '';
     try {
-      const res = await issues.list(owner, repo, 'open', 1, 100);
+      const res = await issues.list(reqOwner, reqRepo, 'open', 1, 100);
+      if (!isCurrent()) return;
       issueList = res.data || [];
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      issueLoading = false;
+      if (isCurrent()) {
+        issueLoading = false;
+      }
     }
   }
 
@@ -50,25 +63,40 @@
   }
 
   async function loadEntries() {
-    if (!selectedIssue) return;
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqIssue = selectedIssue;
+    const reqPage = currentPage;
+    if (!reqIssue) return;
+    const isCurrent = entriesLatest.begin();
     entriesLoading = true;
     try {
-      const res = await timeTracking.list(owner, repo, selectedIssue.number, currentPage, 20);
+      const res = await timeTracking.list(reqOwner, reqRepo, reqIssue.number, reqPage, 20);
+      if (!isCurrent()) return;
       entries = res.data || [];
       totalPages = res.pagination?.total_pages ?? 1;
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      entriesLoading = false;
+      if (isCurrent()) {
+        entriesLoading = false;
+      }
     }
   }
 
   async function loadTotal() {
-    if (!selectedIssue) return;
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const reqIssue = selectedIssue;
+    if (!reqIssue) return;
+    const isCurrent = totalLatest.begin();
     try {
-      const res = await timeTracking.total(owner, repo, selectedIssue.number);
+      const res = await timeTracking.total(reqOwner, reqRepo, reqIssue.number);
+      if (!isCurrent()) return;
       totalFormatted = res.total_formatted;
     } catch {
+      if (!isCurrent()) return;
       totalFormatted = '';
     }
   }

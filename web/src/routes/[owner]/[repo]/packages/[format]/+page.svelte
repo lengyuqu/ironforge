@@ -3,16 +3,18 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { packages, type PackageSummaryResponse } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { packageFormatLabel } from '$lib/packageFormats';
 
   const t = createT();
+  const latest = createLatest();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
-  let format = $derived($page.params.format!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
+  let format = $derived(page.params.format!);
 
   let packageList = $state<PackageSummaryResponse[]>([]);
   let loading = $state(true);
@@ -21,20 +23,28 @@
   let totalPages = $state(1);
 
   $effect(() => {
-    loadPackages();
+    void loadPackages();
   });
 
   async function loadPackages() {
+    const reqOwner = owner!;
+    const reqRepo = repo!;
+    const reqFormat = format!;
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     try {
-      const res = await packages.getFormat(owner!, repo!, format!);
+      const res = await packages.getFormat(reqOwner, reqRepo, reqFormat);
+      if (!isCurrent()) return;
       packageList = res.packages || [];
       totalPages = 1;
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 
