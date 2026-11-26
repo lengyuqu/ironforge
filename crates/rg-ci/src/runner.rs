@@ -1034,26 +1034,28 @@ fn cache_key_hash(key: &str) -> String {
 /// commits use) fills in when nothing is configured. A configured identity is
 /// left alone.
 fn open_repo(repo_path: &std::path::Path) -> Result<gix::Repository> {
-    open_repo_with(repo_path, gix::open::Options::default())
+    open_repo_with(repo_path, gix::open::Options::default)
 }
 
 /// [`open_repo`] on top of explicit base options (tests pass
 /// `Options::isolated()` to ignore the machine's own git configuration).
 fn open_repo_with(
     repo_path: &std::path::Path,
-    base: gix::open::Options,
+    base: impl Fn() -> gix::open::Options,
 ) -> Result<gix::Repository> {
+    // gix 0.91 dropped `Clone` for `open::Options`, so the caller hands over the
+    // constructor and each attempt builds its own instead of cloning.
     let open = |options: gix::open::Options| {
         gix::open_opts(repo_path, options)
             .with_context(|| format!("open repository at {}", repo_path.display()))
     };
-    let repo = open(base.clone())?;
+    let repo = open(base())?;
     if repo.committer().is_some() {
         return Ok(repo);
     }
     // Overrides given at open time are inherited by the worktree repository
     // `add_worktree` opens, which an in-memory config change would not be.
-    open(base.config_overrides(["user.name=IronForge", "user.email=noreply@ironforge.local"]))
+    open(base().config_overrides(["user.name=IronForge", "user.email=noreply@ironforge.local"]))
 }
 
 /// Return the private Git directories of linked worktrees checked out at `target`.
@@ -1884,7 +1886,7 @@ mod tests {
         let isolated = gix::open::Options::isolated;
 
         // No identity anywhere: IronForge's own is filled in.
-        let repo = open_repo_with(&bare, isolated()).unwrap();
+        let repo = open_repo_with(&bare, isolated).unwrap();
         let committer = repo.committer().expect("a fallback committer").unwrap();
         assert_eq!(committer.name, "IronForge");
         assert_eq!(committer.email, "noreply@ironforge.local");
@@ -1894,7 +1896,7 @@ mod tests {
         let mut text = std::fs::read_to_string(&config).unwrap();
         text.push_str("[user]\n\tname = Real Person\n\temail = real@example.com\n");
         std::fs::write(&config, text).unwrap();
-        let repo = open_repo_with(&bare, isolated()).unwrap();
+        let repo = open_repo_with(&bare, isolated).unwrap();
         let committer = repo.committer().unwrap().unwrap();
         assert_eq!(committer.name, "Real Person");
         assert_eq!(committer.email, "real@example.com");

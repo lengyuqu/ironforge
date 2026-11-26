@@ -454,7 +454,7 @@ async fn resolve_oidc_endpoints(config: &SsoProviderConfig) -> CoreResult<OidcEn
 /// Generate PKCE S256 code challenge from code_verifier.
 fn pkce_s256_challenge(code_verifier: &str) -> String {
     let digest = Sha256::digest(code_verifier.as_bytes());
-    URL_SAFE_NO_PAD.encode(digest.as_slice())
+    URL_SAFE_NO_PAD.encode(&digest[..])
 }
 
 // ── URL helpers ──────────────────────────────────────────────────
