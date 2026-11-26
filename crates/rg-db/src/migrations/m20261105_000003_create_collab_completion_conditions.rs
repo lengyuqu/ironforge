@@ -1,7 +1,7 @@
 //! Task completion conditions (O04): versioned definitions, explicit manual
 //! confirmations and immutable evaluation snapshots.
 //!
-//! Design: `ironforge-docs/architecture/agent-collaboration-operability-requirements-2026-11.md` §5.
+//! Design: `docs/design/agent-collaboration.md` §8.
 //! Only new tables. A condition set is never edited: every change inserts the
 //! next `version` of the task's set, so history stays traceable and a lost race
 //! is a unique-key violation on `(task_id, version)`. CollabCompletionSnapshots store the

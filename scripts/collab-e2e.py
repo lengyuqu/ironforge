@@ -2,7 +2,7 @@
 """T12: two different clients, one account, one real Git repository.
 
 Starts the real `ironforge` server on a throw-away SQLite database and drives
-the collaboration flow of ironforge-docs/architecture/multi-agent-collaboration-design-2026-11.md
+the collaboration flow of docs/design/agent-collaboration.md
 through two unrelated clients:
 
   * client A: the real `ironforge-mcp` binary over stdio (what an MCP harness

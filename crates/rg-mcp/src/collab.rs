@@ -1,7 +1,7 @@
 //! MCP tools for same-account multi-agent collaboration (`collab_*`).
 //!
 //! The REST API is authoritative; these tools only adapt it. Design:
-//! `ironforge-docs/architecture/multi-agent-collaboration-design-2026-11.md` §5.
+//! `docs/design/agent-collaboration.md` §10.
 //!
 //! Secret handling: the session secret is returned once by the server when a
 //! session is registered. It is kept in process memory (and, only if the host

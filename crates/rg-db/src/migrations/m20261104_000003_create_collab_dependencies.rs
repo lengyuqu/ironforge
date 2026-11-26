@@ -1,7 +1,7 @@
 //! Collaboration P1 task dependencies: the per-repository graph version row and
 //! the dependency edges.
 //!
-//! Design: `ironforge-docs/architecture/agent-collaboration-p1-design-2026-11.md` §2–§3.
+//! Design: `docs/design/agent-collaboration.md` §6.
 //! Only new tables; earlier collaboration migrations are not touched.
 //!
 //! `collab_dependency_graphs` holds one row per repository whose `version` is the

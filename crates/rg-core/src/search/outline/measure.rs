@@ -3,7 +3,7 @@
 //! Test-only and `#[ignore]`d on purpose: it walks a checkout, runs
 //! [`extract_outline`] over every supported file and counts identifier
 //! occurrences with a tree-sitter query. It prints the numbers quoted in
-//! `ironforge-docs/architecture/symbol-graph-design-2026-11.md`; nothing here
+//! `docs/design/code-intelligence.md`; nothing here
 //! ships in a release build and no production code is touched.
 //!
 //! Reproduce:

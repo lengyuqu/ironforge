@@ -18,7 +18,7 @@
 //!
 //! The widening is permanent on the token: there is no "narrow it back" API
 //! today, so removing the power means revoking or replacing the token. That is a
-//! property of this definition, recorded in `docs/plans/T20-plan.md`, not an
+//! property of this definition, recorded in `docs/design/authorization.md`, not an
 //! oversight.
 //!
 //! ## What the approval is bound to
@@ -31,7 +31,7 @@
 //! the semantic ladder accepts — `repo` instead of the approved `repo:write`
 //! widens more than anyone approved. There is no `parameters` column to bind it
 //! to (and adding one means a migration), but the subject is hashed, which makes
-//! this encoding equivalent (see `docs/plans/T21-plan.md`).
+//! this encoding equivalent (see `docs/design/authorization.md`).
 //!
 //! The format is canonical: a positive decimal token id without leading zeros,
 //! then `:`, then scopes in [`pat_scope::normalize_scopes`] order. Both the

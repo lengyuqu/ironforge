@@ -11,7 +11,7 @@ IronForge 是一个**为 Agent 编程而设计的 Git 托管平台**。它自带
 
 > **当写代码的主力变成多个并发、会重试、按 token 计费的 Agent 时，代码托管平台应该长什么样？**
 
-项目起步时确实以 Gitea/Forgejo 为对标对象（功能差距分析见 [ironforge-docs/comparison/](ironforge-docs/comparison/)），这些基本盘能力仍在；但此后的设计取舍，是看它们能不能让 Agent 更省 token、更可控、更可追溯地完成「改 → 推 → 看 CI → 修」的循环。
+项目起步时确实以 Gitea/Forgejo 为对标对象，这些基本盘能力仍在；但此后的设计取舍，是看它们能不能让 Agent 更省 token、更可控、更可追溯地完成「改 → 推 → 看 CI → 修」的循环。
 
 > Phase 1~21 全部完成，此后的演进主线是 Agent 友好化。详细实现清单见 [CLAUDE.md](CLAUDE.md)。
 
@@ -64,7 +64,7 @@ IRONFORGE_URL=http://127.0.0.1:8080 ironforge-mcp --http 127.0.0.1:8765
 
 ### 成熟度说明
 
-Agent 相关能力大多是 2026-11 的快速迭代成果：绝大部分已在本机（SQLite）用真实服务 + 真实 `ironforge-mcp` 的端到端脚本验证，协作与部分写路径另在 PostgreSQL 17 / MySQL 8.4 上跑过，但**尚未经过长期的真实多 Agent 生产使用**，GitHub CI 的覆盖也还没有补全。每项能力的验证范围与未覆盖项见 [CLAUDE.md](CLAUDE.md) 与 [ironforge-docs/architecture/](ironforge-docs/architecture/) 下的 `*-verification-*.md`；设计动机见 [Harness 原生化设计](ironforge-docs/architecture/harness-native-design-2026-11.md) 与 [Agent 主体身份与路线图](ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md)。
+Agent 相关能力大多是 2026-11 的快速迭代成果：绝大部分已在本机（SQLite）用真实服务 + 真实 `ironforge-mcp` 的端到端脚本验证，协作与部分写路径另在 PostgreSQL 17 / MySQL 8.4 上跑过，但**尚未经过长期的真实多 Agent 生产使用**，GitHub CI 的覆盖也还没有补全。能力边界与未覆盖项见 [CLAUDE.md](CLAUDE.md) 的「未实现 / 技术债」；当前设计见 [docs/design/](docs/design/)。
 
 ---
 
@@ -365,12 +365,11 @@ ironforge/
 │   ├── rg-runner/          # Runner Agent（bin = "ironforge-runner"，CI 任务执行器，与 AI Agent 无关）
 │   └── rg-mcp/             # MCP 服务器（bin = "ironforge-mcp"，stdio + streamable HTTP）
 ├── web/                    # SvelteKit 前端（独立 SPA）
-├── docs/                   # 设计文档（PRD/系统设计/Git协议/AI集成）
-├── ironforge-docs/         # 分析报告（架构/Agent 设计与验证记录/对比/CI/测试审计）
+├── docs/                   # 文档索引 + 当前设计 + 协议/性能/运维
 └── .ai/                    # AI Agent 接入规范（接入指南 + guardrails + MCP 配置）
 ```
 
-> 各 crate 职责和边界规则详见 [CONTRIBUTING.md](CONTRIBUTING.md)；当前架构事实详见 [ironforge-docs/architecture/](ironforge-docs/architecture/)。
+> 各 crate 职责和边界规则详见 [CONTRIBUTING.md](CONTRIBUTING.md)；文档索引见 [docs/README.md](docs/README.md)。
 
 ---
 
@@ -393,7 +392,7 @@ ironforge/
 | 前端 i18n | Svelte 5 reactive store + localStorage | 中文 + 英文 |
 | 代码覆盖率 | cargo-llvm-cov | HTML/LCOV/JSON 输出 |
 
-> 完整依赖版本速查见 [CLAUDE.md](CLAUDE.md)。gix 当前覆盖率 ~70%，部分能力仍经 GitCommandGateway 调用 git CLI。
+> 完整依赖版本速查见 [CLAUDE.md](CLAUDE.md)。Git 协议生产路径已 gix 原生：git CLI 网关只用于测试造数据与 mirror 同步。
 
 ---
 
@@ -403,12 +402,12 @@ ironforge/
 |------|------|
 | [.ai/README.md](.ai/README.md) | **Agent 接入指南**：MCP 配置、全部工具清单、AI 端点、多 Agent 协作协议、令牌 scope |
 | [.ai/guardrails.md](.ai/guardrails.md) | Agent 生命周期护栏（哪些操作禁止 / 需确认） |
-| [CLAUDE.md](CLAUDE.md) | AI 深度协作上下文（踩坑记录、依赖版本、错误排查、实现清单） |
+| [CLAUDE.md](CLAUDE.md) | AI 协作上下文（约定、当前实现、踩坑、错误排查） |
 | [AGENT.md](AGENT.md) | AI 助手轻量统一入口（概览 + 文件速查） |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发规范（crate 边界、编码规范、提交规范、测试规范） |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 架构设计文档（技术选型决策、模块设计、数据模型、核心子系统） |
-| [ironforge-docs/README.md](ironforge-docs/README.md) | 分析报告文档索引 |
-| [ironforge-docs/contributor-quickstart.md](ironforge-docs/contributor-quickstart.md) | 贡献者 5 分钟快速上手 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 架构总览（技术选型、模块设计、数据模型、核心子系统） |
+| [docs/README.md](docs/README.md) | 文档索引与维护规则 |
+| [docs/operations.md](docs/operations.md) | 部署、备份恢复、升级与支持边界 |
 
 ---
 

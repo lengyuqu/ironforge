@@ -2,7 +2,7 @@
 //! waiting and open questions of one repository, computed from the platform
 //! event log (`collab_metric_events`).
 //!
-//! Design: `ironforge-docs/architecture/agent-collaboration-p2-design-2026-11.md` §5.
+//! Design: `docs/design/agent-collaboration.md` §7.
 //!
 //! Rules this module keeps:
 //! * Times come from events the server wrote in the business transaction; no

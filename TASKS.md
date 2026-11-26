@@ -1,121 +1,72 @@
 # Multi-Agent Task Claims — IronForge
 
-> 本文件定义认领/完成协议与协调者维护的任务索引。**活的任务状态在 `tasks/Txx.md`，不在本文件。** 下面的索引是只读镜像；每个任务的权威是它自己的文件。Agent 不得编辑本文件，只改自己的 `tasks/Txx.md` 与 `docs/plans/` 文档。
+> 认领/完成协议与协调者维护的索引。**活的任务状态在 `tasks/Txx.md`，不在本文件。**
+> Agent 不得编辑本文件，只改自己的 `tasks/Txx.md` 与计划文档。
 
 ## Registry
 
 | Field | Value |
-| --- | --- |
+|---|---|
 | Project | IronForge |
 | Planning document | `PLANNING.md` |
 | Task state directory | `tasks/` |
-| Remote | `cnb` |
+| 开发主仓 | GitHub `lengyuqu/ironforge` |
+| Mirror | CNB `lengyuqu/ironforge` |
 | Base branch | `main` |
 | Human coordinator | 余曲（别问） |
 
 ## Allowed States
 
-- `available`: the task is open for an Agent to claim.
-- `in_progress`: an Agent successfully recorded its ownership on the live base branch.
-- `completed`: the Agent finished the task constraints and acceptance checks on its task branch.
+- `available`：任务开放认领。
+- `in_progress`：Agent 已在基线分支记录所有权。
+- `completed`：Agent 在任务分支完成约束与验收。
 
-Do not add other tracking states. `completed` means ready for human review, not merged, released, or formally accepted. Human coordination handles reassignment, integration, and release. If an `in_progress` task shows no activity for more than 48 hours, the coordinator may reset its `State` back to `available` (releasing the claim) — Agents must not reset each other's rows.
+没有其他状态。`completed` 表示可供人审，不表示已合并、发布或正式接受；集成与发布由人负责。48 小时无活动的 `in_progress` 可由协调者重置；Agent 不得重置他人的行。
 
 ## Atomic Claim Protocol
 
-1. Fetch `cnb/main`, read `PLANNING.md`, this file and `tasks/Txx.md`, then select one `available` task.
-2. Confirm its constraints, dependencies, owned paths, proposed branch, and worktree are usable.
-3. Create the task's `agent/<task>` branch and worktree from the live remote base.
-4. In that worktree, (a) change only `State`, `Agent`, `Branch`, `Worktree` and `Claimed at` in `tasks/Txx.md` to `in_progress` and the claim metadata; (b) create the task's plan and task documents under `docs/plans/`: `Txx-plan.md` (execution plan, step breakdown, acceptance path) and `Txx-task.md` (constraint, owned-paths, dependency and risk confirmation).
-5. Commit `tasks/Txx.md` together with the new plan/task documents, message `chore(tasks): claim Txx with plan`.
-6. Push the claim commit to the base branch with a normal fast-forward push. The first successful push wins.
-7. If the push is rejected, fetch and reread the live task file. If it is already `in_progress`, stop and choose another task. If only unrelated changes landed, rebase, recheck, and retry. Never force-push a claim.
-8. After the base push succeeds, publish the recorded task branch and begin implementation in its worktree.
-
-```sh
-git fetch cnb
-git worktree add ../ironforge-t01 -b agent/t01-merge-target cnb/main
-cd ../ironforge-t01
-# 只改 tasks/T01.md 的 State/Agent/Branch/Worktree/Claimed at，然后建 docs/plans/T01-plan.md 与 docs/plans/T01-task.md
-git add tasks/T01.md docs/plans/
-git commit -m "chore(tasks): claim T01 with plan"
-git push cnb HEAD:main
-git push -u cnb HEAD
-```
+1. 取基线，读 `PLANNING.md`、本文件与目标任务文件，选一个 `available` 任务。
+2. 确认约束、owned paths、依赖、分支与 worktree 可用。
+3. 从基线创建 `agent/<task>` 分支与 worktree。
+4. 只改 `tasks/Txx.md` 的 `State`/`Agent`/`Branch`/`Worktree`/`Claimed at` 为 `in_progress`；在 `docs/plans/` 建 `Txx-plan.md` 与 `Txx-task.md`。
+5. 提交 `tasks/Txx.md` + 计划文档，消息 `chore(tasks): claim Txx with plan`。
+6. 普通快进推送到基线。第一次成功推送获胜；被拒绝就重新读取任务文件，已被认领则换任务；**禁止强推**。
+7. 认领成功后发布任务分支，在记录的 worktree 内工作。
+8. 实现与验收通过后，只把自己的 `State` 改为 `completed`，提交并推送任务分支。
 
 ## Completion Protocol
 
-1. Before finalizing, fetch `cnb/main` and rebase the task branch onto the latest base; resolve conflicts only within owned paths.
-2. Finish the recorded task constraint and run its acceptance commands.
-3. In the same task worktree, change only `State` in `tasks/Txx.md` from `in_progress` to `completed`; preserve the Agent, branch, worktree, and claim time.
-4. Include the `tasks/Txx.md` update in the final implementation commit, or add a final document-only commit when implementation was already committed.
-5. Push the recorded task branch. Do not push implementation commits directly to the base branch.
-6. Report the branch, final commit SHA, changed paths, validation results, and remaining risks to the human coordinator.
-7. The base branch receives the `completed` record when the human coordinator merges the task branch.
+- 任务约束已实现于记录的 owned paths。
+- 验收命令已实际运行，并如实报告结果。
+- `tasks/Txx.md` 从 `in_progress` 改为 `completed`。
+- 没有修改其他任务文件或 `TASKS.md`。
 
 ## Coordinator Merge Rules
 
-1. Merging task branches into the base branch is a coordinator-only operation, executed serially.
-2. On each merge, sync the affected row in the Task Index below (State/Agent) to the authoritative `tasks/Txx.md`; never reorder or drop other task rows.
-3. On merge conflicts in `tasks/` or `TASKS.md`, preserve every task row from the remote base side and re-apply the local task's own change only. Never discard another task's file or row.
-4. After a merge, the coordinator may delete the merged task branch and prune its worktree.
+1. 只在任务 `completed` 且验收通过后合并；合并由协调者执行。
+2. `tasks/` 或 `TASKS.md` 冲突保留远端每一行，再重放本地任务自己的改动；不得丢弃他人的任务文件或行。
+3. 合并后可删除已合并的任务分支并清理 worktree。
+4. 任务记录（`tasks/Txx.md`、`docs/plans/Txx-*`）在合并后不进入长期文档集；历史由 git 承载。
 
-## Task Index (mirror — authority is `tasks/Txx.md`, refreshed by the coordinator on merge)
+## Task Index（镜像；权威是 `tasks/Txx.md`）
+
+当前没有活跃任务。新任务建立后由协调者在此追加，合并完成后移除。
 
 | ID | Task | State | Agent | Depends on | Status file |
-| --- | --- | --- | --- | --- | --- |
-| T01 | [#60] PR 合并写到 `base_branch` 而非仓库 `HEAD` | completed | t01-merge-target | none | `tasks/T01.md` |
-| T02 | [#48] MCP 写工具集补 cherry-pick / revert / unified diff | completed | t02-mcp-tools | none | `tasks/T02.md` |
-| T03 | [#15] R3-P1 事件信封与投递头 | completed | t03-event-envelope | none | `tasks/T03.md` |
-| T04 | [#38] R7 推送时密钥扫描 | completed | t04-secret-scan | none | `tasks/T04.md` |
-| T05 | [#40] R10 配额与用量（最小闭环） | completed | t05-ci-quota | none | `tasks/T05.md` |
-| T06 | [#19] 通用审批原语 · 步骤1（表+状态机+求值器）+ 修 PR 评审越权 | completed | t06-authorization | none | `tasks/T06.md` |
-| T08 | [#62] 接受 unified diff 的提交端点（apply-patch） | completed | t08-apply-patch | none | `tasks/T08.md` |
-| T07 | [#19·步骤3修正版] PR 头部漂移：旧票失效事件化 + 门禁阻断 | completed | t07-head-drift | none | `tasks/T07.md` |
-| T09 | [#39] 代码智能·结构化大纲（抽取层，不含端点） | completed | t09-outline | none | `tasks/T09.md` |
-| T10 | [#39] 代码智能·`/ai/.../map` 端点 + token 预算裁剪 | completed | t10-repo-map | T09 | `tasks/T10.md` |
-| T11 | [#18] Agent 草稿分支命名空间（TTL + 不通知 + 可跑 CI） | completed | t11-agent-drafts | none | `tasks/T11.md` |
-| T12 | [#19·步骤5] 通知偏好 + 邮件单一出口 | completed | t12-notify-prefs | none | `tasks/T12.md` |
-| T13 | [#15·第一步] 事件写入可在事务内（签名放宽 + issue.opened 闭环） | completed | t13-event-in-txn | none | `tasks/T13.md` |
-| T14 | [#15·第二步] ops 签名批量放宽：org_ops + user_ops | completed | t14-conn-trait-ops | T13 | `tasks/T14.md` |
-| T15 | [#15·第三步] ops 签名放宽：pipeline_ops | completed | t15-pipeline-ops | T14 | `tasks/T15.md` |
-| T16 | [#15·第四步] `pull_request.merged` 事务内事件写入 | completed | t16-pr-merged-txn | T15 | `tasks/T16.md` |
-| T17 | [#15·第五步] `release.created` 事务内事件写入（原本无事务） | completed | t17-release-txn | T16 | `tasks/T17.md` |
-| T18 | [#15·第六步] `pr.opened` 加事务 + `pr.closed` 修正事件顺序 | completed | t18-pr-open-close-txn | T17 | `tasks/T18.md` |
-| T19 | [#15·第七步] outbox 最小版本：投递状态 + 兜底补投 | completed | t19-outbox-min | T18 | `tasks/T19.md` |
-| T20 | [#19·步骤6] `scope_expand` 执行面：repo 系列内提权 | completed | t20-scope-expand | none | `tasks/T20.md` |
-| T21 | [#19·步骤6 补丁] `scope_expand` 目标 scope 绑定进票据 | completed | t21-scope-expand-subject | T20 | `tasks/T21.md` |
-| T22 | [#19·R19-1] 合并审批准入面收紧到写权限 | completed | t22-review-approve-write | T21 | `tasks/T22.md` |
-| T23 | [#19·R19-2/3/4] 自批守卫下沉 + 邮件文案 + 死代码清理 | completed | t23-review-guards-email | T22 | `tasks/T23.md` |
-| T24 | [#19·R19-5] agent 判定统一到单一来源 | completed | t24-agent-guard-unify | T23 | `tasks/T24.md` |
-| T25 | flaky: auto_merge_pinned_head 确定性化 | completed | t25-flaky-auto-merge | T24 | `tasks/T25.md` |
-| T26 | [#41·R11] CI 容器默认以调用进程 UID 运行 | completed | t26-ci-runner-user | T25 | `tasks/T26.md` |
-| T27 | [#63·第一步] 符号图设计文档与规模实测 | completed | t27-symbol-graph-design | T26 | `tasks/T27.md` |
-| T28 | [#63·第二步] 符号定义表最小闭环 | completed | t28-symbol-index | T27 | `tasks/T28.md` |
-| T29 | [#63·第三步] 符号查询端点与 MCP 工具 | completed | t29-symbol-query | T28 | `tasks/T29.md` |
-| T30 | doc | 更新 CLAUDE.md 到当前实现现状 | completed | t30-claude-md-refresh | T29 | `tasks/T30.md` |
-| T31 | [#63·第四步] 让 `partial` 反映真实索引质量 | completed | t31-partial-honesty | T30 | `tasks/T31.md` |
-| T32 | [缺口·Git性能] 大仓库性能基线：固定数据集 + 阈值 | completed | t32-perf-baseline | none | `tasks/T32.md` |
-| T33 | [缺口·Unit权限] 全量测绘与 ADR（零代码改动） | completed | t33-unit-permission | none | `tasks/T33.md` |
-| T34 | [缺口·CI Actions] 第三方 Action：composite 展开 + 能力协商 | completed | t34-actions-composite | none | `tasks/T34.md` |
-| T35 | [缺口·HA] 滚动升级与故障恢复演练设计（零代码改动） | completed | t35-ha-drill | none | `tasks/T35.md` |
-| T36 | [缺陷·import] CNB 导入真机验证 | completed | t36-cnb-live-verify | none | `tasks/T36.md` |
-| T37 | [缺陷·Git性能] 增量 fetch 对象级差集（实测放大 ~8000×） | completed | t37-pack-haves-diff | T32 | `tasks/T37.md` |
-| T38 | [缺陷·Git性能] pack 流式化（large 实测 1.21 GB 驻留） | completed | t38-pack-streaming | T37 | `tasks/T38.md` |
+|---|---|---|---|---|---|
 
 ## Pre-Claim Checks
 
-- [ ] The live `tasks/Txx.md` State is still `available`.
-- [ ] No `in_progress` task owns overlapping paths.
-- [ ] The proposed branch and worktree are not already in use.
-- [ ] Only the selected task file and its plan/task documents will change in the claim commit; `TASKS.md` must not change.
-- [ ] No placeholder remains in the selected task file.
-- [ ] The claim uses a normal push; force-push is prohibited.
+- [ ] 目标任务 `State` 仍是 `available`。
+- [ ] 没有 `in_progress` 任务占用重叠路径。
+- [ ] 分支与 worktree 未被占用。
+- [ ] 认领提交只含目标任务文件与计划文档；不改 `TASKS.md`。
+- [ ] 任务文件没有占位符。
+- [ ] 认领用普通推送；禁止强推。
 
 ## Completion Checks
 
-- [ ] The task constraint is implemented in the recorded owned paths.
-- [ ] Acceptance commands were run and their actual results are reported.
-- [ ] `tasks/Txx.md` State changed from `in_progress` to `completed`.
-- [ ] No other task file or `TASKS.md` was modified.
-- [ ] The final task branch and commit SHA were reported for human coordination.
+- [ ] 约束已实现于 owned paths。
+- [ ] 验收命令已运行并报告实际结果。
+- [ ] `tasks/Txx.md` 已改为 `completed`。
+- [ ] 未修改其他任务文件或 `TASKS.md`。

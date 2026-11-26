@@ -6,7 +6,7 @@
 //! - **streamable HTTP** (`--http [ADDR]`, default `127.0.0.1:8765`, or
 //!   `IRONFORGE_MCP_LISTEN`) – for agents on another machine. Every connection
 //!   brings its own `Authorization: Bearer <token>`; `IRONFORGE_PAT` is not used.
-//!   See `rg_mcp::remote` and `ironforge-docs/architecture/mcp-remote-verification-2026-11.md`.
+//!   See `rg_mcp::remote` and `.ai/README.md`.
 //!
 //! The legacy HTTP+SSE transport (`--sse`) is not implemented.
 //!

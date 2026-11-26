@@ -1,7 +1,7 @@
 //! Collaboration P1 decision traceability: `collab_decisions` and
 //! `collab_decision_changes`.
 //!
-//! Design: `ironforge-docs/architecture/agent-collaboration-p1-design-2026-11.md` §2, §7.
+//! Design: `docs/design/agent-collaboration.md` §6.
 //! Only new tables; earlier collaboration migrations are not touched.
 //!
 //! `seq` numbers a task's decisions 1, 2, 3, ... (unique per task). It is the

@@ -3398,7 +3398,7 @@ async fn handle_git_receive_pack(
 
 /// Secret-scan audit events come from `rg-git`, which has no database: its
 /// scanner reports through a process-wide sink, and the caller persists them
-/// (`docs/plans/T04-plan.md` §9 left exactly this gap for the push path).
+/// (`docs/design/ci.md` §5 left exactly this gap for the push path).
 ///
 /// The sink is one global callback shared by every push, while the audit rows
 /// need the repository of the push that produced the event. Events are

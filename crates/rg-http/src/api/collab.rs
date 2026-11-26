@@ -1,7 +1,7 @@
 //! Shared helpers of the same-account multi-agent collaboration REST API
 //! (`collab_*` modules hold the endpoints).
 //!
-//! Design: `ironforge-docs/architecture/multi-agent-collaboration-design-2026-11.md`.
+//! Design: `docs/design/agent-collaboration.md`.
 //!
 //! Authorization layering for every endpoint: (1) the account credential
 //! (JWT/PAT), (2) the account's repository permission, re-evaluated on every

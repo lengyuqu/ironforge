@@ -1,9 +1,7 @@
 # Git 真实客户端协议兼容矩阵
 
-> 建立日期：2026-07-14
-> 对齐任务：`GIT-003`、`GIT-004`、`GIT-002`
-> 自动化入口：`scripts/git-protocol-e2e.sh`
-> CI 入口：`.github/workflows/regression.yml` 的 `git-protocol` job
+> 自动化入口：`scripts/git-protocol-e2e.sh`；CI 入口：`.github/workflows/regression.yml` 的 `git-protocol` job。
+> 本文只写当前支持的组合与断言；历史修复过程见 git 历史。
 
 ## 1. 验收范围
 

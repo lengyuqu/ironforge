@@ -39,7 +39,7 @@
 //! A pull request created before the head was recorded has `head_sha = NULL`.
 //! Such a row cannot be "stale" (there is nothing to be stale against), so it is
 //! filled in from the push instead of being treated as a race. See
-//! `docs/plans/T07-plan.md` §4.
+//! `docs/design/authorization.md` §6.
 
 use chrono::Utc;
 use sea_orm::sea_query::Expr;
@@ -189,7 +189,7 @@ async fn cas_set_head(
 ///
 /// Mirrors `rg_db::ops::pull_request_ops`'s private condition of the same name;
 /// it is duplicated rather than exported because `rg-db` is outside this task's
-/// owned paths (see `docs/plans/T07-plan.md` §2).
+/// owned paths (see `docs/design/authorization.md` §6).
 fn head_repository_condition(source_repo_id: i64) -> Condition {
     Condition::any()
         .add(

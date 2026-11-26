@@ -1,9 +1,10 @@
 # IronForge 架构设计文档
 
-> **IronForge**（铁匠铺）— 用 Rust 从零造一个 Git 托管平台
-> 对标 Gitea / Forgejo，用 Rust 实现极致轻量与高性能
+> **IronForge**（铁匠铺）— 用 Rust 从零实现的、面向 AI Agent 编程的 Git 托管平台
+> 轻量、单二进制，把 Agent 主体、协作与 CI 闭环做成一等公民
 
-> **状态**：维护中 ｜ **可信度**：确认 ｜ **来源**：仓库代码 / 文档 / 运行结果 ｜ **最后更新**：2026-11-18
+> **状态**：维护中 ｜ **可信度**：确认 ｜ **来源**：仓库代码 / 运行结果 ｜ **最后更新**：2026-11-26（0.5.1）
+> 当前行为与边界以 [CLAUDE.md](CLAUDE.md) 和 [docs/design/](docs/design/) 为准；本文写结构与选型。
 
 ---
 
@@ -239,8 +240,7 @@ ironforge/
 │       │   └── i18n/            #   国际化（中/英，199 key）
 │       └── app.html
 │
-├── docs/                        # 设计文档
-├── ironforge-docs/              # 分析报告
+├── docs/                        # 文档索引 + 当前设计 + 协议/性能/运维
 ├── .ai/                         # AI Agent 接入规范
 ├── deploy/                      # 部署配置
 └── scripts/                     # 自动化测试脚本
@@ -667,15 +667,14 @@ node frontend build
 
 | 待办 | 阻塞原因 | 解除条件 |
 |------|----------|----------|
-| Rebase 合并 gix 原生化 | gix-rebase 无 API | gix 发布稳定 rebase API |
-| Pack 生成 gix 原生化 | gix 无高层 pack 协商 | gix 提供 server 端 pack 生成 |
-| Thin-pack 索引 gix 原生化 | gix 缺 thin 补全解析 | gix-pack 支持 --fix-thin |
-| GPG 验签 gix 原生化 | gix 无验签能力 | gix 内建或引入 sequoia-openpgp |
-| blob-diff unified patch | 字节一致性待验证 | 对拍测试通过 |
-| MCP SSE transport | 未实现 | 按需排期 |
-| PostgreSQL/MySQL HA | 兼容验证已完成 | 生产化压测 / 备份恢复 / HA 集群 |
+| Unit 级权限 | 需要迁移号段与全 handler 标注 | 按 ADR-0002 的 D1–D6 实施 |
+| 多实例 / 滚动升级 | DB、仓库存储、启动迁移、周期任务未外置 | 四处全部外置并有选主 |
+| 第三方 node/docker Action | 需要 `actions-v1` 隔离 Runner | 隔离 Runner 实现并通过 ADR-0001 验收 |
+| 通用审批接线 | 合并/直推/发版仍用各自门禁 | handler 改为消费审批票据 |
+| 符号引用索引 | 逐 commit 全量引用超出预算 | 按需计算或文件级 postings |
+| Legacy Blob 迁移 | 只兼容读取 | 一致性扫描 + 在线迁移工具 |
 
-> 详见 [ironforge-docs/architecture/architecture-followups-2026-07.md](ironforge-docs/architecture/architecture-followups-2026-07.md)。
+> 完整清单见 [CLAUDE.md](CLAUDE.md) 的「未实现 / 技术债」。
 
 ---
 
@@ -683,14 +682,14 @@ node frontend build
 
 | 文件 | 用途 |
 |------|------|
-| [CLAUDE.md](CLAUDE.md) | AI 深度协作上下文（踩坑记录、依赖版本、错误排查、实现清单） |
+| [CLAUDE.md](CLAUDE.md) | AI 协作上下文（约定、当前实现、踩坑、错误排查） |
 | [README.md](README.md) | 快速开始、REST API 示例 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 开发规范、crate 边界、编码规范、测试规范 |
-| [ironforge-docs/architecture/project-architecture-2026-07.md](ironforge-docs/architecture/project-architecture-2026-07.md) | 当前代码事实架构总览（2026-07 基线） |
-| [ironforge-docs/architecture/frontend-backend-structure-2026-07.md](ironforge-docs/architecture/frontend-backend-structure-2026-07.md) | 前后端结构与页面/API 映射 |
-| [ironforge-docs/architecture/architecture-followups-2026-07.md](ironforge-docs/architecture/architecture-followups-2026-07.md) | 已修复项、P2 长期方向 |
-| [ironforge-docs/README.md](ironforge-docs/README.md) | 分析报告文档索引 |
+| [docs/README.md](docs/README.md) | 文档索引与维护规则 |
+| [docs/design/](docs/design/) | 当前设计：协作、授权、Agent、CI、数据、代码智能 |
+| [docs/operations.md](docs/operations.md) | 备份恢复、升级、支持边界 |
+| [docs/performance.md](docs/performance.md) | 大仓库基线与阈值 |
 
 ---
 
-*Phase 1~21 全部完成。本文档反映当前代码实际结构，如有不一致以代码为准。*
+*Phase 1~21 全部完成。本文档反映当前代码实际结构，如有不一致以代码为准；当前行为与文档索引见 [CLAUDE.md](CLAUDE.md) 与 [docs/README.md](docs/README.md)。*

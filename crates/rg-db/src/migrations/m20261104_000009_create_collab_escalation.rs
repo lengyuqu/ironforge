@@ -1,6 +1,6 @@
 //! Per-repository escalation settings for collaboration notices (O05).
 //!
-//! Design: `ironforge-docs/architecture/agent-collaboration-operability-requirements-2026-11.md`
+//! Design: `docs/design/agent-collaboration.md`
 //! §6. One row per repository, absent = escalation disabled. Only a new table;
 //! escalation reminders themselves are ordinary rows of `collab_notices`.
 

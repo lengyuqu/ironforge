@@ -3,7 +3,7 @@
 //! This is the one place that answers the question. Each action's rule is copied
 //! from what the corresponding handler does today; the tests below pin the
 //! equivalences (and the one deliberate change: PR approvals now need write
-//! access or an explicit reviewer seat, see `docs/plans/T06-plan.md` §5).
+//! access or an explicit reviewer seat, see `docs/design/authorization.md` §5).
 //!
 //! Two shapes of approver live side by side:
 //!
@@ -18,7 +18,7 @@
 //!   time is exactly what the current handlers do.
 //!
 //! `collaborators` is never set by an action in step 1 (see
-//! `docs/plans/T06-plan.md` §4.2): folding collaboration members into PR
+//! `docs/design/authorization.md` §5): folding collaboration members into PR
 //! approvals would re-open the very hole this task closes, because a
 //! collaboration member may hold only `read`.
 

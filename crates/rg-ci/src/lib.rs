@@ -665,7 +665,7 @@ fn read_ci_config(
 /// action, or a bad condition. A file that cannot be read or parsed is skipped
 /// with a `debug` log, so a directory in which every file is broken looks like
 /// "no workflow matches"; tightening that is a follow-up recorded in
-/// `docs/plans/T34-plan.md` §6.
+/// `docs/design/ci.md` §3.
 fn try_read_gitea_workflows(
     repo: &gix::Repository,
     commit_sha: &str,

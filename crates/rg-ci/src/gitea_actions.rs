@@ -144,7 +144,7 @@ pub struct GiteaJob {
 
     /// Job outputs: `name` → expression (usually `steps.<id>.outputs.<name>`),
     /// evaluated when the job finishes. Parsed but not yet consumed — see
-    /// `docs/plans/CI-202-203-step-outputs.md` stage C.
+    /// `docs/design/ci.md`.
     #[serde(default)]
     pub outputs: HashMap<String, String>,
 }

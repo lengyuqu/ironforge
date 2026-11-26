@@ -307,10 +307,10 @@ packfile data, since it tried to read the pkt-line length header as text.
 
 ## 决策记录
 
-重要架构与产品决策应沉淀为 ADR（Architecture Decision Record），避免决策只存在于对话或提交信息中。项目已有 ADR 实践（如 `ironforge-docs/ci/adr-0001-*.md`）。
+重要架构与产品决策应沉淀为 ADR（Architecture Decision Record），避免决策只存在于对话或提交信息中。项目已有 ADR 实践（如 `docs/design/adr-0001-third-party-actions.md`）。
 
 ADR 文件约定：
-- 位置：`ironforge-docs/<领域>/adr-NNNN-<slug>.md`（NNNN 为四位递增编号）
+- 位置：`docs/design/adr-NNNN-<slug>.md`（NNNN 为四位递增编号）
 - 编号：按创建顺序递增，不因废弃而复用
 
 每份 ADR 至少包含以下小节（对齐 mybook `Templates/决策记录模板`）：

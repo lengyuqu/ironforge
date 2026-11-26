@@ -9,7 +9,7 @@
 //!
 //! # The three rules this implements
 //!
-//! See `docs/plans/AUTH-403-ldap-group-team-sync.md`. In short:
+//! See `docs/design/authorization.md`. In short:
 //!
 //! 1. the caller has already resolved which org to look at (the provider names
 //!    exactly one), so this module only sees that org's teams;

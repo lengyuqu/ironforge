@@ -1,7 +1,7 @@
 //! Create the same-account multi-agent collaboration tables.
 //!
 //! `agent_sessions`, `collab_tasks`, `collab_messages`, `collab_handoffs` and
-//! `collab_reads` (see `ironforge-docs/architecture/multi-agent-collaboration-design-2026-11.md`).
+//! `collab_reads` (see `docs/design/agent-collaboration.md`).
 //!
 //! Design notes:
 //!

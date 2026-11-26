@@ -10,7 +10,7 @@
 //!   votes). Requests store it so "who was allowed to approve this, back then"
 //!   stays answerable after the rule changed.
 //!
-//! Step 1 has no `parameters` column; see `docs/plans/T06-plan.md` §2.3. Adding
+//! Step 1 has no `parameters` column; see `docs/design/authorization.md` §5. Adding
 //! one later means adding a column and a migration, and extending the canonical
 //! form here so old hashes cannot be forged by dropping a field.
 

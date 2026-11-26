@@ -1,7 +1,7 @@
 //! Collaboration operability tables (O06 task templates, O07 capability
 //! declarations, O08 budgets and usage).
 //!
-//! Design: `ironforge-docs/architecture/agent-collaboration-operability-requirements-2026-11.md` §6.
+//! Design: `docs/design/agent-collaboration.md` §4/§6.
 //! Only new tables; no existing table is altered. Conventions follow
 //! `m20261104_000002`: server-generated UUID ids (`VARCHAR(36)`), explicit
 //! table names equal to the entity `table_name`, composite foreign keys so every

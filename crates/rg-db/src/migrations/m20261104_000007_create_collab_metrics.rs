@@ -1,6 +1,6 @@
 //! Collaboration health metrics: the platform event log behind R13.
 //!
-//! Design: `ironforge-docs/architecture/agent-collaboration-p2-design-2026-11.md` §3/§5.
+//! Design: `docs/design/agent-collaboration.md` §7.
 //! Only a new table; earlier collaboration migrations are not touched. No
 //! rollup table: every metric is computed from the events.
 //!

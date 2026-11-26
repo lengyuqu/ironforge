@@ -1,6 +1,6 @@
 //! Collaboration delivery receipts and durable notices (P1 U04).
 //!
-//! Design: `ironforge-docs/architecture/agent-collaboration-p1-design-2026-11.md`
+//! Design: `docs/design/agent-collaboration.md`
 //! §2 and §6. Only new tables; earlier collaboration migrations are untouched.
 //!
 //! * `collab_delivery_receipts` — the target session of a *targeted* message

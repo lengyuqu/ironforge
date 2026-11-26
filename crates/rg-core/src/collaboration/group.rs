@@ -1,6 +1,6 @@
 //! Cross-repository coordination groups (P2 X02).
 //!
-//! Design: `ironforge-docs/architecture/agent-collaboration-p2-design-2026-11.md`
+//! Design: `docs/design/agent-collaboration.md`
 //! §2–§4. A group is owned by an *anchor* repository and links to tasks and
 //! commits of other repositories **by repository id**. Nothing here grants Git,
 //! CI, merge or approval rights, moves a task, or copies target-repository

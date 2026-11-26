@@ -1,92 +1,42 @@
 # IronForge — AI Agent 协作指南
 
-> 本文件是 IronForge 项目的 **AI 助手统一入口**。
-> 大多数 AI 编程助手（Codex、Trae、CodeBuddy、WorkBuddy 等）会**优先自动读取本文件**，也会同时读取 `CLAUDE.md`。
-> Claude Code 默认自动读取 `CLAUDE.md`，但同样会读取本文件。
-> **建议**：先通读本文件获取概览，再根据任务深入 `CLAUDE.md` 或其他文档。
+> 轻量统一入口。大多数 AI 工具会优先读取本文件；深度上下文在 [CLAUDE.md](CLAUDE.md)。
+> 最后更新：2026-11-26（0.5.1）
 
-> **状态**：维护中 ｜ **可信度**：确认 ｜ **来源**：仓库代码 / 文档 / 运行结果 ｜ **最后更新**：2026-11-18
+## 30 秒了解项目
 
----
+**IronForge**（铁匠铺）是用 Rust 从零实现的、**面向 AI Agent 编程的 Git 托管平台**：内存 <50 MB、单二进制，具备仓库/Issue/PR/Wiki/CI/包注册表/企业认证/审计/代码搜索，并把 Agent 主体身份、最小权限令牌、可重试写入、MCP 与多 Agent 协作做成一等公民。
 
-## 快速定位（30 秒了解项目）
+- 阶段：Phase 1~21 全部完成
+- 技术栈：Rust（Axum / SeaORM）+ SvelteKit 5，SQLite / PostgreSQL / MySQL，gix + 仅测试/mirror 使用的 git CLI 网关
+- 当前版本：0.5.1
 
-**IronForge**（铁匠铺）是一个用 Rust 从零实现的、**面向 AI Agent 编程的 Git 托管平台**。起步时对标 Gitea/Forgejo，但现在的重心是 Agent 友好（Agent 主体身份与最小权限令牌、可预览/可重试的写入、CI 反馈闭环、MCP、多 Agent 协作），不再只是 Gitea 的对标品。
+## 关键文件
 
-- **目标**: 内存 <50MB、单二进制部署；完整托管基本盘（仓库/Issue/PR/Wiki/CI/包注册表/企业认证/审计/代码搜索）之上，提供一等公民的 Agent 能力（接入见 [`.ai/README.md`](.ai/README.md)）
-- **阶段**: Phase 1~21 全部完成
-- **技术栈**: Rust (Axum/SeaORM) + SvelteKit 5，SQLite，gix (gitoxide) + Git CLI gateway
+| 文件 | 用途 | 何时读 |
+|---|---|---|
+| [CLAUDE.md](CLAUDE.md) | 约定、当前实现、技术债、踩坑、错误排查 | **每次开始工作前** |
+| [.ai/guardrails.md](.ai/guardrails.md) | 变更操作的权限边界 | **执行任何变更前** ⭐ |
+| [docs/README.md](docs/README.md) | 文档索引与维护规则 | 找文档时 |
+| [docs/design/](docs/design/) | 当前设计：协作、授权、Agent、CI、数据、代码智能 | 改对应模块时 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 架构总览与技术选型 | 理解模块边界时 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | crate 边界、编码规范、测试要求 | 写代码时 |
+| [.ai/README.md](.ai/README.md) | MCP / REST 接入与工具清单 | 让 AI 调 IronForge 时 |
+| [PLANNING.md](PLANNING.md) / [TASKS.md](TASKS.md) | 多 Agent 任务协议 | 启用并行任务时 |
 
-### 关键文件速查
+## 按任务延伸阅读
 
-| 文件 | 用途 | 何时读取 |
-|------|------|--------|
-| `CLAUDE.md` | 最完整的 AI 协作上下文（踩坑记录、依赖版本、常见错误、实现现状清单） | **每次开始工作前必读** |
-| `.ai/guardrails.md` | **Agent 生命周期护栏（权限边界规则）** | **执行任何变更操作前必读** ⭐ |
-| `ironforge-docs/README.md` | 文档索引（单一事实来源） | 找任何分析报告时先读 |
-| `ironforge-docs/architecture/project-architecture-2026-07.md` | 当前代码事实架构总览 | 设计新功能、核验模块边界时 |
-| `ironforge-docs/architecture/frontend-backend-structure-2026-07.md` | 当前前后端结构和页面/API 映射 | 修改前端页面、API client 或 HTTP handler 时 |
-| `ironforge-docs/architecture/architecture-followups-2026-07.md` | 当前已修复项、P2 长期方向和旧口径修正 | 判断风险、技术债和后续方向时 |
-| `ARCHITECTURE.md` | 架构设计文档（技术选型决策、模块设计、数据模型、核心子系统） | 了解设计背景和架构决策 |
-| `CONTRIBUTING.md` | 开发规范、crate 边界规则、编码规范 | 写新代码时 |
-| `README.md` | 快速开始、REST API 示例 | 首次接触项目时 |
-| `.ai/README.md` | AI Agent 接入指南（MCP + REST API + prompt 模板） | 需要让 AI 工具调用 IronForge 时 |
-| `templates/` | 多 Agent 协作骨架（PLANNING.md / TASKS.md / tasks/Txx.md） | 启用多 Agent 并行开发时 |
+- 改 Git 协议 → [docs/git-protocol.md](docs/git-protocol.md) + CLAUDE.md 踩坑
+- 改协作/Agent → [docs/design/agent-collaboration.md](docs/design/agent-collaboration.md)、[docs/design/agent-principals.md](docs/design/agent-principals.md)
+- 改权限/审批 → [docs/design/authorization.md](docs/design/authorization.md)
+- 改 CI/Actions → [docs/design/ci.md](docs/design/ci.md) + [ADR-0001](docs/design/adr-0001-third-party-actions.md)
+- 改存储/附件/模板 → [docs/design/data.md](docs/design/data.md)
+- 改代码智能 → [docs/design/code-intelligence.md](docs/design/code-intelligence.md)
+- 部署/恢复/升级 → [docs/operations.md](docs/operations.md)
+- 性能回归 → [docs/performance.md](docs/performance.md)
 
----
+## 硬规则
 
-## Agent 生命周期护栏
-
-> ⚠️ **执行任何变更操作前，必须先阅读 [`.ai/guardrails.md`](.ai/guardrails.md)**
-
-护栏等级：🔴 BLOCK / 🟠 CONFIRM / 🟡 WARN / 🟢 ALLOW。覆盖数据库迁移、部署、删除、安全认证、Git 协议核心、数据完整性六类高风险操作。
-
----
-
-## 按任务类型延伸阅读
-
-### 修改 Git 协议相关代码
-→ `docs/git-protocol.md` + `CLAUDE.md` 踩坑清单
-
-### 开发新功能 / 规划下一步
-→ `CLAUDE.md` 实现现状表格 → `ironforge-docs/architecture/` 系列架构文档 → `CONTRIBUTING.md` 编码规范
-
-### gix 升级 / 复查迁移状态
-→ `docs/gix-migration-assessment.md`（生产路径 git CLI 已归零，唯一例外：mirror 同步仍走 git CLI；gix 升级时按评估文档复查清单验收）
-
-### CI/CD Runner 开发
-→ `ironforge-docs/ci/ci-runner-architecture.md`
-
-### 前端开发（SvelteKit）
-→ `ironforge-docs/architecture/frontend-backend-structure-2026-07.md`
-
----
-
-## 各 AI 工具的读取习惯
-
-| AI 工具 | 自动读取的文件 | 深度参考 |
-|---------|-------------|---------|
-| **Claude Code** | `CLAUDE.md`（默认）+ `AGENT.md` | `CLAUDE.md` 提供最完整细节 |
-| **Codex / Trae / CodeBuddy** | `AGENT.md`（优先）+ `CLAUDE.md` | `CLAUDE.md` 提供踩坑记录和依赖版本 |
-| **WorkBuddy** | `.workbuddy/memory/MEMORY.md` | `AGENT.md` + `CLAUDE.md` + 2026-07 架构文档 |
-
-> `AGENT.md` 是轻量级统一入口，`CLAUDE.md` 是深度上下文。两者互补，建议搭配使用。
-
----
-
-## 分析报告索引
-
-`ironforge-docs/` 已按主题分子目录整理，完整索引见 [`ironforge-docs/README.md`](ironforge-docs/README.md)：
-
-| 子目录 | 内容 |
-|------|------|
-| `architecture/` | 架构总览、前后端结构、后续待办、分模块分析、DB 多后端 |
-| `analysis/` | 改进与优化整合报告 |
-| `comparison/` | Gitea 功能对比 + 差距清单 |
-| `ci/` | CI Runner 架构 |
-| `testing/` | 功能测试指南 + 前后端审计 |
-| `archive/` | 过程文档与过时报告（仅供追溯） |
-
----
-
-*本文件与 `CLAUDE.md` 保持同步更新。如发现有遗漏或不一致，请同步修正两文件。*
+1. 变更前读 `.ai/guardrails.md`；批量删除、强推、改已执行迁移一律禁止。
+2. 文档只写当前仍成立的事实；带日期的快照、逐次核实、已完成任务日志不留在仓库（git 历史里有）。
+3. 推送成功不等于 CI 通过；汇报时分列本机、GitHub run、远端 SHA。

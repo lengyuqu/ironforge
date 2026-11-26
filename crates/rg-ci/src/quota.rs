@@ -12,7 +12,7 @@
 //! pipeline row is created, and only for `users.kind = "agent"`. People are
 //! never limited (that would hit existing accounts on upgrade). A trigger with
 //! `triggered_by = None` (the push hook) carries no subject at all and is
-//! therefore neither limited nor counted — see `docs/plans/T05-plan.md`.
+//! therefore neither limited nor counted — see `docs/design/ci.md`.
 //!
 //! # Why the counter is an absolute measurement
 //!

@@ -1,6 +1,6 @@
 //! Collaboration P0 tables: takeovers, questions, answers and work packages.
 //!
-//! Design: `ironforge-docs/architecture/agent-collaboration-p0-design-2026-11.md`.
+//! Design: `docs/design/agent-collaboration.md`.
 //! Only new tables; the first collaboration migration is not touched.
 //!
 //! Conventions follow `m20261104_000001`: server-generated UUID ids

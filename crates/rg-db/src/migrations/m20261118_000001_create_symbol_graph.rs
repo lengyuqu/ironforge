@@ -2,7 +2,7 @@
 //! (#63 step 2, T28).
 //!
 //! The design document
-//! (`ironforge-docs/architecture/symbol-graph-design-2026-11.md`) measured the
+//! (`docs/design/code-intelligence.md`) measured the
 //! two candidate schemas on this repository (1,273 files, 12,208 definitions):
 //! storing a 40-byte `commit_sha` on every row costs 60 MiB/commit more than an
 //! `INTEGER` foreign key into a tiny `symbol_commits` registry, so definitions

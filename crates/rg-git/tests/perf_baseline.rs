@@ -28,7 +28,7 @@
 //! Thresholds below are this machine's measured median × 1.5. Different
 //! hardware produces different absolute numbers — the environment fingerprint
 //! printed at the start of every run (and recorded in
-//! `docs/plans/T32-baseline-report.md`) is what makes a number comparable.
+//! `docs/performance.md`) is what makes a number comparable.
 
 #![allow(clippy::print_stdout)]
 
@@ -91,7 +91,7 @@ impl Operation {
 
 /// `(dataset, operation) -> upper bound in milliseconds`, measured median × 1.5
 /// rounded up (to the next multiple of 5 above 50 ms). Calibrated on the
-/// machine fingerprinted in `docs/plans/T32-baseline-report.md` with the dev
+/// machine fingerprinted in `docs/performance.md` with the dev
 /// profile, i.e. exactly what the acceptance command runs.
 ///
 /// `LARGE` rows come from a **single** sample (n = 1, ~20 min of work), so they
@@ -753,7 +753,7 @@ fn perf_baseline_large() {
 
 /// Materialise a dataset on disk so another server (e.g. Gitea) can be fed
 /// exactly the same objects. Used by the cross-server section of
-/// `docs/plans/T32-baseline-report.md`; not part of the baseline itself.
+/// `docs/performance.md`; not part of the baseline itself.
 ///
 /// ```text
 /// IRONFORGE_PERF_KEEP_DIR=/tmp/t32-medium IRONFORGE_PERF_DATASET=medium \

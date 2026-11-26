@@ -59,7 +59,7 @@ WORKSPACE_PREFIXES = (".github/", "scripts/", "deploy/", ".cargo/")
 WORKSPACE_FILES = {"Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml"}
 CARGO_FILES = {"Cargo.toml", "Cargo.lock"}
 # Paths with no effect on any job.
-DOC_PREFIXES = ("ironforge-docs/", "docs/", ".ai/")
+DOC_PREFIXES = ("docs/", ".ai/")
 DOC_SUFFIXES = (".md",)
 # CI configuration that this workflow must ignore. `.cnb.yml` drives CNB only
 # (the development upstream) and .github/ drives this workflow, so a `.cnb.yml`
@@ -279,10 +279,10 @@ def self_test(root):
         if via_cargo is not None:
             assert via_cargo == graph, "Cargo.toml parsing and `cargo metadata` disagree"
     cases = [
-        (["README.md", "ironforge-docs/x.md", ".ai/y.md"], dict(full=False, rust=False, frontend=False, packages=[])),
+        (["README.md", "docs/x.md", ".ai/y.md"], dict(full=False, rust=False, frontend=False, packages=[])),
         # CNB's own workflow file: GitHub never reads it, and a docs pull request
         # that also edits it stays a docs pull request
-        ([".cnb.yml", "ironforge-docs/x.md"], dict(full=False, rust=False, frontend=False, deploy=False,
+        ([".cnb.yml", "docs/x.md"], dict(full=False, rust=False, frontend=False, deploy=False,
                                                     packages=[])),
         (["web/src/a.svelte"], dict(full=False, rust=False, frontend=True, packages=[])),
         (["web/src/a.svelte", "CLAUDE.md"], dict(full=False, rust=False, frontend=True, packages=[])),

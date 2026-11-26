@@ -1017,7 +1017,7 @@ enum PackObjectExpansion<'a> {
 /// this server has always had. The knob exists because the pipeline's working
 /// set is roughly `threads x chunk of in-flight entries` (T38 measured ~208 MiB
 /// at 16 threads and ~123 MiB at 8 for a 20 000-commit repository), and a small
-/// host may prefer the slower, smaller setting. See `docs/plans/T38-plan.md`.
+/// host may prefer the slower, smaller setting. See `docs/performance.md`.
 ///
 /// Read per call rather than cached: a pack takes seconds, one `getenv` does not
 /// matter, and it keeps the value testable.

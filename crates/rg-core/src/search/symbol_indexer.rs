@@ -2,7 +2,7 @@
 //!
 //! Writes the *declarations* of a commit into `symbol_definitions`. Reference
 //! rows are deliberately absent: the design document
-//! (`ironforge-docs/architecture/symbol-graph-design-2026-11.md` §2) measured
+//! (`docs/design/code-intelligence.md` §2) measured
 //! the reference side at 30× the definition volume with 73.9% of it noise from
 //! common names.
 //!

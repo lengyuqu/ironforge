@@ -1,6 +1,6 @@
 //! Same-account multi-agent collaboration (sessions, tasks, messages, handoffs).
 //!
-//! Design: `ironforge-docs/architecture/multi-agent-collaboration-design-2026-11.md`.
+//! Design: `docs/design/agent-collaboration.md`.
 //!
 //! Everything here is *declared state*: names, task status, paths, handoff
 //! summaries and evidence are claims by clients and are never verified, never

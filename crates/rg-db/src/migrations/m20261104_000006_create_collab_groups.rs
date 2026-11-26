@@ -1,7 +1,7 @@
 //! Cross-repository coordination groups (P2 X02): `collab_coordination_groups`
 //! and `collab_coordination_links`.
 //!
-//! Design: `ironforge-docs/architecture/agent-collaboration-p2-design-2026-11.md`
+//! Design: `docs/design/agent-collaboration.md`
 //! §3–§4. Only new tables; earlier collaboration migrations are not touched.
 //!
 //! A group belongs to one *anchor* repository. A link points at another (or the

@@ -6,7 +6,7 @@
 //! * the writer stores every declaration, including Rust `impl` rows whose
 //!   `name` is a first line rather than an identifier (`ActiveModelBehavior for
 //!   ActiveModel`; 4.1% of rows, measured in
-//!   `ironforge-docs/architecture/symbol-graph-design-2026-11.md` §1.5);
+//!   `docs/design/code-intelligence.md` §2);
 //! * the reader excludes `kind = 'impl'` **unconditionally**. Those rows are not
 //!   identifiers, so a name query can never legitimately mean them, and
 //!   returning them makes a search for `ActiveModel` answer with 106
