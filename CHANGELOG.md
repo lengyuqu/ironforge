@@ -3,6 +3,20 @@
 本文件记录 IronForge 的版本演进。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)（0.x 阶段以 minor 为 breaking 粒度）。
 
+## [0.5.1] - 2026-11-26
+
+0.5.0 的 CI 把两个既有问题照了出来，这个补丁把它们一起收口：`crypto-bigint 0.5.5` 的
+RUSTSEC-2026-0387，以及 6 个文件没过 `cargo fmt --check`（格式门是 Clippy job 的第一步，
+所以 clippy 本身没跑到）。两者都不是 0.5.0 引入的，但它们让 0.5.0 的 CI 变红。
+
+### Fixed
+
+- **`jsonwebtoken` 10.3.0 → 12.0.0**：12 改用 `p256`/`p384` 0.14 与 `rsa` 0.10，
+  `crypto-bigint 0.5.5` 因此整条离开依赖树（RUSTSEC-2026-0387：常量时间运算存在时序差异）。
+  12 的 `EncodingKey::from_secret` / `DecodingKey::from_secret` 改为返回 `Result`
+  （空 HMAC 密钥在构造时被拒），四个签发/校验入口按此适配：签发出错，校验视为无效。
+- **`cargo fmt`**：`rg-ci` 与 `rg-git` 的 6 个文件按 rustfmt 重排，格式门恢复。
+
 ## [0.5.0] - 2026-11-26
 
 本版本的主线是 **大仓库的传输与内存**：先把基线量出来，再按实测重写两处最贵的地方。
