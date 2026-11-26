@@ -3,6 +3,60 @@
 本文件记录 IronForge 的版本演进。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)（0.x 阶段以 minor 为 breaking 粒度）。
 
+## [0.5.0] - 2026-11-26
+
+本版本的主线是 **大仓库的传输与内存**：先把基线量出来，再按实测重写两处最贵的地方。
+T32 用固定种子的三档数据集量出两个数字——改一个文件后的 `git fetch` 实际传的对象是客户端
+真实缺失对象的 **8,380 倍**（large 数据集 88,270 倍），一次 large 仓库 clone 在服务端常驻
+**1.21 GB** 的单个 `Vec<u8>`。T37 把前者改成对象级差集，T38 把后者改成流式输出；
+3 路并发 large clone 从 6536 MiB 降到 782 MiB（改前在 8 GB 机器上必 OOM）。
+
+另一半是生产化的底账：CI 能展开 composite action（`node*` / `docker` 继续 fail closed），
+HA / 滚动升级 / 备份恢复第一次有可照着执行的演练手册和判定失败的标准，95 处授权点完成测绘，
+CNB 导入按前两次的教训做了真机验证——又炸出 9 个「报成功而数据是错的」缺陷。
+
+涵盖 61 个提交（fix 14 / docs 14 / chore 8 / perf 4 / feat 4 / test 3）。
+
+### Added
+
+- **大仓库性能基线**（T32）：三档固定数据集（固定种子、可重建）与绝对阈值写成 `#[ignore]`
+  测试（`crates/rg-git/tests/perf_baseline.rs`），回答「这个改动有没有变慢」不再靠感觉。
+- **CI composite action 展开**（T34）：按 ADR-0001 只做纯 YAML 展开，不碰执行沙箱；
+  展开是原子的，远程缓存按子目录区分。`node*` 与 `docker` 继续 fail closed，并说明需要
+  `actions-v1` runner。
+- **HA / 滚动升级 / 备份恢复**（T35）：`docs/plans/T35-adr-ha.md` 与
+  `T35-drill-backup-restore.md`；在 HEAD 二进制（112 条迁移）上重跑恢复演练，给出实测
+  机器时间（SQLite 约 145 ms）与「什么算演练失败」的清单，并明确不外推。
+- **Unit 级权限测绘**（T33）：95 处授权点逐条映射（`T33-authorization-map.md`）与 D1–D6
+  决策 ADR；本轮只测绘与决策，不改权限语义。
+
+### Performance
+
+- **增量 fetch 只发缺失对象**（T37）：`TreeContents` 改为按 haves 剪枝后的对象级差集。
+  medium 数据集 20,224 对象 / 50 MB → 8 对象 / 5,973 B；large 201,112 对象 / 992 MB →
+  8 对象 / 11,240 B。
+- **pack 流式输出**（T38）：不再先拼进 `Vec<u8>` 再写 socket。large clone 服务端峰值 RSS
+  2521 → **299 MiB**（净增量 2437 → 215 MiB，−91%），耗时 78.5 → 64.2 s；3 路并发
+  6536 → **782 MiB**。V1 与 V2 两条路径都改（真实 `git clone` 默认 V2）。
+  `IRONFORGE_PACK_THREADS` 可调生产端线程数：4 线程能到 197 MiB，但要付 +147% 耗时，
+  默认不改。
+
+### Fixed
+
+- **CNB 导入真机验证炸出的 9 个缺陷**（T36）：approval 被丢弃、作者被记到账号 1、
+  限流静默删除评论、milestone / release / wiki 报成功而没导入、标签颜色与未使用标签丢失、
+  PR 评论成为孤儿、每条 PR 描述丢失、`state=all` 被拒、并发导入丢正文。
+- **CI 错误不再被吞**：Gitea workflow 读取失败改为 fail closed；恢复被 T34 改坏的
+  no-raw-git 守卫。
+- **`jsonwebtoken` 10.3.0**：对应 CVE-25537。
+- **gix 0.90 → 0.91**：随动的子 crate 一并升级。
+
+### Known limitations
+
+- large clone 峰值仍未到原定 200 MiB 验收线，按实测放宽到 320 MiB：根因是 gix 并行
+  entry 流水线的工作集（16 路生产端各压一个 chunk），与 pack 大小解耦。
+- 第三方 Action 只支持 composite；`node*` / `docker` 仍需 `actions-v1` runner（未实现）。
+
 ## [0.4.0] - 2026-11-25
 
 本版本的主线是 **仓库迁移**：把"从别的平台搬过来"从"能跑"变成"四个平台都拿真实实例验过"。

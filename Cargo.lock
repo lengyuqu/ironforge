@@ -4863,7 +4863,7 @@ dependencies = [
 
 [[package]]
 name = "rg-ci"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4885,7 +4885,7 @@ dependencies = [
 
 [[package]]
 name = "rg-ci-isolation"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "libc",
@@ -4894,7 +4894,7 @@ dependencies = [
 
 [[package]]
 name = "rg-cli"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4922,7 +4922,7 @@ dependencies = [
 
 [[package]]
 name = "rg-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "aes-gcm 0.10.3",
  "anyhow",
@@ -4975,7 +4975,7 @@ dependencies = [
 
 [[package]]
 name = "rg-db"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4993,7 +4993,7 @@ dependencies = [
 
 [[package]]
 name = "rg-git"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "gix",
@@ -5009,7 +5009,7 @@ dependencies = [
 
 [[package]]
 name = "rg-http"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5058,7 +5058,7 @@ dependencies = [
 
 [[package]]
 name = "rg-mcp"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5078,7 +5078,7 @@ dependencies = [
 
 [[package]]
 name = "rg-runner"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5097,7 +5097,7 @@ dependencies = [
 
 [[package]]
 name = "rg-ssh"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "chrono",
