@@ -1,7 +1,7 @@
 //! The collaboration capability registry: the one static list of what this
 //! build offers over REST and MCP, behind `GET /api/v1/collaboration/capabilities`.
 //!
-//! Design: `agent-collaboration-p2-design-2026-11.md` §6 (R14), acceptance M10–M11.
+//! Design: `docs/design/agent-collaboration.md` §10 (R14), acceptance M10–M11.
 //!
 //! # Adding a capability (append-only)
 //!

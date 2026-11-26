@@ -1,6 +1,6 @@
 //! Forward-compatibility helpers of the collaboration contract.
 //!
-//! Policy (design: `agent-collaboration-p2-design-2026-11.md` §6, R14):
+//! Policy (design: `docs/design/agent-collaboration.md` §10, R14):
 //!
 //! * Responses may gain optional fields and enum values in a minor version;
 //!   clients ignore unknown response fields and unknown *non-critical* enum

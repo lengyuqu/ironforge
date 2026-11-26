@@ -5,7 +5,7 @@
 
 ## 30 秒了解项目
 
-**IronForge**（铁匠铺）是用 Rust 从零实现的、**面向 AI Agent 编程的 Git 托管平台**：内存 <50 MB、单二进制，具备仓库/Issue/PR/Wiki/CI/包注册表/企业认证/审计/代码搜索，并把 Agent 主体身份、最小权限令牌、可重试写入、MCP 与多 Agent 协作做成一等公民。
+**IronForge**（铁匠铺）是用 Rust 从零实现的、**面向 AI Agent 编程的 Git 托管平台**：目标内存 <50 MB（本机实测空载约 84 MiB）、单二进制，具备仓库/Issue/PR/Wiki/CI/包注册表/企业认证/审计/代码搜索，并把 Agent 主体身份、最小权限令牌、可重试写入、MCP 与多 Agent 协作做成一等公民。
 
 - 阶段：Phase 1~21 全部完成
 - 技术栈：Rust（Axum / SeaORM）+ SvelteKit 5，SQLite / PostgreSQL / MySQL，gix + 仅测试/mirror 使用的 git CLI 网关

@@ -40,7 +40,7 @@ CNB 导入按前两次的教训做了真机验证——又炸出 9 个「报成�
   `actions-v1` runner。
 - **HA / 滚动升级 / 备份恢复**（T35）：`docs/operations.md`；在 HEAD 二进制（112 条迁移）上
   重跑恢复演练，给出实测机器时间（SQLite 约 145 ms）与「什么算演练失败」的清单，并明确不外推。
-- **Unit 级权限测绘**（T33）：95 处授权点逐条映射（`T33-authorization-map.md`）与 D1–D6
+- **Unit 级权限测绘**（T33）：95 处授权点逐条映射（映射表见 git 历史）与 D1–D6
   决策 ADR；本轮只测绘与决策，不改权限语义。
 
 ### Performance
@@ -248,7 +248,7 @@ limitations），部署即拷贝单个二进制 + 静态前端，消除了热路
 ### Documentation
 
 - README / ARCHITECTURE / CONTRIBUTING / CLAUDE / AGENT / docs/git-protocol 全面与
-  "CLI 已退役" 现状对齐；迁移全程记录见 `docs/gix-migration-assessment.md`。
+  "CLI 已退役" 现状对齐；迁移过程记录见 git 历史。
 
 ### Quality
 

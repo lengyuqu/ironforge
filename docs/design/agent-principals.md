@@ -39,15 +39,15 @@ Agent **永远不能获得仓库 `admin`**，也不能通过 owner 的权限绕�
 
 ## 5. 审计
 
-- Agent 的每个审计行自动带 `on_behalf_of_user_id = owner_user_id`；人类的行该列为 `NULL`。
-- 审计查询支持按 `on_behalf_of_user_id` 过滤，能回答「这个人名下的 Agent 做了什么」。
-- 该列没有外键：审计行要能活过账号删除。
+- 通过 HTTP 写审计的入口统一用 `api::audit::record_write`：Agent 的行带 `on_behalf_of_user_id = owner_user_id`，人类的行该列为 `NULL`。
+- **已知缺口**：`rg_core::audit::record` 与少数直接插入（协作组创建、草稿清理等）仍写 `NULL`。这些行不能按 owner 过滤；修复前不要声称审计表对 Agent 全覆盖。
+- 审计查询支持按 `on_behalf_of_user_id` 过滤；该列没有外键，审计行要能活过账号删除。
 
 ## 6. 通知
 
-- 「该通知谁」与「权限受谁限制」用同一条规则：人类的 accountable person 是自己；Agent 是它的 owner。
-- owner 不存在、被禁用或本身是 Agent 时没有收件人，通知不发出，而不是退回给 Agent。
-- Webhook/邮件里同时保留 Agent 用户名与 owner，便于追责。
+- **协作人工通知**（问题、阻塞、交接等）在发送前把收件人映射为 accountable person：Agent 的 owner；owner 不存在、被禁用或本身是 Agent 时没有收件人，不退回给 Agent。
+- **Webhook** 的主体带 `owner_id` / `owner_username`，消费方能看出 Agent 在为谁工作。
+- 其他通知路径（例如 Issue/PR 的普通订阅邮件）不保证自动改派；不要假设邮件一定到 owner。
 
 ## 7. 提交身份
 

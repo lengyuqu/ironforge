@@ -272,4 +272,4 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 
 ---
 
-*本文件由 WorkBuddy 生成，最后更新：2026-07-05*
+*维护：随代码更新。工具以 `tools/list` 为准，能力与版本以 `/collaboration/capabilities` 注册表为准。*

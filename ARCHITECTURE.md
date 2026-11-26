@@ -10,8 +10,8 @@
 
 ## 一、项目愿景
 
-- **极致轻量**：内存占用 < 50MB（对比 Gitea ~200MB）
-- **单二进制部署**：一个文件跑起来，Docker 镜像 < 20MB
+- **极致轻量**：目标内存 <50 MB；本机实测空载约 84 MiB（见 docs/performance.md）
+- **单二进制部署**：一个文件跑起来；本机构建的 Docker 镜像约 400 MB
 - **全功能**：仓库管理、用户/组织、Issue、Pull Request、Wiki、CI/CD、包注册表、企业认证、审计、代码搜索
 - **跨平台**：macOS + Linux（Docker）
 
@@ -117,13 +117,13 @@ flowchart TB
 
 | 维度 | gix (gitoxide) | git2 (libgit2) |
 |------|----------------|----------------|
-| 纯 Rust | 是（~70% 覆盖率） | 否，C 依赖 |
+| 纯 Rust | 是（生产路径 gix 原生，mirror 例外） | 否，C 依赖 |
 | 编译速度 | 快 | 慢（需链接 C） |
 | 服务端协议 | 需自行实现 | 不支持 |
 | 对象操作 | 成熟 | 非常成熟 |
 | 活跃度 | 极高 | 中等 |
 
-**选择 gix**：纯 Rust 的优势在交叉编译和 Docker 镜像体积上回报巨大。服务端协议层（Smart Protocol）是本项目自行实现的核心部分。git CLI 依赖已于 2026-09 基本全量退役（含 pack 生成/摄取、rebase、fork 对象搬运等自研补齐，见 `docs/gix-migration-assessment.md`），唯一残留：mirror 同步（`git clone --mirror` / `git remote update`，带 transport lockdown）仍走 git CLI，启用镜像功能时运行时需要系统 git。
+**选择 gix**：纯 Rust 的优势在交叉编译和 Docker 镜像体积上回报巨大。服务端协议层（Smart Protocol）是本项目自行实现的核心部分。git CLI 依赖已于 2026-09 基本全量退役（含 pack 生成/摄取、rebase、fork 对象搬运等自研补齐；升级注意事项见 CLAUDE.md），唯一残留：mirror 同步（`git clone --mirror` / `git remote update`，带 transport lockdown）仍走 git CLI，启用镜像功能时运行时需要系统 git。
 
 #### 前端框架对比
 
@@ -655,7 +655,7 @@ node frontend build
 
 | 风险 | 影响 | 缓解策略 |
 |------|------|----------|
-| gix 上游 API 变动 | 自研适配层需跟进 | 生产路径已 100% gix 化；语义由 characterization 测试钉死，升级时按评估文档复查 |
+| gix 上游 API 变动 | 自研适配层需跟进 | 生产路径已 gix 原生；语义由 characterization 测试钉死，升级时按 CLAUDE.md 的 gix 升级注意事项复查 |
 | SQLite 并发写入瓶颈 | 大规模部署受限 | 支持 PostgreSQL/MySQL 多后端 |
 | CI/CD 安全性 | 执行用户脚本的风险 | Docker 容器隔离 + Secret 最小注入 + 网络断开 |
 | 前端 SPA 无 SSR | SEO 不友好 | 定位为开发者工具，非面向公众 |

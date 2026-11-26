@@ -7,7 +7,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.95%2B-orange)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-IronForge 是一个**为 Agent 编程而设计的 Git 托管平台**。它自带完整的 Git 托管基本盘——仓库、Issue、Pull Request、Wiki、CI/CD、包注册表、企业认证、审计、代码搜索，目标是内存占用极低（<50MB）、单二进制部署——但项目的重心早已不是「再做一个 [Gitea](https://gitea.com/) / [Forgejo](https://forgejo.org/)」，而是回答另一个问题：
+IronForge 是一个**为 Agent 编程而设计的 Git 托管平台**。它自带完整的 Git 托管基本盘——仓库、Issue、Pull Request、Wiki、CI/CD、包注册表、企业认证、审计、代码搜索，目标是内存占用极低（<50MB；本机实测空载约 84 MiB）、单二进制部署——但项目的重心早已不是「再做一个 [Gitea](https://gitea.com/) / [Forgejo](https://forgejo.org/)」，而是回答另一个问题：
 
 > **当写代码的主力变成多个并发、会重试、按 token 计费的 Agent 时，代码托管平台应该长什么样？**
 

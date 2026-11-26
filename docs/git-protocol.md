@@ -700,4 +700,4 @@ done\n
 - [Git HTTP Backend](https://git-scm.com/docs/git-http-backend)
 - [Git Smart HTTP Transfer Protocols](https://git-scm.com/docs/http-protocol)
 - [russh 文档](https://docs.rs/russh/)
-- [gitoxide (gix)](https://github.com/Byron/gitoxide) — 生产路径仅剩 1 处 CLI：mirror 同步的 `git clone --mirror`（首次）与 `git fetch --prune origin` + 两条显式 refspec（后续），经 `GitCommandGateway` 并带 transport lockdown，见 `crates/rg-core/src/mirror/service.rs:244`、`:327`。其余热路径已 100% gix 原生（含 rebase 与 pack 生成的 gix 自研实现），评估见 `gix-migration-assessment.md`
+- [gitoxide (gix)](https://github.com/Byron/gitoxide) — 生产路径仅剩 1 处 CLI：mirror 同步的 `git clone --mirror`（首次）与 `git fetch --prune origin` + 两条显式 refspec（后续），经 `GitCommandGateway` 并带 transport lockdown，见 `crates/rg-core/src/mirror/service.rs:244`、`:327`。其余热路径已 gix 原生（含 rebase 与 pack 生成的 gix 自研实现）；升级注意事项见 CLAUDE.md，历史评估见 git 历史

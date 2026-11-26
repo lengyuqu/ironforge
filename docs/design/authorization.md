@@ -93,6 +93,8 @@ PAT scope 是**阶梯**，高层包含低层：
 
 目标：把仓库三档扩展为 **8 个 unit × 3 档**，存 `repo_unit_permissions`；旧表 `repo_collaborators` 在新开关切到 `on` 前仍是唯一事实来源。老角色迁移时展开为全部 unit 同档，旧行为不变。
 
+Unit：`code`、`issues`、`pulls`、`releases`、`wiki`、`packages`、`actions`、`boards`；`external_wiki` 功能不存在，不建空 unit。
+
 已裁决（2026-11-25，D1–D6）：
 
 | # | 决策 |

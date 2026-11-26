@@ -43,7 +43,7 @@
 
 - 单文件 ≤100 MiB；仓库默认总配额 1 GiB；扩展名白名单；文件名 ≤255 字节；拒绝路径、控制字符和空文件。
 - 上传与删除允许目标作者或仓库写者；列表与下载走仓库读权限。
-- Issue 使用 Gitea 兼容的 `/repos/{owner}/{repo}/issues/{number}/assets` 与 `/issues/comments/{id}/assets`；PR/Review Comment 使用 `/pulls/{number}/assets` 与 `/pulls/comments/{id}/assets`。
+- Issue 使用 Gitea 兼容的 `/repos/{owner}/{repo}/issues/{number}/assets` 与 `/issues/comments/{comment_id}/assets`；PR/Review Comment 使用 `/pulls/{number}/assets` 与 `/pulls/comments/{comment_id}/assets`。
 - 上传先原子发布 Blob 再写 DB；删除时先临时备份 Blob，Blob 删成功再删 DB，DB 失败则恢复 Blob。
 
 ## 4. Markdown 模板

@@ -7,7 +7,7 @@
 
 ## 项目简介
 
-**IronForge**（铁匠铺）是用 Rust 从零实现的、**面向 AI Agent 编程的 Git 托管平台**。内存 <50 MB、单二进制部署，在完整托管基本盘（仓库/Issue/PR/Wiki/CI/包注册表/企业认证/审计/代码搜索）之上，把 Agent 能力做成一等公民：Agent 主体身份与最小权限令牌、可预览/可重试的写入、改-推-看 CI-修 的短闭环、MCP、多 Agent 协作。
+**IronForge**（铁匠铺）是用 Rust 从零实现的、**面向 AI Agent 编程的 Git 托管平台**。目标内存 <50 MB（本机实测空载约 84 MiB，见 [docs/performance.md](docs/performance.md)）、单二进制部署，在完整托管基本盘（仓库/Issue/PR/Wiki/CI/包注册表/企业认证/审计/代码搜索）之上，把 Agent 能力做成一等公民：Agent 主体身份与最小权限令牌、可预览/可重试的写入、改-推-看 CI-修 的短闭环、MCP、多 Agent 协作。
 
 评估新功能先问「是否让 Agent 更省 token、更可控、更可追溯」，而不是「Gitea 有没有」。Gitea 差距清单只作参考，不是目标。
 
@@ -96,6 +96,7 @@ cargo test -p <crate>      # 单 crate
 - **多实例 / 滚动升级**：只支持单实例；DB、仓库存储、启动迁移、周期任务四处未外置（`docs/operations.md`）。
 - **第三方 Action**：只支持 composite 展开；node/docker 继续 fail closed，需 `actions-v1` runner。
 - **通用审批原语**：库已实现，但未接到合并/直推/发版/环境释放，只有 PR 头部漂移会使旧票过期。
+- **内存定位**：目标 <50 MB，实测空载约 84 MiB；大仓库 clone 峰值 299 MiB（见 docs/performance.md）。
 - **符号索引**：只存定义，不存引用；大仓库根目录 tree 仍是递归全量遍历。
 - **Blob**：legacy 路径只兼容读取，一致性扫描与在线迁移未做；S3 只覆盖 Blob，Git 仓库仍在本地盘。
 - **数据库迁移工具**：不提供 SQLite → PostgreSQL/MySQL 的数据迁移。

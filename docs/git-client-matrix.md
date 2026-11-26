@@ -46,9 +46,6 @@ IRONFORGE_E2E_KEEP_TMP=1 scripts/git-protocol-e2e.sh
 
 也可通过 `IRONFORGE_BIN=/absolute/path/to/ironforge` 指定其他构建产物。
 
-## 4. 2026-07-14 首次运行结论
+## 4. 运行与失败判定
 
-- GIT-003 建立时的 10 个场景全部通过；GIT-004 将矩阵扩展为 12 个场景，GIT-002 将最后一项升级为 HTTP/SSH filter 正向验收；
-- 首次运行发现 HTTP V2 增量 fetch 的 acknowledgments section 顺序错误；
-- 修复后，携带 `done` 的请求直接进入 packfile section，协商中的 `ready` 位于 section delimiter 之前；
-- 对应 7 个 `rg-git` Protocol V2 单元测试和 1 个 `rg-http` capability 测试通过，真实 HTTP/SSH V2 clone/fetch/shallow/filter 均通过。
+矩阵每次启动临时实例，使用真实 `git` / `ssh` / `curl` 完成注册、建仓、SSH 公钥与 clone/fetch/push。任一行断言失败即矩阵失败；协商证据必须来自 packet trace，不能只看退出码。历史修复记录见 git 历史。
