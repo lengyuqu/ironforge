@@ -555,7 +555,7 @@ utoipa          = "5"        # ⚠️ 未纳入 workspace，在 rg-http 中硬�
 utoipa-swagger-ui = "8"      # ⚠️ 未纳入 workspace
 anyhow          = "1"
 thiserror       = "2"
-gix             = "0.90"     # features: blocking-http-transport-curl, max-performance, blob-diff, pack-cache-lru-dynamic, merge, blame
+gix             = "0.91"     # features: blocking-http-transport-curl, max-performance, blob-diff, pack-cache-lru-dynamic, merge, blame；升级须联动 gix-pack 0.78 / gix-archive 0.40 / gix-sec 0.17（见第 30 条）
 chrono          = "0.4"      # features: serde
 uuid            = "1"        # features: v4, serde
 # Auth / Crypto
