@@ -19,13 +19,15 @@ pub fn derive_key(secret: &str) -> [u8; 32] {
 }
 
 pub fn encrypt(plaintext: &str, key: &[u8; 32]) -> CoreResult<String> {
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    // `GenericArray::from_slice` is deprecated since generic-array 0.14.9; the
+    // array conversions below are the replacement (both sides are fixed-size).
+    let cipher = Aes256Gcm::new(&Key::<Aes256Gcm>::from(*key));
     let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
+    let nonce = Nonce::from(nonce_bytes);
 
     let ciphertext = cipher
-        .encrypt(nonce, plaintext.as_bytes())
+        .encrypt(&nonce, plaintext.as_bytes())
         .map_err(|e| CoreError::internal(format!("encryption failed: {}", e)))?;
 
     let mut combined = Vec::with_capacity(12 + ciphertext.len());
@@ -44,11 +46,14 @@ pub fn decrypt(encoded: &str, key: &[u8; 32]) -> CoreResult<String> {
     }
 
     let (nonce_bytes, ciphertext) = combined.split_at(12);
-    let nonce = Nonce::from_slice(nonce_bytes);
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
+    let nonce_arr: [u8; 12] = nonce_bytes
+        .try_into()
+        .map_err(|_| CoreError::InvalidInput("ciphertext too short".into()))?;
+    let nonce = Nonce::from(nonce_arr);
+    let cipher = Aes256Gcm::new(&Key::<Aes256Gcm>::from(*key));
 
     let plaintext = cipher
-        .decrypt(nonce, ciphertext)
+        .decrypt(&nonce, ciphertext)
         .map_err(|e| CoreError::internal(format!("decryption failed: {}", e)))?;
 
     String::from_utf8(plaintext).map_err(|e| CoreError::internal(format!("invalid UTF-8: {}", e)))

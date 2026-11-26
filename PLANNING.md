@@ -84,3 +84,5 @@ After implementation and task acceptance checks pass, the Agent changes only its
 | 2026-11-25 | T32–T36 全部合并（`e661a0fd` + `039907d5` + `2d718a5f`） | T32/T33/T35 文件零重叠先合；T34 带一个 revert（接线与错误传播原本混在一起，重排后各自可回滚）；T36 与 T34 不重叠 | T32–T36 | 余曲 |
 | 2026-11-25 | 新开 T37（增量 fetch 对象级差集）与 T38（pack 流式化） | T32 实测：medium 仓库改 1 文件后 fetch 生成 50MB/20224 对象，真实增量 6KB/8 对象（≈8000×）；根因是 `ObjectExpansion::TreeContents` 对每个待打包 commit 展开完整工作树，**commit 层已按 haves 剪枝**，缺的是对象层差集。T38 是 T32 实测 large pack 1.21 GB 全量驻留内存 | T37,T38 | 余曲 |
 | 2026-11-25 | T33/T35 的实现不在本批 | T33 需改 `route_meta.rs`(846 行) 与迁移号段；T35 需改 `deploy/` 与 DB/存储/队列三层。两者先出可审设计，实现另开批次 | T33,T35 | 余曲 |
+| 2026-11-26 | T38 完成：pack 流式化，large clone 峰值 2521 → 299 MiB（−91%），耗时 −18% | 剩余 215 MiB 净增量是 gix 并行 entry 流水线（16 路生产端各压一个 chunk），与 pack 大小解耦（`IRONFORGE_PACK_THREADS=1` 时只剩 13 MiB）。**默认线程数不改**：砍到 4 线程省 95 MiB 但要付 +147% clone 耗时，而默认值该为多数场景优化；`IRONFORGE_PACK_THREADS=8` 作为文档里的内存优先档 | T38 | 余曲 |
+| 2026-11-26 | 验收口径改为「峰值 RSS 相对空载的净增量」 | 绝对值通过线会被与任务无关的固定开销顶穿（空载 84 MiB、counts 17.2 MiB）。判据应是「净增量与 pack 大小解耦」，改前是 1:1 跟着 pack 走 | T38 | 余曲 |

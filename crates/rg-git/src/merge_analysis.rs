@@ -233,10 +233,10 @@ pub fn analyze_merge(
     let base = parse_oid(base_sha)?;
     let head = parse_oid(head_sha)?;
 
-    let merge_base = repo
+    let merge_base_id = repo
         .merge_base(base, head)
-        .map_err(|e| anyhow!("failed to find the merge base: {e}"))?
-        .map(|id| id.to_string());
+        .map_err(|e| anyhow!("failed to find the merge base: {e}"))?;
+    let merge_base = merge_base_id.map(|id| id.to_string());
     if merge_base.is_none() {
         return Ok(MergeAnalysis {
             merge_base: None,
@@ -276,7 +276,20 @@ pub fn analyze_merge(
         });
     }
 
-    let report = build_report(&repo, &outcome.tree_merge.conflicts, after_path);
+    // gix 0.91 dropped the ancestor entry from `tree::Conflict`, but the
+    // readiness API still reports `base_blob`, so look it up in the tree of the
+    // **merge base** — not in `base`, which is the tip being merged into and
+    // does contain files the ancestor never had (an add/add conflict would then
+    // report a bogus base blob).
+    let base_tree = merge_base_id
+        .and_then(|id| repo.find_commit(id).ok())
+        .and_then(|commit| commit.tree().ok());
+    let report = build_report(
+        &repo,
+        &outcome.tree_merge.conflicts,
+        after_path,
+        base_tree.as_ref(),
+    );
     Ok(MergeAnalysis {
         merge_base,
         verdict: MergeVerdict::Conflicts(report),
@@ -287,6 +300,7 @@ fn build_report(
     repo: &gix::Repository,
     conflicts: &[gix::merge::tree::Conflict],
     after_path: Option<&str>,
+    base_tree: Option<&gix::Tree<'_>>,
 ) -> ConflictReport {
     // Order and window by path first; only the listed window is opened.
     let mut ordered: Vec<(String, &gix::merge::tree::Conflict)> = conflicts
@@ -303,7 +317,7 @@ fn build_report(
     let mut entries: Vec<ConflictEntry> = remaining
         .into_iter()
         .take(MAX_CONFLICT_FILES)
-        .map(|(_, conflict)| describe_conflict(repo, conflict))
+        .map(|(_, conflict)| describe_conflict(repo, conflict, base_tree))
         .collect();
 
     // One budget for every excerpt in the report.
@@ -341,6 +355,7 @@ fn cut_at_char_boundary(text: &mut String, max: usize) {
 fn describe_conflict(
     repo: &gix::Repository,
     conflict: &gix::merge::tree::Conflict,
+    base_tree: Option<&gix::Tree<'_>>,
 ) -> ConflictEntry {
     use gix::merge::tree::{Resolution, ResolutionFailure};
 
@@ -376,6 +391,17 @@ fn describe_conflict(
             }
             ResolutionFailure::OursDeletedTheirsRenamed
             | ResolutionFailure::OursModifiedTheirsDeleted => ConflictKind::DeleteModify,
+            // gix 0.91 split directory renames into their own failure kinds.
+            // All four still mean "the two sides moved things differently", so
+            // they keep the rename/rename label the UI already explains.
+            ResolutionFailure::DirectoryRename { .. }
+            | ResolutionFailure::DirectoryRenameSplit { .. }
+            | ResolutionFailure::DirectoryRenameBlocked { .. }
+            | ResolutionFailure::DirectoryRenameCollision { .. } => ConflictKind::RenameRename,
+            ResolutionFailure::DistinctTypes { .. } => ConflictKind::TypeMismatch,
+            // A mode-only conflict (the executable bit) is not a content or type
+            // conflict; `other` is the honest label until one is needed.
+            ResolutionFailure::ModeConflict { .. } => ConflictKind::Other,
             ResolutionFailure::Unknown => ConflictKind::Other,
         },
         Ok(Resolution::Forced(_)) => ConflictKind::Other,
@@ -389,15 +415,28 @@ fn describe_conflict(
         Ok(_) => ConflictKind::Other,
     };
 
-    let entries = conflict.entries();
-    let blob_of = |slot: usize| entries[slot].map(|entry| entry.id.to_string());
-    let base_blob = blob_of(0);
-    let ours_blob = blob_of(1);
-    let theirs_blob = blob_of(2);
+    // gix 0.91 turned `Conflict` into a diagnostic record with two `Change`
+    // sides; the ancestor is no longer part of it. Take ours/theirs from the
+    // sides and look the ancestor blob up in the base tree by path, so the
+    // readiness API keeps reporting `base_blob`.
+    let (our_mode, our_id) = our_change.entry_mode_and_id();
+    let (their_mode, their_id) = their_change.entry_mode_and_id();
 
-    let is_link = entries.iter().flatten().any(|entry| entry.mode.is_link());
+    let base_blob = base_tree
+        .and_then(|tree| {
+            tree.lookup_entry_by_path(path_on_base.as_deref().unwrap_or(path.as_str()))
+                .ok()
+                .flatten()
+        })
+        .filter(|entry| entry.mode().is_blob())
+        .map(|entry| entry.object_id().to_string());
+    let ours_blob = Some(our_id.to_string());
+    let theirs_blob = Some(their_id.to_string());
+
+    let is_link = our_mode.is_link() || their_mode.is_link();
     let is_submodule = kind == ConflictKind::Submodule
-        || entries.iter().flatten().any(|entry| entry.mode.is_commit());
+        || our_mode.is_commit()
+        || their_mode.is_commit();
 
     let mut entry = ConflictEntry {
         path,

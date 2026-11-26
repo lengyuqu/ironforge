@@ -217,7 +217,7 @@ fn render_change(
             source_location,
             source_entry_mode,
             source_id,
-            diff,
+            similarity,
             entry_mode,
             id,
             location,
@@ -242,7 +242,10 @@ fn render_change(
                 );
             }
 
-            let similarity = diff.as_ref().map_or(100.0, |s| s.similarity * 100.0);
+            // gix 0.91 replaced the `diff` payload with a `Similarity` newtype
+            // over a 0..=60000 score; `None` means an exact match (or an
+            // inferred directory rename), which is the old 100% case.
+            let similarity = similarity.map_or(100.0, |s| s.fraction() * 100.0);
             // git 的 similarity index 为整数截断（非四舍五入），实测 92.5 → 92
             push_str(
                 out,
@@ -299,13 +302,20 @@ fn emit_body(
         .prepare_diff()
         .map_err(|error| anyhow::anyhow!("failed to prepare diff: {error}"))?;
     match prep.operation {
-        Operation::InternalDiff { algorithm } => {
+        Operation::InternalDiff { algorithm, .. } => {
             // git 语义：行终止符属于行记录（"无换行末行" != "有换行同行"）。
             // 不能用 `prep.interned_input()`——它刻意剥离终止符，行为与 git 相反。
-            let input = gix::diff::blob::InternedInput::new(
-                prep.old.intern_source(),
-                prep.new.intern_source(),
-            );
+            // gix 0.91 dropped `Resource::intern_source()`; the diffable bytes now
+            // live in `data`, and a missing/binary side contributes nothing.
+            let old_bytes: &[u8] = match &prep.old.data {
+                gix::diff::blob::platform::resource::Data::Buffer { buf, .. } => buf,
+                _ => &[],
+            };
+            let new_bytes: &[u8] = match &prep.new.data {
+                gix::diff::blob::platform::resource::Data::Buffer { buf, .. } => buf,
+                _ => &[],
+            };
+            let input = gix::diff::blob::InternedInput::new(old_bytes, new_bytes);
             let diff = gix::diff::blob::diff_with_slider_heuristics(algorithm, &input);
             let renderer = GitHunkRenderer {
                 input: &input,
@@ -320,12 +330,15 @@ fn emit_body(
             );
             return Ok(());
         }
-        Operation::ExternalCommand { command } => {
+        Operation::ExternalCommand { command, .. } => {
             bail!(
                 "external diff driver configured: {}",
                 command.to_str_lossy()
             )
         }
+        // Neither side exists: gix 0.91 reports this as its own operation, and
+        // there is nothing to render.
+        Operation::NeitherExists => {}
     }
     if !hunks.is_empty() {
         push_str(out, &format!("--- {a_label}\n"));

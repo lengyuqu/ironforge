@@ -650,11 +650,14 @@ async fn handle_ls_refs<W: AsyncWrite + Unpin>(
         // HEAD first — resolve symref target if client requested symrefs
         let head_ref = repo.head().ok();
         let head_target: Option<String> = if symrefs {
-            head_ref.as_ref().and_then(|h| match &h.kind {
-                gix::head::Kind::Symbolic(r) => Some(r.name.as_bstr().to_string()),
-                gix::head::Kind::Unborn(name) => Some(name.as_bstr().to_string()),
-                gix::head::Kind::Detached { .. } => None,
-            })
+            // `referent_name()` is the gix 0.91 replacement for matching on
+            // `Head::kind` (now private): it already covers symbolic, unborn and
+            // detached, returning `None` for a detached HEAD, which is exactly
+            // what an ls-refs symref advertisement needs.
+            head_ref
+                .as_ref()
+                .and_then(|head| head.referent_name())
+                .map(|name| name.as_bstr().to_string())
         } else {
             None
         };

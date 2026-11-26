@@ -631,7 +631,6 @@ fn is_http_url(url: &str) -> bool {
 /// token as a configuration override — the gix equivalent of `git -c`. Nothing
 /// is written to disk and the token never appears in the URL.
 fn source_open_options(auth: Option<&SourceAuth>, source_url: &str) -> gix::open::Options {
-    use gix_sec::trust::DefaultForLevel;
     let mut opts = gix::open::Options::default_for_level(gix_sec::Trust::Full);
     opts.permissions.config.git_binary = true;
     if let Some(auth) = auth {

@@ -495,6 +495,41 @@ MySQL 的协作时间戳列是秒精度，同一秒创建的两条记录 `create
 - `git://` 是匿名协议，塞 header 无效；`source_open_options` 只对 `http(s)://` 附加
 - `Config::config_overrides()` 的值是 `key=value` 单行形式（等价 `git -c`），`http.extraHeader=Authorization: Basic <base64(user:token)>`
 
+### 30. gix 0.90 → 0.91：必须成组升子 crate，否则版本分裂 ⚠️
+
+**单独 `cargo update -p gix` 一定失败**：gix 0.91 依赖 `gix-hash 0.29`，而直接锁着的 `gix-pack 0.77` 经 `gix-commitgraph 0.42 → gix-revwalk 0.38` 依赖 `gix-hash 0.28`。两版共存，0.28 缺 `sha1` feature →
+`error: Please set either the sha1 or the sha256 feature flag`，报错指向 registry 源码，看不出是自己的问题。
+
+三个直接依赖必须一起升：
+
+| crate | 旧 | 新 | 为什么直接依赖它 |
+|---|---|---|---|
+| `gix-pack` | 0.77 | 0.78 | `output::entry::iter_from_counts` / `FromEntriesIter`（pack 生成） |
+| `gix-archive` | 0.39 | 0.40 | 统一 feature，让 tar/tar_gz/zip 在共享实例上生效 |
+| `gix-sec` | 0.16 | 0.17 | `Trust` / `default_for_level` |
+
+升完自检：`grep -c '^name = "gix-hash"' Cargo.lock` 必须是 **1**。
+
+**`cargo update` 全量还带回两个非 gix 的连带**：
+- `zip` → 2.6.1 使 `utoipa-swagger-ui 8.1.0` 的 build script 编译失败（`ZipFile` 缺泛型）→ `cargo update -p zip@2.6.1 --precise 2.4.2`
+- `generic-array` → 0.14.9 让 `GenericArray::from_slice` / `as_slice` 变成 deprecation error（`-D warnings` 下直接红）→ 改 `Key::<Aes256Gcm>::from(*key)` 且 `Aes256Gcm::new` / `encrypt` **要引用**，以及 `&digest[..]`
+
+**API 破坏点（7 处）**：
+
+| 旧 | 新 |
+|---|---|
+| `h.kind` 匹配 `head::Kind` | `Head::referent_name()`（已覆盖 symbolic / unborn / detached） |
+| `Change::Rewrite { diff }` | `similarity: Option<Similarity>`，`fraction()` 取 0..1 |
+| `Resource::intern_source()` | `Resource.data` 里 `platform::resource::Data::Buffer { buf }` |
+| `open::Options: Clone` | 移除 → 传构造函数 `impl Fn() -> Options` |
+| `gix_sec::trust::DefaultForLevel` | 移除（`default_for_level` 是固有方法，删 use 即可） |
+| `ResolutionFailure` 12 变体 | 新增 6 个（`ModeConflict` / `DirectoryRename*` / `DistinctTypes`），exhaustive match 必须补 |
+| `prepare_diff::Operation` 2 变体 | 新增 `NeitherExists` |
+
+**`tree::Conflict` 不再带 ancestor**（`entries()` 删除，只剩 `ours` / `theirs` + `resolution`）。重建 `base_blob` 时**必须用 merge base 的 tree，不能用 `analyze_merge` 的 `base` 参数**——后者是被合并进的目标分支 tip，add/add 场景下它已含该路径，会查出不该存在的 base blob。这个错只有 add/add 测试能抓到。
+
+**不要用 `TextChange::patch_input()`**：它内部走 `ByteLinesWithoutTerminator`，剥掉行终止符，与本项目"行终止符属于行记录"的 git 兼容要求相反。要从 `Resource.data` 取原始字节。
+
 ## 依赖版本速查
 
 ```toml
