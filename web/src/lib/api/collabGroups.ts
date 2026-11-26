@@ -1,7 +1,7 @@
 // Cross-repository coordination groups — human-facing REST client.
 //
 // Contract facts the UI relies on (see
-// ironforge-docs/architecture/agent-collaboration-groups-verification-2026-11.md):
+// docs/design/agent-collaboration.md §7):
 //   * There is NO "list all groups of a repository" endpoint, and groups have
 //     no rename / remove / restore endpoint. Only create, read, and add/remove
 //     links exist.

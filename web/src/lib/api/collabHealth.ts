@@ -1,7 +1,7 @@
 // Collaboration health metrics — human-facing REST client (repository admins only).
 //
 // Contract facts the UI relies on (see
-// ironforge-docs/architecture/agent-collaboration-health-verification-2026-11.md):
+// docs/design/agent-collaboration.md §7):
 //   * Metrics come from a platform event log. Nothing before `coverage_start`
 //     is measured: such values are `partial` (a lower bound) or `unknown`
 //     (`value` is null) and must never be shown as 0.

@@ -81,7 +81,7 @@
 | `git push --force` / `git reset --hard` | 🔴 BLOCK | 不可逆 Git 操作 |
 | `git branch -D` / `git tag -d` | 🟠 CONFIRM | 可能丢失未合并工作 |
 | 批量删除（`rm -rf`、`find -delete`） | 🔴 BLOCK | 任何批量删除操作一律禁止 |
-| 删除文档文件（`docs/` / `ironforge-docs/`） | 🟡 WARN | 需确认文档已过时 |
+| 删除文档文件（`docs/`） | 🟡 WARN | 需确认文档已过时 |
 
 **确认流程**：
 ```

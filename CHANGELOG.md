@@ -38,9 +38,8 @@ CNB 导入按前两次的教训做了真机验证——又炸出 9 个「报成�
 - **CI composite action 展开**（T34）：按 ADR-0001 只做纯 YAML 展开，不碰执行沙箱；
   展开是原子的，远程缓存按子目录区分。`node*` 与 `docker` 继续 fail closed，并说明需要
   `actions-v1` runner。
-- **HA / 滚动升级 / 备份恢复**（T35）：`docs/plans/T35-adr-ha.md` 与
-  `T35-drill-backup-restore.md`；在 HEAD 二进制（112 条迁移）上重跑恢复演练，给出实测
-  机器时间（SQLite 约 145 ms）与「什么算演练失败」的清单，并明确不外推。
+- **HA / 滚动升级 / 备份恢复**（T35）：`docs/operations.md`；在 HEAD 二进制（112 条迁移）上
+  重跑恢复演练，给出实测机器时间（SQLite 约 145 ms）与「什么算演练失败」的清单，并明确不外推。
 - **Unit 级权限测绘**（T33）：95 处授权点逐条映射（`T33-authorization-map.md`）与 D1–D6
   决策 ADR；本轮只测绘与决策，不改权限语义。
 
@@ -204,8 +203,8 @@ Git 侧的新原语（cherry-pick / revert / merge-readiness / partial-clone）�
 
 ### Documentation
 
-- `CLAUDE.md` / `ARCHITECTURE.md` / `AGENT.md` 按 T30 刷新到当前实现现状；T01–T31 计划与结项文档归档在
-  `docs/plans/`；一致性对比报告推进到 v3.1。
+- `CLAUDE.md` / `ARCHITECTURE.md` / `AGENT.md` 按 T30 刷新到当前实现现状；T01–T31 的计划与结项文档
+  由 git 历史保留；一致性对比报告推进到 v3.1。
 
 ### Quality
 
