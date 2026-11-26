@@ -11,7 +11,7 @@
   //    fewer items than requested while more follow (`next_cursor`).
   //  * `version` only exists for people who can write to the anchor repository;
   //    readers get no write controls.
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import CollabNav from '$lib/components/collaboration/CollabNav.svelte';
   import SectionCard from '$lib/components/collaboration/SectionCard.svelte';
   import StatusBadge from '$lib/components/collaboration/StatusBadge.svelte';
@@ -24,6 +24,7 @@
   import { toast } from '$lib/components/toast.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createLatest } from '$lib/utils/latest';
   import { ApiError } from '$lib/api/_base.svelte';
   import { collabGroups, type GroupLink, type GroupView } from '$lib/api/collabGroups';
   import { KNOWN, formatTime, newClientId, shortId } from '$lib/utils/collaboration';
@@ -32,9 +33,9 @@
   const t = createT();
   const msg = (e: unknown) => toErrorMessage(e, t('common.unknown_error'));
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
-  let groupId = $derived($page.params.id!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
+  let groupId = $derived(page.params.id!);
 
   let group = $state<GroupView | null>(null);
   let links = $state<GroupLink[]>([]);
@@ -51,13 +52,20 @@
   // Present only for people who can write to the anchor repository.
   let version = $derived(group?.version);
 
+  const groupLatest = createLatest();
+  const linksLatest = createLatest();
+
   async function load() {
+    const isCurrent = groupLatest.begin();
+    linksLatest.invalidate();
+    moreLoading = false;
     loading = true;
     error = '';
     denied = false;
     notFound = false;
     try {
       const res = await collabGroups.get(owner, repo, groupId, { limit: 50 });
+      if (!isCurrent()) return;
       const { links: first, ...rest } = res;
       group = rest;
       links = first.items;
@@ -65,6 +73,7 @@
       asOf = first.as_of;
       remember(owner, repo, { id: rest.id, title: rest.title });
     } catch (e) {
+      if (!isCurrent()) return;
       group = null;
       links = [];
       nextCursor = null;
@@ -74,25 +83,28 @@
         forget(owner, repo, groupId);
       } else error = msg(e);
     } finally {
-      loading = false;
+      if (isCurrent()) loading = false;
     }
   }
 
   async function loadMore() {
     if (!nextCursor || moreLoading) return;
+    const isCurrent = linksLatest.begin();
     moreLoading = true;
     error = '';
     try {
       const res = await collabGroups.listLinks(owner, repo, groupId, { limit: 50, cursor: nextCursor });
+      if (!isCurrent()) return;
       // Keep everything already shown; a link can only appear once.
       const seen = new Set(links.map((l) => l.id));
       links = [...links, ...res.items.filter((l) => !seen.has(l.id))];
       nextCursor = res.next_cursor;
       asOf = res.as_of;
     } catch (e) {
+      if (!isCurrent()) return;
       error = msg(e);
     } finally {
-      moreLoading = false;
+      if (isCurrent()) moreLoading = false;
     }
   }
 

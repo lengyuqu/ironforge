@@ -6,11 +6,12 @@
   // Creating a task FROM a template is not offered here: the server only accepts
   // that call from an agent session (it needs the session secret), and a signed-in
   // person has none. The page says so rather than working around it.
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createLatest } from '$lib/utils/latest';
   import { ApiError } from '$lib/api/_base.svelte';
   import { collabOps, type TemplateView } from '$lib/api/collabOps';
   import { formatTime } from '$lib/utils/collaboration';
@@ -20,8 +21,8 @@
   import TemplateContent from '$lib/components/collaboration/TemplateContent.svelte';
 
   const t = createT();
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
 
   /** Versions fetched per template when its history is opened (newest first). */
   const HISTORY_LIMIT = 50;
@@ -42,26 +43,45 @@
   type History = { versions: TemplateView[]; selected: number; error: string; loading: boolean };
   let histories = $state<Record<string, History>>({});
 
+  const listLatest = createLatest();
+  const historyLatests = new Map<string, ReturnType<typeof createLatest>>();
+
+  function getHistoryLatest(id: string) {
+    let latest = historyLatests.get(id);
+    if (!latest) {
+      latest = createLatest();
+      historyLatests.set(id, latest);
+    }
+    return latest;
+  }
+
   async function load(append = false) {
+    const isCurrent = listLatest.begin();
     if (append) moreLoading = true;
     else loading = true;
     error = '';
     try {
       const res = await collabOps.listTemplates(owner, repo, { limit: 25, cursor: append ? nextCursor : null });
+      if (!isCurrent()) return;
       templates = append ? [...templates, ...res.items] : res.items;
       nextCursor = res.next_cursor;
     } catch (e) {
+      if (!isCurrent()) return;
       if (e instanceof ApiError && (e.status === 403 || e.status === 401)) accessDenied = true;
       else error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      loading = false;
-      moreLoading = false;
+      if (isCurrent()) {
+        loading = false;
+        moreLoading = false;
+      }
     }
   }
 
   $effect(() => {
     void owner;
     void repo;
+    for (const latest of historyLatests.values()) latest.invalidate();
+    historyLatests.clear();
     accessDenied = false;
     creating = false;
     editingId = null;
@@ -71,14 +91,17 @@
   });
 
   async function loadHistory(tpl: TemplateView) {
+    const isCurrent = getHistoryLatest(tpl.id).begin();
     const first = Math.max(1, tpl.latest_version - HISTORY_LIMIT + 1);
     histories[tpl.id] = { versions: [], selected: tpl.latest_version, error: '', loading: true };
     try {
       const nums: number[] = [];
       for (let v = tpl.latest_version; v >= first; v--) nums.push(v);
       const versions = await Promise.all(nums.map((v) => (v === tpl.version.version ? Promise.resolve(tpl) : collabOps.getTemplate(owner, repo, tpl.id, v))));
+      if (!isCurrent()) return;
       histories[tpl.id] = { versions, selected: tpl.latest_version, error: '', loading: false };
     } catch (e) {
+      if (!isCurrent()) return;
       histories[tpl.id] = { versions: [], selected: tpl.latest_version, error: toErrorMessage(e, t('common.unknown_error')), loading: false };
     }
   }
@@ -243,7 +266,7 @@
 
 <style>
   .intro { margin: -8px 0 16px; color: var(--text-secondary); font-size: 13px; max-width: 80ch; }
-  .notice { margin: 0 0 16px; padding: 10px 14px; border: 1px solid var(--border); border-left: 3px solid var(--yellow, #d29922); border-radius: 6px; font-size: 13px; background: var(--bg-secondary); }
+  .notice { margin: 0 0 16px; padding: 10px 14px; border: 1px solid var(--border); border-left: 3px solid var(--yellow); border-radius: 6px; font-size: 13px; background: var(--bg-secondary); }
   .muted { color: var(--text-muted); font-size: 12px; margin: 4px 0; }
   .err { color: var(--red); font-size: 13px; }
   .list { list-style: none; margin: 0; padding: 0; }

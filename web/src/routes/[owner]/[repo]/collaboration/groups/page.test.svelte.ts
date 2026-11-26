@@ -1,18 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 
-const pageStore = vi.hoisted(() => {
-  const value = { params: { owner: 'alice', repo: 'demo' } };
-  return {
-    page: {
-      subscribe(fn: (v: typeof value) => void) {
-        fn(value);
-        return () => {};
-      },
-    },
-  };
-});
-vi.mock('$app/stores', () => ({ page: pageStore.page }));
+vi.mock('$app/state', () => ({ page: { params: { owner: 'alice', repo: 'demo' } } }));
 const goto = vi.hoisted(() => vi.fn());
 vi.mock('$app/navigation', () => ({ goto: (...a: unknown[]) => goto(...a) }));
 vi.mock('$lib/components/RepoHeader.svelte', async () => ({ default: (await import('../../../../../test-stubs/EmptyStub.svelte')).default }));

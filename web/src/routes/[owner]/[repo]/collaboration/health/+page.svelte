@@ -8,7 +8,7 @@
   //  * Task status is whatever its client declared; only the time of each
   //    change is recorded by the platform. Both are labelled.
   //  * There is deliberately no ranking and no per-session / per-agent view.
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import CollabNav from '$lib/components/collaboration/CollabNav.svelte';
   import SectionCard from '$lib/components/collaboration/SectionCard.svelte';
   import StatusBadge from '$lib/components/collaboration/StatusBadge.svelte';
@@ -19,6 +19,7 @@
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createLatest } from '$lib/utils/latest';
   import { ApiError } from '$lib/api/_base.svelte';
   import { collabHealth, type BaselineReport, type Health, type HealthMetric } from '$lib/api/collabHealth';
   import { formatTime, knownLabelKey } from '$lib/utils/collaboration';
@@ -27,8 +28,8 @@
   const t = createT();
   const msg = (e: unknown) => toErrorMessage(e, t('common.unknown_error'));
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
 
   let days = $state<number>(7);
   let health = $state<Health | null>(null);
@@ -42,21 +43,27 @@
   let baselineError = $state('');
   let baselineReport = $state<BaselineReport | null>(null);
 
+  const latest = createLatest();
+
   async function load() {
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     adminsOnly = false;
     signedOut = false;
     drillMetric = null;
     try {
-      health = await collabHealth.get(owner, repo, { from: windowFrom(days) });
+      const res = await collabHealth.get(owner, repo, { from: windowFrom(days) });
+      if (!isCurrent()) return;
+      health = res;
     } catch (e) {
+      if (!isCurrent()) return;
       health = null;
       if (e instanceof ApiError && e.status === 403) adminsOnly = true;
       else if (e instanceof ApiError && e.status === 401) signedOut = true;
       else error = msg(e);
     } finally {
-      loading = false;
+      if (isCurrent()) loading = false;
     }
   }
 

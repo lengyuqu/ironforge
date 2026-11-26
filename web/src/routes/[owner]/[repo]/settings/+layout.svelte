@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import { createT } from '$lib/i18n';
@@ -17,9 +17,9 @@
     }
   });
 
-  const owner = $derived($page.params.owner!);
-  const repo = $derived($page.params.repo!);
-  const currentPath = $derived($page.url.pathname);
+  const owner = $derived(page.params.owner!);
+  const repo = $derived(page.params.repo!);
+  const currentPath = $derived(page.url.pathname);
 
   const navItems: Array<{ path: string; label: string; icon: IconName }> = $derived([
     { path: `/${owner}/${repo}/settings`, label: t('settings.general'), icon: 'settings' },

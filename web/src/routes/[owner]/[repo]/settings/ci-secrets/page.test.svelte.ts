@@ -1,21 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 
-// The page reads owner/repo from the SvelteKit page store; the alias in
+// The page reads owner/repo from SvelteKit's `$app/state`; the alias in
 // vitest.config points at the kit runtime re-export, so this mock intercepts it.
-const pageStore = vi.hoisted(() => {
-  const value = { params: { owner: 'alice', repo: 'demo' } };
-  return {
-    value,
-    page: {
-      subscribe(fn: (v: typeof value) => void) {
-        fn(value);
-        return () => {};
-      },
-    },
-  };
-});
-vi.mock('$app/stores', () => ({ page: pageStore.page }));
+const pageState = vi.hoisted(() => ({
+  params: { owner: 'alice', repo: 'demo' },
+}));
+vi.mock('$app/state', () => ({ page: pageState }));
 
 const api = vi.hoisted(() => ({
   list: vi.fn(),
@@ -70,8 +61,8 @@ describe('ci-secrets settings page', () => {
     Object.values(api).forEach((fn) => fn.mockReset());
     api.list.mockResolvedValue([]);
     api.put.mockResolvedValue({ name: 'DEPLOY_TOKEN', created_at: '', updated_at: '' });
-    pageStore.value.params.owner = 'alice';
-    pageStore.value.params.repo = 'demo';
+    pageState.params.owner = 'alice';
+    pageState.params.repo = 'demo';
   });
 
   it('submits a lowercase name uppercased to the API', async () => {

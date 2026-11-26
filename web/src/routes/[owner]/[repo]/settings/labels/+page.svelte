@@ -5,9 +5,10 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { labels } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { toErrorMessage } from '$lib/utils/error';
   import type { Label } from '$lib/types/entities';
   import LabelFormModal from '$lib/components/labels/LabelFormModal.svelte';
@@ -16,9 +17,10 @@
 
   let { data } = $props();
   const t = createT();
+  const latest = createLatest();
 
-  const owner = $derived($page.params.owner!);
-  const repo = $derived($page.params.repo!);
+  const owner = $derived(page.params.owner!);
+  const repo = $derived(page.params.repo!);
 
   let labelList = $state<Label[]>([]);
   let loading = $state(true);
@@ -30,18 +32,26 @@
   let deletingLabel = $state<Label | null>(null);
 
   $effect(() => {
-    loadLabels();
+    void loadLabels();
   });
 
   async function loadLabels() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const isCurrent = latest.begin();
     try {
       loading = true;
       error = '';
-      labelList = await labels.list(owner, repo);
+      const list = await labels.list(reqOwner, reqRepo);
+      if (!isCurrent()) return;
+      labelList = list;
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed', 'Load failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

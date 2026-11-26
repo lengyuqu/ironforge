@@ -5,9 +5,10 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { milestones } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { toErrorMessage } from '$lib/utils/error';
   import type { Milestone } from '$lib/types/entities';
   import MilestoneFormModal from '$lib/components/milestones/MilestoneFormModal.svelte';
@@ -16,9 +17,10 @@
 
   let { data } = $props();
   const t = createT();
+  const latest = createLatest();
 
-  const owner = $derived($page.params.owner!);
-  const repo = $derived($page.params.repo!);
+  const owner = $derived(page.params.owner!);
+  const repo = $derived(page.params.repo!);
 
   let milestoneList = $state<Milestone[]>([]);
   let loading = $state(true);
@@ -30,18 +32,26 @@
   let deletingMilestone = $state<Milestone | null>(null);
 
   $effect(() => {
-    loadMilestones();
+    void loadMilestones();
   });
 
   async function loadMilestones() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const isCurrent = latest.begin();
     try {
       loading = true;
       error = '';
-      milestoneList = await milestones.list(owner, repo);
+      const list = await milestones.list(reqOwner, reqRepo);
+      if (!isCurrent()) return;
+      milestoneList = list;
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed', 'Load failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

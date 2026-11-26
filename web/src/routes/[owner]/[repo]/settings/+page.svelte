@@ -2,25 +2,27 @@
   import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { repos } from '$lib/api/client.svelte';
   import type { RepoInfo } from '$lib/types/entities';
   import RepoInfoSection from '$lib/components/settings/RepoInfoSection.svelte';
   import TransferSection from '$lib/components/settings/TransferSection.svelte';
   import DangerZoneSection from '$lib/components/settings/DangerZoneSection.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
 
   const t = createT();
+  const latest = createLatest();
 
-  const owner = $derived($page.params.owner!);
-  const repo = $derived($page.params.repo!);
+  const owner = $derived(page.params.owner!);
+  const repo = $derived(page.params.repo!);
 
   let repository = $state<RepoInfo | null>(null);
   let loading = $state(true);
   let error = $state('');
 
   $effect(() => {
-    loadRepository();
+    void loadRepository();
   });
 
   let savingTemplate = $state(false);
@@ -42,14 +44,22 @@
   }
 
   async function loadRepository() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const isCurrent = latest.begin();
     try {
       loading = true;
-      const response = await repos.get(owner, repo);
+      error = '';
+      const response = await repos.get(reqOwner, reqRepo);
+      if (!isCurrent()) return;
       repository = response;
     } catch (err) {
+      if (!isCurrent()) return;
       error = toErrorMessage(err, t('errors.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 </script>

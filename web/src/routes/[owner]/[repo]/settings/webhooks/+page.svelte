@@ -2,33 +2,43 @@
   import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { webhooks, type RepositoryWebhook } from '$lib/api/client.svelte';
   import WebhookForm from '$lib/components/settings/WebhookForm.svelte';
   import WebhookList from '$lib/components/settings/WebhookList.svelte';
 
   const t = createT();
-  const owner = $derived($page.params.owner!);
-  const repo = $derived($page.params.repo!);
+  const latest = createLatest();
+  const owner = $derived(page.params.owner!);
+  const repo = $derived(page.params.repo!);
 
   let hooks = $state<RepositoryWebhook[]>([]);
   let loading = $state(true);
   let error = $state('');
 
   $effect(() => {
-    loadWebhooks();
+    void loadWebhooks();
   });
 
   async function loadWebhooks() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const isCurrent = latest.begin();
     try {
       loading = true;
       error = '';
-      hooks = await webhooks.list(owner, repo);
+      const list = await webhooks.list(reqOwner, reqRepo);
+      if (!isCurrent()) return;
+      hooks = list;
     } catch (err) {
+      if (!isCurrent()) return;
       error = toErrorMessage(err, t('settings.webhooks.load_failed', 'Failed to load webhooks'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 </script>

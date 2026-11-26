@@ -3,21 +3,22 @@
   // server answers live and only says WHERE a match is (kind, id, task): no
   // snippets, no total. The server filters by permission, so nothing is hidden
   // or counted client-side; "no results" means none that this account may see.
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingSpinner from '$lib/components/LoadingSpinner.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createLatest } from '$lib/utils/latest';
   import { ApiError } from '$lib/api/_base.svelte';
   import { collabOps, SEARCH_KINDS, type SearchHit } from '$lib/api/collabOps';
   import { formatTime, shortId } from '$lib/utils/collaboration';
   import CollabNav from '$lib/components/collaboration/CollabNav.svelte';
 
   const t = createT();
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
 
   let kind = $state<string>('task');
   let q = $state('');
@@ -42,11 +43,31 @@
     return null;
   });
 
+  const searchLatest = createLatest();
+
+  $effect(() => {
+    void owner;
+    void repo;
+    searchLatest.invalidate();
+    searched = null;
+    hits = [];
+    nextCursor = null;
+    queriedAt = null;
+    loading = false;
+    moreLoading = false;
+    error = '';
+    accessDenied = false;
+  });
+
   async function run(append: boolean) {
     const target = append ? searched : { kind, q: q.trim() };
     if (!target || !target.q || (!append && problem)) return;
+    const isCurrent = searchLatest.begin();
     if (append) moreLoading = true;
-    else loading = true;
+    else {
+      loading = true;
+      moreLoading = false;
+    }
     error = '';
     try {
       const res = await collabOps.search(owner, repo, {
@@ -55,11 +76,13 @@
         limit: 25,
         cursor: append ? nextCursor : null,
       });
+      if (!isCurrent()) return;
       hits = append ? [...hits, ...res.items] : res.items;
       nextCursor = res.next_cursor;
       queriedAt = res.queried_at;
       searched = target;
     } catch (e) {
+      if (!isCurrent()) return;
       if (e instanceof ApiError && (e.status === 403 || e.status === 401)) accessDenied = true;
       else error = toErrorMessage(e, t('common.unknown_error'));
       if (!append) {
@@ -68,8 +91,10 @@
         searched = null;
       }
     } finally {
-      loading = false;
-      moreLoading = false;
+      if (isCurrent()) {
+        loading = false;
+        moreLoading = false;
+      }
     }
   }
 

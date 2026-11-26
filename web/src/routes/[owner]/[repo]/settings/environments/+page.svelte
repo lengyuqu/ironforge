@@ -1,16 +1,18 @@
 <script lang="ts">
   import { toErrorMessage } from '$lib/utils/error';
+  import { createLatest } from '$lib/utils/latest';
   import { createT } from '$lib/i18n';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import FormField from '$lib/components/FormField.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { ciEnvironments, type CiEnvironment } from '$lib/api/client.svelte';
 
   const t = createT();
-  const owner = $derived($page.params.owner!);
-  const repo = $derived($page.params.repo!);
+  const latest = createLatest();
+  const owner = $derived(page.params.owner!);
+  const repo = $derived(page.params.repo!);
 
   let items = $state<CiEnvironment[]>([]);
   let name = $state('production');
@@ -23,14 +25,20 @@
   $effect(() => {
     owner;
     repo;
-    load();
+    void load();
   });
 
   async function load() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const isCurrent = latest.begin();
     try {
-      items = await ciEnvironments.list(owner, repo);
+      const list = await ciEnvironments.list(reqOwner, reqRepo);
+      if (!isCurrent()) return;
+      items = list;
       error = '';
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     }
   }

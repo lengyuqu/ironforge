@@ -2,11 +2,12 @@
   // Collaboration home: what waits for the signed-in person, an overview of
   // stuck / in-flight work, and the task list. All titles are client-written
   // text; statuses are declarations by whoever set them.
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createLatest } from '$lib/utils/latest';
   import { ApiError } from '$lib/api/_base.svelte';
   import {
     collaboration,
@@ -26,8 +27,8 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
   let userId = $derived(getUser()?.id ?? null);
 
   // ── Inbox (questions waiting for this person) ──
@@ -52,37 +53,51 @@
   let sessions = $state<Map<string, CollabSession> | null>(null);
   let accessDenied = $state(false);
 
+  const sessionsLatest = createLatest();
+  const inboxLatest = createLatest();
+  const overviewLatest = createLatest();
+  const tasksLatest = createLatest();
+
   async function loadInbox() {
+    const isCurrent = inboxLatest.begin();
     inboxLoading = true;
     inboxError = '';
     inboxForbidden = false;
     try {
-      inbox = await collaboration.userInbox(owner, repo, { limit: 50 });
+      const res = await collaboration.userInbox(owner, repo, { limit: 50 });
+      if (!isCurrent()) return;
+      inbox = res;
     } catch (e) {
+      if (!isCurrent()) return;
       inbox = null;
       if (e instanceof ApiError && e.status === 403) inboxForbidden = true;
       else inboxError = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      inboxLoading = false;
+      if (isCurrent()) inboxLoading = false;
     }
   }
 
   async function loadOverview() {
+    const isCurrent = overviewLatest.begin();
     overviewLoading = true;
     overviewError = '';
     try {
-      overview = await collaboration.overview(owner, repo, {
+      const res = await collaboration.overview(owner, repo, {
         sections: ['blocked_waiting', 'pending_handoffs', 'in_progress'],
         limit: 20,
       });
+      if (!isCurrent()) return;
+      overview = res;
     } catch (e) {
+      if (!isCurrent()) return;
       overviewError = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      overviewLoading = false;
+      if (isCurrent()) overviewLoading = false;
     }
   }
 
   async function loadTasks(append = false) {
+    const isCurrent = tasksLatest.begin();
     if (append) moreLoading = true;
     else tasksLoading = true;
     tasksError = '';
@@ -92,21 +107,32 @@
         limit: 25,
         cursor: append ? nextCursor : null,
       });
+      if (!isCurrent()) return;
       tasks = append ? [...tasks, ...res.items] : res.items;
       nextCursor = res.next_cursor;
     } catch (e) {
+      if (!isCurrent()) return;
       if (e instanceof ApiError && (e.status === 403 || e.status === 401)) accessDenied = true;
       else tasksError = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      tasksLoading = false;
-      moreLoading = false;
+      if (isCurrent()) {
+        tasksLoading = false;
+        moreLoading = false;
+      }
     }
   }
 
   async function loadAll() {
     accessDenied = false;
+    const isCurrentSessions = sessionsLatest.begin();
     // Sessions are optional context: an error must not break the page.
-    loadSessionMap(owner, repo).then((m) => (sessions = m)).catch(() => (sessions = null));
+    loadSessionMap(owner, repo)
+      .then((m) => {
+        if (isCurrentSessions()) sessions = m;
+      })
+      .catch(() => {
+        if (isCurrentSessions()) sessions = null;
+      });
     await Promise.all([loadTasks(false), loadInbox(), loadOverview()]);
   }
 

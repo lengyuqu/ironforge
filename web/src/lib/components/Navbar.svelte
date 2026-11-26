@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { getUser, isLoggedIn, isAdmin, logout } from '$lib/stores/auth.svelte';
   import { locale, createT, type Locale } from '$lib/i18n';
   import Dropdown from './Dropdown.svelte';
@@ -12,7 +12,7 @@
 
   let search = $state('');
   let unread = $derived(getUnreadCount());
-  let pathname = $derived($page?.url?.pathname || '');
+  let pathname = $derived(page?.url?.pathname || '');
 
   function isActive(prefix: string): boolean {
     return pathname === prefix || pathname.startsWith(`${prefix}/`);
@@ -224,7 +224,7 @@
     margin-left: 0.3em;
     border-radius: 999px;
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-accent);
     font-size: 0.7rem;
     font-weight: 700;
     line-height: 1.5;

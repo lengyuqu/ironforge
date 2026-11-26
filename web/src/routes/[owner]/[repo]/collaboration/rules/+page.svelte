@@ -5,21 +5,22 @@
   // platform or to the person reading, and nothing here follows or merges it.
   // The page lists paths and blob ids as plain text and links to the normal file
   // viewer; it never fetches or renders file content itself.
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingSpinner from '$lib/components/LoadingSpinner.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createLatest } from '$lib/utils/latest';
   import { ApiError } from '$lib/api/_base.svelte';
   import { collabOps, type RulesResponse } from '$lib/api/collabOps';
   import { shortId } from '$lib/utils/collaboration';
   import CollabNav from '$lib/components/collaboration/CollabNav.svelte';
 
   const t = createT();
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
 
   let refInput = $state('');
   let pathInput = $state('');
@@ -29,19 +30,25 @@
   let notFound = $state(false);
   let accessDenied = $state(false);
 
+  const latest = createLatest();
+
   async function load() {
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     notFound = false;
     try {
-      result = await collabOps.rules(owner, repo, { ref: refInput.trim() || undefined, path: pathInput.trim() || undefined });
+      const res = await collabOps.rules(owner, repo, { ref: refInput.trim() || undefined, path: pathInput.trim() || undefined });
+      if (!isCurrent()) return;
+      result = res;
     } catch (e) {
+      if (!isCurrent()) return;
       result = null;
       if (e instanceof ApiError && (e.status === 403 || e.status === 401)) accessDenied = true;
       else if (e instanceof ApiError && e.status === 404) notFound = true;
       else error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      loading = false;
+      if (isCurrent()) loading = false;
     }
   }
 
@@ -178,7 +185,7 @@
 
 <style>
   .intro { margin: -8px 0 16px; color: var(--text-secondary); font-size: 13px; max-width: 80ch; }
-  .notice { margin: 0 0 16px; padding: 10px 14px; border: 1px solid var(--border); border-left: 3px solid var(--yellow, #d29922); border-radius: 6px; font-size: 13px; background: var(--bg-secondary); }
+  .notice { margin: 0 0 16px; padding: 10px 14px; border: 1px solid var(--border); border-left: 3px solid var(--yellow); border-radius: 6px; font-size: 13px; background: var(--bg-secondary); }
   .card { padding: 16px 20px; margin-bottom: 20px; min-width: 0; }
   .bar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
   .f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }

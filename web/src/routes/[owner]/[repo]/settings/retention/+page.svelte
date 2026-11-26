@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createLatest } from '$lib/utils/latest';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
@@ -9,8 +10,9 @@
   import { ciRetention } from '$lib/api/client.svelte';
 
   const t = createT();
-  const owner = $derived($page.params.owner!);
-  const repo = $derived($page.params.repo!);
+  const latest = createLatest();
+  const owner = $derived(page.params.owner!);
+  const repo = $derived(page.params.repo!);
 
   let artifactDays = $state(30);
   let cacheDays = $state(7);
@@ -21,20 +23,27 @@
   $effect(() => {
     owner;
     repo;
-    load();
+    void load();
   });
 
   async function load() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const isCurrent = latest.begin();
     try {
       loading = true;
-      const policy = await ciRetention.get(owner, repo);
+      const policy = await ciRetention.get(reqOwner, reqRepo);
+      if (!isCurrent()) return;
       artifactDays = policy.artifact_retention_days;
       cacheDays = policy.cache_retention_days;
       error = '';
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

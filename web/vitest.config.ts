@@ -14,12 +14,12 @@ export default defineConfig({
         __dirname,
         './node_modules/@sveltejs/kit/src/runtime/app/navigation.js'
       ),
-      // Same reasoning for the deprecated page store: components that still
-      // read `$app/stores` (route pages) can then be rendered in tests, with
-      // vi.mock('$app/stores') supplying the page data.
-      '$app/stores': resolve(
+      // Same reasoning for the state module: components that read `$app/state`
+      // (route pages, Navbar) can then be rendered in tests, with
+      // vi.mock('$app/state') supplying the page data.
+      '$app/state': resolve(
         __dirname,
-        './node_modules/@sveltejs/kit/src/runtime/app/stores.js'
+        './node_modules/@sveltejs/kit/src/runtime/app/state/index.js'
       ),
       '$app/environment': resolve(__dirname, './src/test-stubs/app-environment.ts'),
     },

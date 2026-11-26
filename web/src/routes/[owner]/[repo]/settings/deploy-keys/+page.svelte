@@ -4,13 +4,15 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { deployKeys, type DeployKey } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
 
   const t = createT();
-  const owner = $derived($page.params.owner!);
-  const repo = $derived($page.params.repo!);
+  const latest = createLatest();
+  const owner = $derived(page.params.owner!);
+  const repo = $derived(page.params.repo!);
 
   let keys = $state<DeployKey[]>([]);
   let loading = $state(true);
@@ -25,18 +27,26 @@
   $effect(() => {
     owner;
     repo;
-    loadKeys();
+    void loadKeys();
   });
 
   async function loadKeys() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const isCurrent = latest.begin();
     try {
       loading = true;
       error = '';
-      keys = await deployKeys.list(owner, repo);
+      const list = await deployKeys.list(reqOwner, reqRepo);
+      if (!isCurrent()) return;
+      keys = list;
     } catch (err) {
+      if (!isCurrent()) return;
       error = toErrorMessage(err, t('settings.deploy_keys.load_failed', 'Failed to load deploy keys.'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

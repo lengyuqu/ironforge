@@ -5,13 +5,14 @@
   // no Markdown). Statuses, `blocked_by` and overlaps are declarations or
   // hints, never proof — each section says so.
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingSpinner from '$lib/components/LoadingSpinner.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import Button from '$lib/components/Button.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createLatest } from '$lib/utils/latest';
   import { ApiError } from '$lib/api/_base.svelte';
   import {
     collaboration,
@@ -43,9 +44,9 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
-  let taskId = $derived($page.params.id!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
+  let taskId = $derived(page.params.id!);
   let userId = $derived(getUser()?.id ?? null);
 
   let task = $state<CollabTask | null>(null);
@@ -87,47 +88,77 @@
 
   const msg = (e: unknown) => toErrorMessage(e, t('common.unknown_error'));
 
-  async function loadTask() {
+  const sessionsLatest = createLatest();
+  const taskLatest = createLatest();
+  const completionLatest = createLatest();
+  const depsLatest = createLatest();
+  const overlapsLatest = createLatest();
+  const questionsLatest = createLatest();
+  const decisionsLatest = createLatest();
+  const handoffsLatest = createLatest();
+  const messagesLatest = createLatest();
+  const diagnosisLatest = createLatest();
+
+  async function loadTask(): Promise<boolean> {
+    const isCurrent = taskLatest.begin();
     taskLoading = true;
     taskError = '';
     notFound = false;
     try {
-      task = await collaboration.getTask(owner, repo, taskId);
+      const res = await collaboration.getTask(owner, repo, taskId);
+      if (!isCurrent()) return false;
+      task = res;
+      return true;
     } catch (e) {
+      if (!isCurrent()) return false;
       task = null;
       if (e instanceof ApiError && e.status === 404) notFound = true;
       else taskError = msg(e);
+      return false;
     } finally {
-      taskLoading = false;
+      if (isCurrent()) taskLoading = false;
     }
   }
 
   /** Re-read the task without the loading state, so the sections below keep their form state. */
   async function refreshTask() {
+    const isCurrent = taskLatest.begin();
     try {
-      task = await collaboration.getTask(owner, repo, taskId);
+      const res = await collaboration.getTask(owner, repo, taskId);
+      if (!isCurrent()) return;
+      task = res;
     } catch (e) {
+      if (!isCurrent()) return;
       taskError = msg(e);
     }
   }
 
   async function loadCompletion() {
+    const isCurrent = completionLatest.begin();
     completionError = '';
     try {
-      completion = await collaboration.completionStatus(owner, repo, taskId);
+      const res = await collaboration.completionStatus(owner, repo, taskId);
+      if (!isCurrent()) return;
+      completion = res;
     } catch (e) {
+      if (!isCurrent()) return;
       completionError = msg(e);
     }
   }
   async function loadDeps() {
+    const isCurrent = depsLatest.begin();
     depsError = '';
     try {
-      deps = await collaboration.listDependencies(owner, repo, taskId);
+      const res = await collaboration.listDependencies(owner, repo, taskId);
+      if (!isCurrent()) return;
+      deps = res;
     } catch (e) {
+      if (!isCurrent()) return;
       depsError = msg(e);
     }
   }
   async function loadOverlaps(append = false) {
+    const isCurrent = overlapsLatest.begin();
     overlapsLoading = true;
     overlapsError = '';
     try {
@@ -135,15 +166,18 @@
         limit: 25,
         cursor: append ? overlapsCursor : null,
       });
+      if (!isCurrent()) return;
       overlaps = append ? [...overlaps, ...res.items] : res.items;
       overlapsCursor = res.next_cursor;
     } catch (e) {
+      if (!isCurrent()) return;
       overlapsError = msg(e);
     } finally {
-      overlapsLoading = false;
+      if (isCurrent()) overlapsLoading = false;
     }
   }
   async function loadQuestions(append = false) {
+    const isCurrent = questionsLatest.begin();
     questionsLoading = true;
     questionsError = '';
     try {
@@ -151,15 +185,18 @@
         limit: 25,
         cursor: append ? questionsCursor : null,
       });
+      if (!isCurrent()) return;
       questions = append ? [...questions, ...res.items] : res.items;
       questionsCursor = res.next_cursor;
     } catch (e) {
+      if (!isCurrent()) return;
       questionsError = msg(e);
     } finally {
-      questionsLoading = false;
+      if (isCurrent()) questionsLoading = false;
     }
   }
   async function loadDecisions(append = false) {
+    const isCurrent = decisionsLatest.begin();
     decisionsLoading = true;
     decisionsError = '';
     try {
@@ -167,15 +204,18 @@
         limit: 25,
         cursor: append ? decisionsCursor : null,
       });
+      if (!isCurrent()) return;
       decisions = append ? [...decisions, ...res.items] : res.items;
       decisionsCursor = res.next_cursor;
     } catch (e) {
+      if (!isCurrent()) return;
       decisionsError = msg(e);
     } finally {
-      decisionsLoading = false;
+      if (isCurrent()) decisionsLoading = false;
     }
   }
   async function loadHandoffs(append = false) {
+    const isCurrent = handoffsLatest.begin();
     handoffsLoading = true;
     handoffsError = '';
     try {
@@ -183,15 +223,18 @@
         limit: 25,
         cursor: append ? handoffsCursor : null,
       });
+      if (!isCurrent()) return;
       handoffs = append ? [...handoffs, ...res.items] : res.items;
       handoffsCursor = res.next_cursor;
     } catch (e) {
+      if (!isCurrent()) return;
       handoffsError = msg(e);
     } finally {
-      handoffsLoading = false;
+      if (isCurrent()) handoffsLoading = false;
     }
   }
   async function loadMessages(append = false) {
+    const isCurrent = messagesLatest.begin();
     messagesLoading = true;
     messagesError = '';
     try {
@@ -199,34 +242,58 @@
         afterSeq: append ? messagesAfter : 0,
         limit: 50,
       });
+      if (!isCurrent()) return;
       messages = append ? [...messages, ...res.items] : res.items;
       messagesAfter = res.next_after_seq;
       messagesMore = res.has_more;
     } catch (e) {
+      if (!isCurrent()) return;
       messagesError = msg(e);
     } finally {
-      messagesLoading = false;
+      if (isCurrent()) messagesLoading = false;
     }
   }
   async function runDiagnostics() {
+    const isCurrent = diagnosisLatest.begin();
     diagnosisLoading = true;
     diagnosisError = '';
     try {
-      diagnosis = await collaboration.diagnoseTask(owner, repo, taskId);
+      const res = await collaboration.diagnoseTask(owner, repo, taskId);
+      if (!isCurrent()) return;
+      diagnosis = res;
     } catch (e) {
+      if (!isCurrent()) return;
       diagnosisError = msg(e);
     } finally {
-      diagnosisLoading = false;
+      if (isCurrent()) diagnosisLoading = false;
     }
   }
 
   function resetAndLoad() {
+    sessionsLatest.invalidate();
+    taskLatest.invalidate();
+    completionLatest.invalidate();
+    depsLatest.invalidate();
+    overlapsLatest.invalidate();
+    questionsLatest.invalidate();
+    decisionsLatest.invalidate();
+    handoffsLatest.invalidate();
+    messagesLatest.invalidate();
+    diagnosisLatest.invalidate();
+    overlapsLoading = questionsLoading = decisionsLoading = handoffsLoading = messagesLoading = diagnosisLoading = false;
     task = completion = deps = diagnosis = null;
     overlaps = questions = decisions = handoffs = messages = [];
     openQuestionId = null;
-    loadSessionMap(owner, repo).then((m) => (sessions = m)).catch(() => (sessions = null));
-    loadTask().then(() => {
-      if (!task) return;
+    const isCurrentSessions = sessionsLatest.begin();
+    loadSessionMap(owner, repo)
+      .then((m) => {
+        if (isCurrentSessions()) sessions = m;
+      })
+      .catch(() => {
+        if (isCurrentSessions()) sessions = null;
+      });
+    loadTask().then((ok) => {
+      if (!ok || !task) return;
       loadCompletion();
       loadDeps();
       loadOverlaps();
@@ -260,12 +327,12 @@
   const VALID_TABS = new Set<TaskTab>(['overview', 'discussions', 'relations', 'activity', 'ops']);
 
   let activeTab = $derived.by<TaskTab>(() => {
-    const raw = $page.url.searchParams.get('tab') as TaskTab | null;
+    const raw = page.url.searchParams.get('tab') as TaskTab | null;
     return raw && VALID_TABS.has(raw) ? raw : 'overview';
   });
 
   function selectTab(next: TaskTab) {
-    const url = new URL($page.url);
+    const url = new URL(page.url);
     if (next === 'overview') url.searchParams.delete('tab');
     else url.searchParams.set('tab', next);
     goto(`${url.pathname}${url.search}`, { replaceState: true, noScroll: true, keepFocus: true });

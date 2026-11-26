@@ -20,24 +20,16 @@ vi.mock('$lib/api/client.svelte', () => ({
 vi.mock('$app/navigation', () => ({ goto: (...a: unknown[]) => goto(...a) }));
 const goto = vi.fn();
 
-const pageStore = vi.hoisted(() => {
-  let current = { url: new URL('http://localhost/') };
-  const subs = new Set<(v: typeof current) => void>();
+const pageState = vi.hoisted(() => {
+  const state = { url: new URL('http://localhost/') };
   return {
     setPath(path: string) {
-      current = { url: new URL(`http://localhost${path}`) };
-      for (const fn of subs) fn(current);
+      state.url = new URL(`http://localhost${path}`);
     },
-    page: {
-      subscribe(fn: (v: typeof current) => void) {
-        fn(current);
-        subs.add(fn);
-        return () => subs.delete(fn);
-      },
-    },
+    page: state,
   };
 });
-vi.mock('$app/stores', () => ({ page: pageStore.page }));
+vi.mock('$app/state', () => ({ page: pageState.page }));
 
 vi.mock('$lib/i18n', () => ({
   createT: () => (key: string, fallbackOrParams?: string | Record<string, unknown>) =>
@@ -82,7 +74,7 @@ describe('Navbar.svelte', () => {
   });
 
   it('marks the active route link with aria-current="page"', () => {
-    pageStore.setPath('/explore');
+    pageState.setPath('/explore');
     render(Navbar);
 
     const exploreLink = screen.getByText('nav.explore').closest('a');

@@ -3,7 +3,7 @@
   // escalation settings (admin-managed), the sessions' self-reported capability
   // declarations (claims, never permissions) and a read-only deletion preview.
   // The API decides who may read or write each one.
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { createT } from '$lib/i18n';
   import CollabNav from '$lib/components/collaboration/CollabNav.svelte';
   import EscalationSettings from '$lib/components/collaboration/EscalationSettings.svelte';
@@ -11,8 +11,8 @@
   import DeletionImpactCard from '$lib/components/collaboration/DeletionImpactCard.svelte';
 
   const t = createT();
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
   let admin = $state<boolean | null>(null);
 </script>
 

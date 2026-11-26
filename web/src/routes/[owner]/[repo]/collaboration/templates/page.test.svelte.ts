@@ -2,18 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import { ApiError } from "$lib/api/_base.svelte";
 
-const pageStore = vi.hoisted(() => {
-  const value = { params: { owner: "alice", repo: "demo" } };
-  return {
-    page: {
-      subscribe(fn: (v: typeof value) => void) {
-        fn(value);
-        return () => {};
-      },
-    },
-  };
-});
-vi.mock("$app/stores", () => ({ page: pageStore.page }));
+vi.mock('$app/state', () => ({ page: { params: { owner: 'alice', repo: 'demo' } } }));
 vi.mock("$lib/components/RepoHeader.svelte", async () => ({ default: (await import("../../../../../test-stubs/OpsEmptyStub.svelte")).default }));
 vi.mock("$lib/components/toast.svelte", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("$lib/i18n", () => {

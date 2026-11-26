@@ -1,34 +1,44 @@
 <script lang="ts">
   import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { collaborators } from '$lib/api/client.svelte';
   import type { RepoCollaborator } from '$lib/types/entities';
   import CollaboratorAddForm from '$lib/components/settings/CollaboratorAddForm.svelte';
   import CollaboratorTable from '$lib/components/settings/CollaboratorTable.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
 
   const t = createT();
-  const owner = $derived($page.params.owner!);
-  const repo = $derived($page.params.repo!);
+  const latest = createLatest();
+  const owner = $derived(page.params.owner!);
+  const repo = $derived(page.params.repo!);
 
   let collaboratorList = $state<RepoCollaborator[]>([]);
   let loading = $state(true);
   let error = $state('');
 
   $effect(() => {
-    loadCollaborators();
+    void loadCollaborators();
   });
 
   async function loadCollaborators() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const isCurrent = latest.begin();
     try {
       loading = true;
       error = '';
-      collaboratorList = await collaborators.list(owner, repo);
+      const list = await collaborators.list(reqOwner, reqRepo);
+      if (!isCurrent()) return;
+      collaboratorList = list;
     } catch (err) {
+      if (!isCurrent()) return;
       error = toErrorMessage(err, t('settings.collaborators.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 </script>

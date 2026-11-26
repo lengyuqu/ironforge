@@ -5,7 +5,7 @@
   // created, and opened by its id. This page therefore offers create, open-by-id
   // and a browser-local "recently opened" list, and says so instead of showing
   // anything that looks like a complete list.
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import CollabNav from '$lib/components/collaboration/CollabNav.svelte';
   import SectionCard from '$lib/components/collaboration/SectionCard.svelte';
@@ -17,8 +17,8 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner!);
-  let repo = $derived($page.params.repo!);
+  let owner = $derived(page.params.owner!);
+  let repo = $derived(page.params.repo!);
 
   let remembered = $state<RememberedGroup[]>([]);
   let openId = $state('');

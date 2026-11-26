@@ -3,16 +3,18 @@
   // list and tracks which rule is being edited; create/edit/delete run in
   // the self-contained form/list components.
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { branchProtections, type BranchProtectionRule } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { toErrorMessage } from '$lib/utils/error';
   import BranchProtectionForm from '$lib/components/settings/BranchProtectionForm.svelte';
   import BranchProtectionList from '$lib/components/settings/BranchProtectionList.svelte';
 
   const t = createT();
-  const owner = $derived($page.params.owner!);
-  const repo = $derived($page.params.repo!);
+  const latest = createLatest();
+  const owner = $derived(page.params.owner!);
+  const repo = $derived(page.params.repo!);
 
   let rules = $state<BranchProtectionRule[]>([]);
   let loading = $state(true);
@@ -20,18 +22,26 @@
   let editingRule = $state<BranchProtectionRule | null>(null);
 
   $effect(() => {
-    loadRules();
+    void loadRules();
   });
 
   async function loadRules() {
+    const reqOwner = owner;
+    const reqRepo = repo;
+    const isCurrent = latest.begin();
     try {
       loading = true;
       error = '';
-      rules = await branchProtections.list(owner, repo);
+      const list = await branchProtections.list(reqOwner, reqRepo);
+      if (!isCurrent()) return;
+      rules = list;
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('settings.branch_protection.load_failed', 'Load failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 
