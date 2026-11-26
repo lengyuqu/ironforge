@@ -14,7 +14,7 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::api::auth::extract_bearer_claims;
+use crate::api::auth::extract_claims;
 use crate::error::AppError;
 use crate::AppState;
 
@@ -78,7 +78,7 @@ pub async fn start_import(
     headers: HeaderMap,
     Json(body): Json<StartImportRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
@@ -159,7 +159,7 @@ pub async fn get_import_status(
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
@@ -191,7 +191,7 @@ pub async fn get_import_status(
     ),
 )]
 pub async fn list_imports(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
@@ -226,7 +226,7 @@ pub async fn delete_import(
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };

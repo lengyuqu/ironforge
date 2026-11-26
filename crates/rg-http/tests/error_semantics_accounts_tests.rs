@@ -641,8 +641,28 @@ async fn mirrors_classify_errors() {
         403
     );
 
+    // reading the settings takes write access too, even on a public repo
+    assert_eq!(c.get(&url).send().await.unwrap().status(), 401);
+    assert_eq!(
+        c.get(&url)
+            .bearer_auth(&other)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+
     // missing mirror: 404 on every verb
-    assert_eq!(c.get(&url).send().await.unwrap().status(), 404);
+    assert_eq!(
+        c.get(&url)
+            .bearer_auth(&owner)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
     let patch = c
         .patch(&url)
         .bearer_auth(&owner)
@@ -710,7 +730,7 @@ async fn mirrors_classify_errors() {
     assert_eq!(bad_patch.status(), 400);
 
     break_table(&db, "mirrors").await;
-    let broken = c.get(&url).send().await.unwrap();
+    let broken = c.get(&url).bearer_auth(&owner).send().await.unwrap();
     let (status, body) = body_of(broken).await;
     assert_sanitised_500(status, &body);
     let broken_sync = c

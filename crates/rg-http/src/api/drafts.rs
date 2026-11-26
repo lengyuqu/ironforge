@@ -187,7 +187,7 @@ pub async fn create(
 
     // A token limited to some branches may only reserve a directory it could
     // push to: the reservation and the ability to push must be the same answer.
-    if let Some(claims) = crate::api::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
+    if let Some(claims) = crate::api::auth::extract_claims(&headers, &state.jwt_secret) {
         if let Err(error) =
             crate::api::auth::ensure_token_may_write_branch(&state.db, &claims, &body.prefix).await
         {
@@ -330,7 +330,7 @@ pub async fn extend(
         Ok(namespace) => namespace,
         Err(error) => return error.into_response(),
     };
-    if let Some(claims) = crate::api::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
+    if let Some(claims) = crate::api::auth::extract_claims(&headers, &state.jwt_secret) {
         if let Err(error) =
             crate::api::auth::ensure_token_may_write_branch(&state.db, &claims, &namespace.prefix)
                 .await
@@ -409,7 +409,7 @@ pub async fn delete(
         Ok(namespace) => namespace,
         Err(error) => return error.into_response(),
     };
-    if let Some(claims) = crate::api::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
+    if let Some(claims) = crate::api::auth::extract_claims(&headers, &state.jwt_secret) {
         if let Err(error) =
             crate::api::auth::ensure_token_may_write_branch(&state.db, &claims, &namespace.prefix)
                 .await

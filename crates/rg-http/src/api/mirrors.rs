@@ -15,7 +15,8 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::api::auth::extract_bearer_claims;
+use crate::api::auth::extract_claims;
+use crate::api::repo_access;
 use crate::error::AppError;
 use crate::AppState;
 
@@ -75,7 +76,7 @@ pub async fn create_mirror(
     Path((owner, name)): Path<(String, String)>,
     Json(body): Json<CreateMirrorRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
@@ -126,18 +127,21 @@ pub async fn create_mirror(
     ),
     responses(
         (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "No write permission", body = serde_json::Value),
         (status = 404, description = "Not found", body = serde_json::Value),
     ),
 )]
 pub async fn get_mirror(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => return AppError::from(e).into_response(),
+    // The row names the upstream and the account used for it, so it is
+    // settings rather than repository content: reading it takes write access.
+    let (repo, _) = match repo_access::require_write(&state, &headers, &owner, &name).await {
+        Ok(value) => value,
+        Err(e) => return e.into_response(),
     };
 
     match rg_core::mirror::service::get_mirror(&state.db, repo.id).await {
@@ -170,7 +174,7 @@ pub async fn update_mirror(
     Path((owner, name)): Path<(String, String)>,
     Json(body): Json<UpdateMirrorRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
@@ -230,7 +234,7 @@ pub async fn delete_mirror(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
@@ -280,7 +284,7 @@ pub async fn trigger_mirror_sync(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };

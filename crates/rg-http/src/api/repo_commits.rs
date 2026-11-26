@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use rg_core::error::CoreError;
 use rg_core::repo::service::{BatchCommitError, BatchCommitOptions, BatchCommitReport, BatchEdit};
 
-use crate::api::auth::{ensure_token_may_write_branch, extract_bearer_claims};
+use crate::api::auth::{ensure_token_may_write_branch, extract_claims};
 use crate::api::repo_content::{dry_run_requested, get_latest_commit_sha, run_blocking};
 use crate::error::AppError;
 use crate::AppState;
@@ -162,7 +162,7 @@ pub async fn create_commit(
 
     // A token limited to some branches may only commit to those. The whole batch
     // is on one branch, so one check covers it.
-    if let Some(claims) = extract_bearer_claims(&headers, &state.jwt_secret) {
+    if let Some(claims) = extract_claims(&headers, &state.jwt_secret) {
         if let Err(e) = ensure_token_may_write_branch(&state.db, &claims, &req.branch).await {
             return e.into_response();
         }

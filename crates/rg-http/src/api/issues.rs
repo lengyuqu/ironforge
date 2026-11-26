@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
-use crate::api::auth::extract_bearer_claims;
+use crate::api::auth::extract_claims;
 use crate::api::repo_access;
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
@@ -1255,7 +1255,7 @@ async fn resolve_and_check_read_access(
         .ok_or_else(|| AppError::not_found("repository not found"))?;
 
     if repo.is_private {
-        let claims = extract_bearer_claims(headers, &state.jwt_secret)
+        let claims = extract_claims(headers, &state.jwt_secret)
             .ok_or_else(|| AppError::unauthorized("authentication required"))?;
         let user_id = claims
             .sub
@@ -1395,7 +1395,7 @@ pub async fn create_milestone(
     Path((owner, name)): Path<(String, String)>,
     Json(body): Json<CreateMilestoneRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response()
@@ -1518,7 +1518,7 @@ pub async fn update_milestone(
     Path((owner, name, id)): Path<(String, String, i64)>,
     Json(body): Json<UpdateMilestoneRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response()
@@ -1614,7 +1614,7 @@ pub async fn delete_milestone(
     headers: axum::http::HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response()

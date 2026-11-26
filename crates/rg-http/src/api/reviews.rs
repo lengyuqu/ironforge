@@ -339,7 +339,7 @@ pub async fn submit_review(
         // The gate is decided by the account type, so it runs for cookie
         // sessions too; the claims (when the session came from a token) only
         // add the branch-limit rule.
-        let claims = crate::api::auth::extract_bearer_claims(&headers, &state.jwt_secret);
+        let claims = crate::api::auth::extract_claims(&headers, &state.jwt_secret);
         if let Err(e) =
             crate::api::auth::ensure_reviewer_may_approve(&state.db, user_id, claims.as_ref()).await
         {

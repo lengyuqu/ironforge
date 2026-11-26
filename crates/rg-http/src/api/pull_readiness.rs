@@ -31,7 +31,7 @@ use rg_core::pull_request::update_branch::{UpdateBranchError, UpdateBranchOutcom
 use rg_core::pull_request::MergeStrategy;
 
 use super::repo_access::require_read;
-use crate::api::auth::{ensure_token_may_write_branch, extract_bearer_claims};
+use crate::api::auth::{ensure_token_may_write_branch, extract_claims};
 use crate::api::repo_content::{
     announce_branch_move, dry_run_requested, resolve_and_check_write_access,
 };
@@ -165,7 +165,7 @@ pub async fn update_branch(
 
     // A token limited to some branches may only write those. The branch written
     // is the pull request's head branch.
-    if let Some(claims) = extract_bearer_claims(&headers, &state.jwt_secret) {
+    if let Some(claims) = extract_claims(&headers, &state.jwt_secret) {
         if let Err(e) = ensure_token_may_write_branch(&state.db, &claims, &pr.head_branch).await {
             return e.into_response();
         }

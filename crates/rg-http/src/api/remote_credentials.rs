@@ -34,7 +34,7 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::api::auth::extract_bearer_claims;
+use crate::api::auth::extract_claims;
 use crate::error::AppError;
 use crate::AppState;
 use rg_core::remote_credential::service::{
@@ -97,7 +97,7 @@ impl From<UpdateRemoteCredentialRequest> for CredentialPatch {
 
 /// Resolve the caller's user id, or the 401 to return.
 fn caller_id(headers: &HeaderMap, jwt_secret: &str) -> Result<i64, AppError> {
-    let claims = extract_bearer_claims(headers, jwt_secret)
+    let claims = extract_claims(headers, jwt_secret)
         .ok_or_else(|| AppError::unauthorized("authentication required"))?;
     claims
         .sub

@@ -39,11 +39,11 @@ if (!/route\(\s*"\/imports\/\{id\}"[\s\S]*get\(api::imports::get_import_status\)
   failures.push('HTTP router must register GET/DELETE /imports/{id}');
 }
 
-if (!/pub async fn get_import_status\([\s\S]*headers: HeaderMap,[\s\S]*extract_bearer_claims\(&headers, &state\.jwt_secret\)[\s\S]*task\.user_id == user_id/.test(backend)) {
+if (!/pub async fn get_import_status\([\s\S]*headers: HeaderMap,[\s\S]*extract_claims\(&headers, &state\.jwt_secret\)[\s\S]*task\.user_id == user_id/.test(backend)) {
   failures.push('GET /imports/{id} must authenticate and only return the current user task');
 }
 
-if (!/pub async fn delete_import\([\s\S]*headers: HeaderMap,[\s\S]*extract_bearer_claims\(&headers, &state\.jwt_secret\)[\s\S]*task\.user_id == user_id/.test(backend)) {
+if (!/pub async fn delete_import\([\s\S]*headers: HeaderMap,[\s\S]*extract_claims\(&headers, &state\.jwt_secret\)[\s\S]*task\.user_id == user_id/.test(backend)) {
   failures.push('DELETE /imports/{id} must authenticate and only delete the current user task');
 }
 

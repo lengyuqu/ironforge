@@ -16,7 +16,7 @@ use utoipa::ToSchema;
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::{
-    api::auth::extract_bearer_claims,
+    api::auth::extract_claims,
     api::repo_access::{require_admin, require_authenticated_read, require_read, require_write},
     openapi::PaginatedRepoResponse,
     AppState,
@@ -138,7 +138,7 @@ pub async fn create_repo(
     headers: HeaderMap,
     Json(body): Json<CreateRepoRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response()
@@ -461,7 +461,7 @@ pub async fn list_available_templates(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let Some(claims) = extract_bearer_claims(&headers, &state.jwt_secret) else {
+    let Some(claims) = extract_claims(&headers, &state.jwt_secret) else {
         return AppError::unauthorized("authentication required").into_response();
     };
     let Ok(user_id) = claims.sub.parse::<i64>() else {
@@ -935,7 +935,7 @@ pub async fn delete_repo_handler(
         Err(e) => return e.into_response(),
     };
     // Extract claims for audit log username
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response()
@@ -1001,7 +1001,7 @@ pub async fn fork_repo_handler(
         Err(e) => return e.into_response(),
     };
     // Extract claims for audit log username
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response();
@@ -1110,7 +1110,7 @@ pub async fn transfer_repo_handler(
         Err(e) => return e.into_response(),
     };
     // Extract claims for audit log username
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response();

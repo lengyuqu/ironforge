@@ -113,26 +113,48 @@ pub async fn list_releases(
     Ok(rg_db::ops::release_ops::list_by_repo(db, repo_id, offset, limit).await?)
 }
 
-/// Get a release by ID.
-pub async fn get_release(db: &DatabaseConnection, id: i64) -> CoreResult<Release> {
-    rg_db::ops::release_ops::find_by_id(db, id)
+/// The release `id`, as long as it belongs to `repo_id`.
+///
+/// Another repository's release reads as missing: an id on its own must not
+/// say what a caller may reach, and the route's repository is what was
+/// authorized.
+async fn release_in_repo(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    release_id: i64,
+) -> CoreResult<Release> {
+    rg_db::ops::release_ops::find_by_id(db, release_id)
         .await?
+        .filter(|release| release.repo_id == repo_id)
         .ok_or_else(|| CoreError::not_found("release not found"))
 }
 
-/// Update a release.
+/// The asset `id`, as long as its release belongs to `repo_id`.
+async fn asset_in_repo(db: &DatabaseConnection, repo_id: i64, asset_id: i64) -> CoreResult<Asset> {
+    let asset = rg_db::ops::release_ops::find_asset_by_id(db, asset_id)
+        .await?
+        .ok_or_else(|| CoreError::not_found("asset not found"))?;
+    release_in_repo(db, repo_id, asset.release_id).await?;
+    Ok(asset)
+}
+
+/// Get a release by ID, scoped to the repository it must belong to.
+pub async fn get_release(db: &DatabaseConnection, repo_id: i64, id: i64) -> CoreResult<Release> {
+    release_in_repo(db, repo_id, id).await
+}
+
+/// Update a release of `repo_id`.
 #[allow(clippy::too_many_arguments)]
 pub async fn update_release(
     db: &DatabaseConnection,
+    repo_id: i64,
     id: i64,
     title: Option<&str>,
     body: Option<&str>,
     is_draft: Option<bool>,
     is_prerelease: Option<bool>,
 ) -> CoreResult<Release> {
-    let existing = rg_db::ops::release_ops::find_by_id(db, id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("release not found"))?;
+    let existing = release_in_repo(db, repo_id, id).await?;
 
     let mut model: ReleaseActiveModel = existing.into();
     if let Some(t) = title {
@@ -152,12 +174,10 @@ pub async fn update_release(
     Ok(rg_db::ops::release_ops::update(db, model).await?)
 }
 
-/// Delete a release.
-pub async fn delete_release(db: &DatabaseConnection, id: i64) -> CoreResult<()> {
+/// Delete a release of `repo_id`.
+pub async fn delete_release(db: &DatabaseConnection, repo_id: i64, id: i64) -> CoreResult<()> {
     // Get release info for webhook before deleting
-    let release = rg_db::ops::release_ops::find_by_id(db, id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("release not found"))?;
+    let release = release_in_repo(db, repo_id, id).await?;
     let repo_id = release.repo_id;
 
     rg_db::ops::release_ops::delete_by_id(db, id).await?;
@@ -176,10 +196,13 @@ pub async fn delete_release(db: &DatabaseConnection, id: i64) -> CoreResult<()> 
     Ok(())
 }
 
-/// Upload a release asset (saves file to disk + creates DB record).
+/// Upload a release asset to a release of `repo_id` (saves the file and
+/// creates the DB record). The blob key carries the route's owner and name,
+/// so the release has to be that repository's.
 #[allow(clippy::too_many_arguments)]
 pub async fn upload_asset(
     db: &DatabaseConnection,
+    repo_id: i64,
     release_id: i64,
     storage: &dyn crate::blob_storage::BlobStorage,
     repo_root: &Path,
@@ -191,8 +214,7 @@ pub async fn upload_asset(
     uploader_id: i64,
     data: &[u8],
 ) -> CoreResult<Asset> {
-    // Verify release exists and get repo info
-    let _release = get_release(db, release_id).await?;
+    let _release = release_in_repo(db, repo_id, release_id).await?;
 
     // Record the integrity digest before persisting the row so the DB record
     // and the stored blob always agree. Exposed to clients on download as
@@ -231,18 +253,18 @@ pub async fn upload_asset(
     Ok(asset)
 }
 
-/// Download a release asset (increments download count, returns file bytes).
+/// Download a release asset of `repo_id` (increments download count, returns
+/// the file bytes).
 pub async fn download_asset(
     db: &DatabaseConnection,
+    repo_id: i64,
     asset_id: i64,
     storage: &dyn crate::blob_storage::BlobStorage,
     repo_root: &Path,
     owner: &str,
     repo_name: &str,
 ) -> CoreResult<(Asset, Vec<u8>)> {
-    let asset = rg_db::ops::release_ops::find_asset_by_id(db, asset_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("asset not found"))?;
+    let asset = asset_in_repo(db, repo_id, asset_id).await?;
 
     // Increment download count
     rg_db::ops::release_ops::increment_download_count(db, asset_id).await?;
@@ -274,28 +296,33 @@ pub async fn download_asset(
     Ok((asset, data))
 }
 
-/// Get a release asset by ID (without incrementing download count).
-pub async fn get_asset(db: &DatabaseConnection, asset_id: i64) -> CoreResult<Asset> {
-    rg_db::ops::release_ops::find_asset_by_id(db, asset_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("asset not found"))
+/// Get a release asset by ID, scoped to `repo_id` (without incrementing the
+/// download count).
+pub async fn get_asset(db: &DatabaseConnection, repo_id: i64, asset_id: i64) -> CoreResult<Asset> {
+    asset_in_repo(db, repo_id, asset_id).await
 }
 
-/// List assets for a release.
-pub async fn list_assets(db: &DatabaseConnection, release_id: i64) -> CoreResult<Vec<Asset>> {
+/// List assets for a release of `repo_id`.
+pub async fn list_assets(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    release_id: i64,
+) -> CoreResult<Vec<Asset>> {
+    release_in_repo(db, repo_id, release_id).await?;
     Ok(rg_db::ops::release_ops::list_assets(db, release_id).await?)
 }
 
-/// Delete a release asset (removes DB record + file from disk).
+/// Delete a release asset of `repo_id` (removes the DB record and the file).
 pub async fn delete_asset(
     db: &DatabaseConnection,
+    repo_id: i64,
     asset_id: i64,
     storage: &dyn crate::blob_storage::BlobStorage,
     repo_root: &Path,
     owner: &str,
     repo_name: &str,
 ) -> CoreResult<()> {
-    let asset = get_asset(db, asset_id).await?;
+    let asset = asset_in_repo(db, repo_id, asset_id).await?;
 
     let key = asset_blob_key(owner, repo_name, &asset)?;
     if let Err(error) = storage.delete(&key).await {

@@ -78,13 +78,21 @@ fn extract_token_from_cookie(headers: &HeaderMap) -> Option<String> {
 /// CI job tokens are intentionally rejected — use `extract_ci_or_user_id` for
 /// repository-scoped operations during CI job execution.
 pub(crate) fn extract_user_id(headers: &HeaderMap, jwt_secret: &str) -> Option<i64> {
-    // M-4: Check HttpOnly cookie first, then fall back to Bearer header
+    extract_claims(headers, jwt_secret).and_then(|c| c.sub.parse::<i64>().ok())
+}
+
+/// Extract the claims of the session JWT a request carries: the HttpOnly
+/// cookie first, then the Bearer header.
+///
+/// The browser only ever has the cookie (the web client holds no token), so a
+/// handler that reads the Bearer header alone answers 401 to a logged-in user.
+pub(crate) fn extract_claims(headers: &HeaderMap, jwt_secret: &str) -> Option<Claims> {
     if let Some(token) = extract_token_from_cookie(headers) {
         if let Some(claims) = rg_core::auth::jwt::validate_token(&token, jwt_secret) {
-            return claims.sub.parse::<i64>().ok();
+            return Some(claims);
         }
     }
-    extract_bearer_claims(headers, jwt_secret).and_then(|c| c.sub.parse::<i64>().ok())
+    extract_bearer_claims(headers, jwt_secret)
 }
 
 /// Extract and validate the Bearer JWT Claims from the Authorization header.

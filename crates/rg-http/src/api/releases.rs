@@ -21,7 +21,7 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::api::auth::extract_bearer_claims;
+use crate::api::auth::extract_claims;
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::AppState;
@@ -70,6 +70,7 @@ pub struct UpdateReleaseRequest {
 )]
 pub async fn list_releases(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
     Query(params): Query<PaginationParams>,
 ) -> impl IntoResponse {
@@ -77,16 +78,9 @@ pub async fn list_releases(
     let offset = pagination.offset();
     let limit = pagination.limit();
 
-    // Find repo
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => {
-            return AppError::not_found("repository not found").into_response();
-        }
-        Err(e) => {
-            return AppError::from(e).into_response();
-        }
+    let repo = match super::repo_access::require_read(&state, &headers, &owner, &name).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
     };
 
     match rg_core::release::service::list_releases(&state.db, repo.id, offset, limit).await {
@@ -121,7 +115,7 @@ pub async fn create_release(
     Path((owner, name)): Path<(String, String)>,
     Json(body): Json<CreateReleaseRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required").into_response();
@@ -205,20 +199,15 @@ pub async fn create_release(
 )]
 pub async fn get_release(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    // Verify repo exists
-    match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            return AppError::not_found("repository not found").into_response();
-        }
-        Err(e) => {
-            return AppError::from(e).into_response();
-        }
-    }
+    let repo = match super::repo_access::require_read(&state, &headers, &owner, &name).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
+    };
 
-    match rg_core::release::service::get_release(&state.db, id).await {
+    match rg_core::release::service::get_release(&state.db, repo.id, id).await {
         Ok(release) => (StatusCode::OK, Json(serde_json::json!(release))).into_response(),
         Err(e) => AppError::from(e).into_response(),
     }
@@ -286,7 +275,7 @@ pub async fn update_release(
     Path((owner, name, id)): Path<(String, String, i64)>,
     Json(body): Json<UpdateReleaseRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required").into_response();
@@ -311,9 +300,14 @@ pub async fn update_release(
             return AppError::from(e).into_response();
         }
     }
+    let repo = match super::repo_access::resolve_repo(&state, &owner, &name).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
+    };
 
     match rg_core::release::service::update_release(
         &state.db,
+        repo.id,
         id,
         body.title.as_deref(),
         body.body.as_deref(),
@@ -348,7 +342,7 @@ pub async fn delete_release(
     headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required").into_response();
@@ -373,8 +367,12 @@ pub async fn delete_release(
             return AppError::from(e).into_response();
         }
     }
+    let repo = match super::repo_access::resolve_repo(&state, &owner, &name).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
+    };
 
-    match rg_core::release::service::delete_release(&state.db, id).await {
+    match rg_core::release::service::delete_release(&state.db, repo.id, id).await {
         Ok(()) => (
             StatusCode::NO_CONTENT,
             Json(serde_json::json!({ "deleted": true })),
@@ -403,20 +401,15 @@ pub async fn delete_release(
 )]
 pub async fn list_assets(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name, release_id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    // Verify repo exists
-    match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            return AppError::not_found("repository not found").into_response();
-        }
-        Err(e) => {
-            return AppError::from(e).into_response();
-        }
-    }
+    let repo = match super::repo_access::require_read(&state, &headers, &owner, &name).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
+    };
 
-    match rg_core::release::service::list_assets(&state.db, release_id).await {
+    match rg_core::release::service::list_assets(&state.db, repo.id, release_id).await {
         Ok(assets) => (StatusCode::OK, Json(serde_json::json!(assets))).into_response(),
         Err(e) => AppError::from(e).into_response(),
     }
@@ -449,7 +442,7 @@ pub async fn upload_asset(
     Path((owner, name, release_id)): Path<(String, String, i64)>,
     body: Body,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required").into_response();
@@ -474,6 +467,10 @@ pub async fn upload_asset(
             return AppError::from(e).into_response();
         }
     }
+    let repo = match super::repo_access::resolve_repo(&state, &owner, &name).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
+    };
 
     let filename = headers
         .get(header::CONTENT_DISPOSITION)
@@ -513,6 +510,7 @@ pub async fn upload_asset(
 
     match rg_core::release::service::upload_asset(
         &state.db,
+        repo.id,
         release_id,
         state.blob_storage.as_ref(),
         &state.repo_root,
@@ -592,20 +590,15 @@ fn hex_val(b: u8) -> Result<u8, ()> {
 )]
 pub async fn get_asset(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name, asset_id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    // Verify repo exists
-    match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            return AppError::not_found("repository not found").into_response();
-        }
-        Err(e) => {
-            return AppError::from(e).into_response();
-        }
-    }
+    let repo = match super::repo_access::require_read(&state, &headers, &owner, &name).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
+    };
 
-    match rg_core::release::service::get_asset(&state.db, asset_id).await {
+    match rg_core::release::service::get_asset(&state.db, repo.id, asset_id).await {
         Ok(asset) => (StatusCode::OK, Json(serde_json::json!(asset))).into_response(),
         Err(e) => AppError::from(e).into_response(),
     }
@@ -661,6 +654,7 @@ pub async fn download_asset(
 
     match rg_core::release::service::download_asset(
         &state.db,
+        repo.id,
         asset_id,
         state.blob_storage.as_ref(),
         &state.repo_root,
@@ -722,7 +716,7 @@ pub async fn delete_asset(
     headers: HeaderMap,
     Path((owner, name, asset_id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match extract_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required").into_response();
@@ -747,9 +741,14 @@ pub async fn delete_asset(
             return AppError::from(e).into_response();
         }
     }
+    let repo = match super::repo_access::resolve_repo(&state, &owner, &name).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
+    };
 
     match rg_core::release::service::delete_asset(
         &state.db,
+        repo.id,
         asset_id,
         state.blob_storage.as_ref(),
         &state.repo_root,

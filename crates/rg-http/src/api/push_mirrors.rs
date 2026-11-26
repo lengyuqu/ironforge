@@ -22,7 +22,7 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::api::auth::extract_bearer_claims;
+use crate::api::auth::extract_claims;
 use crate::error::AppError;
 use crate::AppState;
 use rg_core::mirror::push_service::{self as push_service, PushMirrorInput};
@@ -72,7 +72,7 @@ async fn writable_repo(
     owner: &str,
     name: &str,
 ) -> Result<rg_db::entities::repository::Model, AppError> {
-    let claims = extract_bearer_claims(headers, &state.jwt_secret)
+    let claims = extract_claims(headers, &state.jwt_secret)
         .ok_or_else(|| AppError::unauthorized("authentication required"))?;
     let user_id: i64 = claims
         .sub
@@ -105,18 +105,19 @@ fn enc_key(state: &AppState) -> [u8; 32] {
     ),
     responses(
         (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "No write permission", body = serde_json::Value),
         (status = 404, description = "No push mirror configured", body = serde_json::Value),
     ),
 )]
 pub async fn get_push_mirror(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => return AppError::from(e).into_response(),
+    let repo = match writable_repo(&state, &headers, &owner, &name).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
     };
     match push_service::get_push_mirror(&state.db, repo.id).await {
         Ok(Some(model)) => (StatusCode::OK, Json(serde_json::json!(model))).into_response(),

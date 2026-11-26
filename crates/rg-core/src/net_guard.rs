@@ -331,10 +331,28 @@ pub async fn validate_mirror_url(url: &str) -> Result<(), String> {
              (ext:: and file:// transports are not allowed)"
         ));
     }
+    // The URL is stored and returned as written, so a password typed into it
+    // would sit in the database and in every response in clear. The separate
+    // username and password fields are encrypted.
+    if has_embedded_credentials(url) {
+        return Err(
+            "mirror URL must not embed credentials; use the username and password fields instead"
+                .to_string(),
+        );
+    }
     if local_outbound_allowed() {
         return Ok(());
     }
     resolve_and_check(&host, port, is_mirror_blocked_ip).await
+}
+
+/// Does the URL's authority carry a `user[:password]@` prefix?
+fn has_embedded_credentials(url: &str) -> bool {
+    let Some((_, rest)) = url.trim().split_once("://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    authority.contains('@')
 }
 
 #[cfg(test)]
@@ -535,6 +553,28 @@ mod tests {
         assert!(validate_mirror_url("https://192.168.1.10/o/r.git")
             .await
             .is_ok());
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn mirror_rejects_embedded_credentials_even_with_the_escape_hatch() {
+        let _g = ENV_GUARD.lock().unwrap();
+        std::env::set_var("IRONFORGE_ALLOW_LOCAL_OUTBOUND", "1");
+        let results = [
+            validate_mirror_url("https://alice:pat@8.8.8.8/o/r.git").await,
+            validate_mirror_url("https://alice@8.8.8.8/o/r.git").await,
+            validate_mirror_url("http://[::1]:9000/o/r.git").await,
+            validate_mirror_url("https://8.8.8.8/alice@bob.git").await,
+        ];
+        std::env::remove_var("IRONFORGE_ALLOW_LOCAL_OUTBOUND");
+        assert!(results[0].is_err());
+        assert!(results[1].is_err());
+        assert!(
+            results[2].is_ok(),
+            "loopback is allowed by the escape hatch"
+        );
+        // An `@` in the path is not a credential.
+        assert!(results[3].is_ok(), "{:?}", results[3]);
     }
 
     #[tokio::test]

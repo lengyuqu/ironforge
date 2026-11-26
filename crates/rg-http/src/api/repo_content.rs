@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Semaphore;
 
-use crate::api::auth::{extract_bearer_claims, extract_ci_job_claims, extract_user_id};
+use crate::api::auth::{extract_ci_job_claims, extract_claims, extract_user_id};
 use crate::error::AppError;
 use crate::AppState;
 
@@ -670,7 +670,7 @@ pub async fn delete_branch(
         };
     // The same branch limit as a file commit: a token limited to some branches
     // may only delete branches inside its limit.
-    if let Some(claims) = extract_bearer_claims(&headers, &state.jwt_secret) {
+    if let Some(claims) = extract_claims(&headers, &state.jwt_secret) {
         if let Err(e) =
             crate::api::auth::ensure_token_may_write_branch(&state.db, &claims, &branch).await
         {
@@ -1302,7 +1302,7 @@ pub(crate) async fn resolve_and_check_write_access(
     ),
     AppError,
 > {
-    let claims = extract_bearer_claims(headers, &state.jwt_secret)
+    let claims = extract_claims(headers, &state.jwt_secret)
         .ok_or_else(|| AppError::unauthorized("authentication required"))?;
 
     let user_id = claims
@@ -1458,7 +1458,7 @@ pub async fn create_or_update_file(
         };
 
     let branch = req.branch.unwrap_or(repo_model.default_branch.clone());
-    if let Some(claims) = extract_bearer_claims(&headers, &state.jwt_secret) {
+    if let Some(claims) = extract_claims(&headers, &state.jwt_secret) {
         if let Err(e) =
             crate::api::auth::ensure_token_may_write_branch(&state.db, &claims, &branch).await
         {
@@ -1601,7 +1601,7 @@ pub async fn delete_file(
         };
 
     let branch = params.branch.unwrap_or(repo_model.default_branch.clone());
-    if let Some(claims) = extract_bearer_claims(&headers, &state.jwt_secret) {
+    if let Some(claims) = extract_claims(&headers, &state.jwt_secret) {
         if let Err(e) =
             crate::api::auth::ensure_token_may_write_branch(&state.db, &claims, &branch).await
         {

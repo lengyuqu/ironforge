@@ -10,7 +10,7 @@ use axum::Json;
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 
-use crate::api::auth::extract_bearer_claims;
+use crate::api::auth::extract_claims;
 use crate::error::AppError;
 use crate::AppState;
 
@@ -53,7 +53,7 @@ fn verify_signed_action(
 }
 
 fn authenticated_user_id(headers: &HeaderMap, state: &AppState) -> Result<i64, AppError> {
-    let claims = extract_bearer_claims(headers, &state.jwt_secret)
+    let claims = extract_claims(headers, &state.jwt_secret)
         .ok_or_else(|| AppError::unauthorized("authentication required"))?;
     claims
         .sub
