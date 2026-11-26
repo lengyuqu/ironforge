@@ -168,7 +168,8 @@ pub fn generate_oci_token(
         },
     };
 
-    let key = EncodingKey::from_secret(secret.as_bytes());
+    let key = EncodingKey::from_secret(secret.as_bytes())
+        .map_err(|e| CoreError::internal(format!("OCI token generation failed: {}", e)))?;
     let token = encode(&Header::default(), &claims, &key)
         .map_err(|e| CoreError::internal(format!("OCI token generation failed: {}", e)))?;
     Ok(token)
@@ -178,12 +179,14 @@ pub fn generate_oci_token(
 ///
 /// Returns the claims if valid, `None` otherwise.
 pub fn validate_oci_token(token: &str, secret: &str) -> Option<OciTokenClaims> {
-    let key = DecodingKey::from_secret(secret.as_bytes());
-    let mut validation = Validation::default();
-    validation.iss = Some(std::collections::HashSet::from(["ironforge".to_string()]));
-    validation.aud = Some(std::collections::HashSet::from([
-        "ironforge-registry".to_string()
-    ]));
+    let key = DecodingKey::from_secret(secret.as_bytes()).ok()?;
+    let validation = Validation {
+        iss: Some(std::collections::HashSet::from(["ironforge".to_string()])),
+        aud: Some(std::collections::HashSet::from([
+            "ironforge-registry".to_string()
+        ])),
+        ..Default::default()
+    };
 
     match decode::<OciTokenClaims>(token, &key, &validation) {
         Ok(data) => Some(data.claims),
@@ -492,12 +495,8 @@ mod tests {
             "exp": now + 300,
             "scope": "repository:alice/hello:pull",
         });
-        let token = encode(
-            &Header::default(),
-            &legacy,
-            &EncodingKey::from_secret(TEST_SECRET.as_bytes()),
-        )
-        .unwrap();
+        let key = EncodingKey::from_secret(TEST_SECRET.as_bytes()).unwrap();
+        let token = encode(&Header::default(), &legacy, &key).unwrap();
 
         let claims = validate_oci_token(&token, TEST_SECRET).unwrap();
         assert_eq!(claims.sub, "alice");

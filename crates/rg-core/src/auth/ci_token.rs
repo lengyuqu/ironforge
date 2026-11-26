@@ -99,12 +99,8 @@ pub fn generate_ci_job_token_with_ttl(
         iat: now.timestamp(),
         exp: exp.timestamp(),
     };
-    encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
-    )
-    .context("ci job token encode failed")
+    let key = EncodingKey::from_secret(secret.as_bytes()).context("ci token secret is empty")?;
+    encode(&Header::default(), &claims, &key).context("ci job token encode failed")
 }
 
 /// Validate a CI job token without accepting it as a user identity. Callers
@@ -113,13 +109,10 @@ pub fn validate_ci_token_signature(token: &str, secret: &str) -> Option<CiJobCla
     use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
     let mut validation = Validation::new(Algorithm::HS256);
     validation.set_issuer(&["ironforge-ci"]);
-    decode::<CiJobClaims>(
-        token,
-        &DecodingKey::from_secret(secret.as_bytes()),
-        &validation,
-    )
-    .ok()
-    .map(|data| data.claims)
+    let key = DecodingKey::from_secret(secret.as_bytes()).ok()?;
+    decode::<CiJobClaims>(token, &key, &validation)
+        .ok()
+        .map(|data| data.claims)
 }
 
 /// Validate and decode a CI job token with scope and repo checking.
@@ -192,12 +185,8 @@ mod tests {
             iat: now.timestamp(),
             exp: exp.timestamp(),
         };
-        let token = encode(
-            &Header::default(),
-            &claims,
-            &EncodingKey::from_secret(secret.as_bytes()),
-        )
-        .unwrap();
+        let key = EncodingKey::from_secret(secret.as_bytes()).unwrap();
+        let token = encode(&Header::default(), &claims, &key).unwrap();
         assert!(validate_ci_token(&token, secret, 1, "repo:read").is_none());
     }
 }

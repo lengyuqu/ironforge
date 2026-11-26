@@ -85,12 +85,8 @@ pub fn generate_token_for(
         ver: token_version,
         tid: access_token_id,
     };
-    encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
-    )
-    .context("jwt encode failed")
+    let key = EncodingKey::from_secret(secret.as_bytes()).context("jwt secret is empty")?;
+    encode(&Header::default(), &claims, &key).context("jwt encode failed")
 }
 
 /// Validate and decode a JWT. Returns `None` if invalid/expired.
@@ -98,13 +94,10 @@ pub fn validate_token(token: &str, secret: &str) -> Option<Claims> {
     let mut validation = Validation::new(Algorithm::HS256);
     validation.set_issuer(&["ironforge"]);
     validation.set_audience(&["ironforge-user"]);
-    decode::<Claims>(
-        token,
-        &DecodingKey::from_secret(secret.as_bytes()),
-        &validation,
-    )
-    .ok()
-    .map(|d| d.claims)
+    let key = DecodingKey::from_secret(secret.as_bytes()).ok()?;
+    decode::<Claims>(token, &key, &validation)
+        .ok()
+        .map(|d| d.claims)
 }
 
 /// Generate a five-minute token proving that the primary login factor passed.
@@ -124,22 +117,18 @@ pub fn generate_mfa_challenge(
         iat: now.timestamp(),
         exp: (now + Duration::minutes(5)).timestamp(),
     };
-    encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(mfa_challenge_key(secret).as_bytes()),
-    )
-    .context("MFA challenge encode failed")
+    let derived = mfa_challenge_key(secret);
+    let key =
+        EncodingKey::from_secret(derived.as_bytes()).context("MFA challenge secret is empty")?;
+    encode(&Header::default(), &claims, &key).context("MFA challenge encode failed")
 }
 
 pub fn validate_mfa_challenge(token: &str, secret: &str) -> Option<MfaChallengeClaims> {
-    decode::<MfaChallengeClaims>(
-        token,
-        &DecodingKey::from_secret(mfa_challenge_key(secret).as_bytes()),
-        &Validation::default(),
-    )
-    .ok()
-    .map(|decoded| decoded.claims)
+    let derived = mfa_challenge_key(secret);
+    let key = DecodingKey::from_secret(derived.as_bytes()).ok()?;
+    decode::<MfaChallengeClaims>(token, &key, &Validation::default())
+        .ok()
+        .map(|decoded| decoded.claims)
 }
 
 #[cfg(test)]
