@@ -14,6 +14,7 @@
 - 更新 `CLAUDE.md` 的状态行、未实现 / 技术债、依赖版本表。
 - 行为有变化：先改对应的 `docs/design/*.md`，再写 CHANGELOG。
 - 更新 `docs/operations.md`、`docs/performance.md` 与各设计文档的 `状态（X.Y.Z）`。
+- 对外能力变化：同步 `README.md` 与 `README.zh-CN.md`（英文为主，章节结构一致）。
 - 不新增带日期的快照、一次性核实、已完成任务记录；旧内容先合并，再删除。
 - 跑 `python3 scripts/check-docs.py`。
 
@@ -64,5 +65,6 @@ git -c credential.helper= -c credential.helper='!cnb git-credential' push cnb vX
 - [ ] `docs/README.md` 索引了每个 docs 文件
 - [ ] 相对链接 0 失效
 - [ ] 无已删除路径引用、无日期 / `verification` 文件名
+- [ ] README 中英版本存在、互相链接、`##` 章节数一致
 - [ ] 两端 `main` 与 tag 已推送且 SHA 一致
 - [ ] `Docs consistency` job 绿

@@ -121,6 +121,35 @@ def check_versions(root):
     return errors, version
 
 
+def check_readmes(root, version):
+    errors = []
+    en = root / "README.md"
+    zh = root / "README.zh-CN.md"
+    if not en.exists():
+        errors.append("README.md is missing")
+    if not zh.exists():
+        errors.append("README.zh-CN.md is missing")
+    if errors:
+        return errors
+    en_text = read(en)
+    zh_text = read(zh)
+    if "README.zh-CN.md" not in en_text:
+        errors.append("README.md does not link to README.zh-CN.md")
+    if "README.md" not in zh_text:
+        errors.append("README.zh-CN.md does not link to README.md")
+    en_headings = len(re.findall(r"^## ", en_text, re.M))
+    zh_headings = len(re.findall(r"^## ", zh_text, re.M))
+    if en_headings != zh_headings:
+        errors.append(
+            "README heading counts differ: en=%d, zh=%d" % (en_headings, zh_headings)
+        )
+    if version:
+        for path, text in ((en, en_text), (zh, zh_text)):
+            if version not in text:
+                errors.append(str(path.relative_to(root)) + " does not name the current version " + version)
+    return errors
+
+
 def check_links(root):
     errors = []
     for path in iter_files(root, {".md"}):
@@ -180,6 +209,7 @@ def run_checks(root):
     errors = []
     version_errors, version = check_versions(root)
     errors += version_errors
+    errors += check_readmes(root, version)
     errors += check_links(root)
     errors += check_index(root)
     errors += check_names(root)
@@ -193,6 +223,8 @@ def write_fixture(root, broken=False):
     (root / "web").mkdir()
     (root / "web/package.json").write_text('{"version": "9.9.9"}', encoding="utf-8")
     (root / "CHANGELOG.md").write_text("# Changelog\n\n## [9.9.9] - 2026-01-01\n\n- test\n", encoding="utf-8")
+    (root / "README.md").write_text("# Readme 9.9.9\n\n[中文](README.zh-CN.md)\n\n## A\n", encoding="utf-8")
+    (root / "README.zh-CN.md").write_text("# Readme 9.9.9\n\n[English](README.md)\n\n## A\n", encoding="utf-8")
     (root / "CLAUDE.md").write_text("# CLAUDE\n\n\u6700\u540e\u66f4\u65b0\uff1a2026-01-01\uff089.9.9\uff09\n", encoding="utf-8")
     (root / "AGENT.md").write_text("# AGENT\n\n\u6700\u540e\u66f4\u65b0\uff1a2026-01-01\uff089.9.9\uff09\n", encoding="utf-8")
     (root / "docs/design").mkdir(parents=True)
@@ -209,6 +241,7 @@ def write_fixture(root, broken=False):
             "# Ref\n\nSee docs/plans/T01-plan.md.\n", encoding="utf-8"
         )
         (root / "web/package.json").write_text('{"version": "0.0.1"}', encoding="utf-8")
+        (root / "README.zh-CN.md").write_text("# Readme 9.9.9\n", encoding="utf-8")
 
 
 def self_test():
@@ -231,6 +264,8 @@ def self_test():
             "has a date in its name",
             "references a deleted path",
             "web/package.json is 0.0.1",
+            "does not link to README.md",
+            "heading counts differ",
         ]
         missing = [item for item in expected if item not in text]
         if missing:
