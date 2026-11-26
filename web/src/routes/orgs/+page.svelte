@@ -8,9 +8,11 @@
   import CreateOrgForm from '$lib/components/orgs/CreateOrgForm.svelte';
   import OrgList from '$lib/components/orgs/OrgList.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { onMount } from 'svelte';
 
   const t = createT();
+  const latest = createLatest();
 
   let organizations = $state<Organization[]>([]);
   let error = $state('');
@@ -26,14 +28,20 @@
   });
 
   async function loadOrgs() {
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     try {
-      organizations = await orgs.list();
+      const list = await orgs.list();
+      if (!isCurrent()) return;
+      organizations = list;
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 
@@ -54,7 +62,7 @@
   <title>{t('orgs.title')} · IronForge</title>
 </svelte:head>
 
-<div class="container">
+<div class="page-container">
   <div class="page-header">
     <div>
       <h1>{t('orgs.title')}</h1>

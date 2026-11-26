@@ -3,46 +3,113 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
+  import Pagination from '$lib/components/Pagination.svelte';
+  import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { orgs, repos, type RepoListEntry } from '$lib/api/client.svelte';
   import type { Organization, OrganizationTeam, OrgMember } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
+  import { buildQueryHref, readPageParam } from '$lib/utils/urlQuery';
 
   const t = createT();
+  const PER_PAGE = 20;
+
+  let orgName = $derived(page.params.name!);
+  let currentPage = $derived(readPageParam(page.url));
 
   let org = $state<Organization | null>(null);
   let teams = $state<OrganizationTeam[]>([]);
   let members = $state<OrgMember[]>([]);
   let orgRepos = $state<RepoListEntry[]>([]);
+  let totalRepos = $state(0);
   let loading = $state(true);
+  let reposLoading = $state(true);
   let error = $state('');
   let newTeamName = $state('');
   let newTeamPermission = $state('read');
   let newRepoName = $state('');
   let newRepoPrivate = $state(false);
 
-  async function load() {
+  const orgLatest = createLatest();
+  const reposLatest = createLatest();
+
+  $effect(() => {
+    void loadOrg();
+  });
+
+  $effect(() => {
+    void loadRepos();
+  });
+
+  async function loadOrg() {
+    const name = orgName;
+    const isCurrent = orgLatest.begin();
     loading = true;
     error = '';
+    org = null;
+    members = [];
+    teams = [];
     try {
-      const name = page.params.name!;
-      org = await orgs.get(name);
-      members = await orgs.listMembers(name);
-      teams = await orgs.listTeams(name);
-      orgRepos = (await repos.list(name)).data;
+      const orgData = await orgs.get(name);
+      if (!isCurrent()) return;
+      const [memberList, teamList] = await Promise.all([
+        orgs.listMembers(name),
+        orgs.listTeams(name),
+      ]);
+      if (!isCurrent()) return;
+      org = orgData;
+      members = memberList;
+      teams = teamList;
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
+  }
+
+  async function loadRepos() {
+    const name = orgName;
+    const reqPage = currentPage;
+    const isCurrent = reposLatest.begin();
+    reposLoading = true;
+    try {
+      const result = await repos.list(name, reqPage, PER_PAGE);
+      if (!isCurrent()) return;
+      orgRepos = result.data;
+      totalRepos = result.pagination?.total ?? result.data.length;
+      if (reqPage > 1 && result.data.length === 0 && totalRepos > 0) {
+        void goto(buildQueryHref(page.url, { page: null }), {
+          replaceState: true,
+          keepFocus: true,
+          noScroll: true,
+        });
+      }
+    } catch (e) {
+      if (!isCurrent()) return;
+      error = toErrorMessage(e, t('errors.load_failed'));
+    } finally {
+      if (isCurrent()) {
+        reposLoading = false;
+      }
+    }
+  }
+
+  function changePage(nextPage: number) {
+    void goto(buildQueryHref(page.url, { page: nextPage === 1 ? null : nextPage }), {
+      keepFocus: true,
+    });
   }
 
   async function createTeam() {
     if (!newTeamName.trim()) return;
     try {
-      await orgs.createTeam(page.params.name!, newTeamName, undefined, newTeamPermission);
+      await orgs.createTeam(orgName, newTeamName, undefined, newTeamPermission);
       newTeamName = '';
-      teams = await orgs.listTeams(page.params.name!);
+      teams = await orgs.listTeams(orgName);
     } catch (e) {
       error = toErrorMessage(e, t('common.unknown_error'));
     }
@@ -54,23 +121,21 @@
       await repos.create({
         name: newRepoName,
         is_private: newRepoPrivate,
-        org: page.params.name!,
+        org: orgName,
       });
       newRepoName = '';
-      orgRepos = (await repos.list(page.params.name!)).data;
+      await loadRepos();
     } catch (e) {
       error = toErrorMessage(e, t('common.unknown_error'));
     }
   }
-
-  load();
 </script>
 
 <svelte:head>
   <title>{org ? (org.display_name || org.name) : page.params.name} · {t('orgs.title')} · IronForge</title>
 </svelte:head>
 
-<div class="container">
+<div class="page-container">
   {#if loading}
     <LoadingState />
   {:else if error && !org}
@@ -91,7 +156,7 @@
 
     <!-- Organization Repositories -->
     <div class="section surface" style="margin-bottom: 1.5rem;">
-      <h2>{t('orgs.repositories', { count: String(orgRepos.length) })}</h2>
+      <h2>{t('orgs.repositories', { count: String(totalRepos) })}</h2>
       <div class="create-form">
         <input type="text" bind:value={newRepoName} placeholder={t('orgs.new_repo')} />
         <label class="checkbox-label">
@@ -100,7 +165,9 @@
         </label>
         <button class="btn-sm" onclick={createOrgRepo}>{t('orgs.create_repo')}</button>
       </div>
-      {#if orgRepos.length === 0}
+      {#if reposLoading && orgRepos.length === 0}
+        <LoadingState />
+      {:else if orgRepos.length === 0}
         <EmptyState title={t('orgs.no_repos')} />
       {:else}
         <div class="repo-list">
@@ -112,6 +179,7 @@
             </a>
           {/each}
         </div>
+        <Pagination total={totalRepos} page={currentPage} perPage={PER_PAGE} onPageChange={changePage} />
       {/if}
     </div>
 

@@ -5,12 +5,14 @@
   import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { admin, type AdminUser } from '$lib/api/client.svelte';
   import AdminUserTable from '$lib/components/admin/AdminUserTable.svelte';
   import UserEditModal from '$lib/components/admin/UserEditModal.svelte';
   import UserDeleteModal from '$lib/components/admin/UserDeleteModal.svelte';
 
   const t = createT();
+  const latest = createLatest();
 
   let users = $state<AdminUser[]>([]);
   let page = $state(1);
@@ -26,21 +28,28 @@
     if (!isAuthReady()) return;
     if (!isLoggedIn()) { goto('/login'); return; }
     if (!isAdmin()) { goto('/dashboard'); return; }
-    loadUsers();
+    void loadUsers();
   });
 
   async function loadUsers() {
+    const reqPage = page;
+    const reqPerPage = perPage;
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     try {
-      const result = await admin.listUsers(page, perPage);
+      const result = await admin.listUsers(reqPage, reqPerPage);
+      if (!isCurrent()) return;
       users = result.data;
       total = result.pagination?.total ?? 0;
       totalPages = result.pagination?.total_pages ?? 1;
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

@@ -6,9 +6,11 @@
   import { goto } from '$app/navigation';
   import { sshKeys, type SshKey } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
 
   const t = createT();
+  const latest = createLatest();
   let keys = $state<SshKey[]>([]);
   let loading = $state(true);
   let adding = $state(false);
@@ -24,18 +26,24 @@
       goto('/login');
       return;
     }
-    loadKeys();
+    void loadKeys();
   });
 
   async function loadKeys() {
+    const isCurrent = latest.begin();
     try {
       loading = true;
       error = '';
-      keys = await sshKeys.list();
+      const list = await sshKeys.list();
+      if (!isCurrent()) return;
+      keys = list;
     } catch (err) {
+      if (!isCurrent()) return;
       error = toErrorMessage(err, t('ssh_keys.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

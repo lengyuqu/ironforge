@@ -9,12 +9,14 @@
   import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
   import { admin, type AdminSsoProvider, type LoginAttemptEntry } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createLatest } from '$lib/utils/latest';
   import InstanceSettingsSection from '$lib/components/admin/InstanceSettingsSection.svelte';
   import SsoProviderSection from '$lib/components/admin/SsoProviderSection.svelte';
   import LoginAttemptsSection from '$lib/components/admin/LoginAttemptsSection.svelte';
   import { createT } from '$lib/i18n';
 
   const t = createT();
+  const latest = createLatest();
 
   let loading = $state(true);
   let error = $state('');
@@ -34,17 +36,20 @@
       goto('/dashboard');
       return;
     }
-    loadSettings();
+    void loadSettings();
   });
 
   async function loadSettings() {
+    const isCurrent = latest.begin();
     try {
       loading = true;
+      error = '';
       const [data, providers, loginAttemptResult] = await Promise.all([
         admin.getSettings(),
         admin.listSsoProviders(),
         admin.listLoginAttempts({ page: 1, per_page: 20 }),
       ]);
+      if (!isCurrent()) return;
       settings = data;
       ssoProviders = providers;
       loginAttempts = loginAttemptResult.attempts;
@@ -57,9 +62,12 @@
         clearBanner();
       }
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 </script>

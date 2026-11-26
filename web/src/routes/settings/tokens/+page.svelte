@@ -8,8 +8,10 @@
   import TokenCreateForm from '$lib/components/settings/TokenCreateForm.svelte';
   import TokenList from '$lib/components/settings/TokenList.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
 
   const t = createT();
+  const latest = createLatest();
 
   let tokenList = $state<AccessToken[]>([]);
   let loading = $state(true);
@@ -21,18 +23,24 @@
       goto('/login');
       return;
     }
-    loadTokens();
+    void loadTokens();
   });
 
   async function loadTokens() {
+    const isCurrent = latest.begin();
     try {
       loading = true;
       error = '';
-      tokenList = await tokens.list();
+      const list = await tokens.list();
+      if (!isCurrent()) return;
+      tokenList = list;
     } catch (err) {
+      if (!isCurrent()) return;
       error = toErrorMessage(err, t('errors.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 </script>

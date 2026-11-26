@@ -7,10 +7,12 @@
   import { imports, type ImportTask } from '$lib/api/client.svelte';
   import { isLoggedIn, getUser } from '$lib/stores/auth.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import ImportForm from '$lib/components/imports/ImportForm.svelte';
   import ImportTaskTable from '$lib/components/imports/ImportTaskTable.svelte';
 
   const t = createT();
+  const latest = createLatest();
 
   let taskList = $state<ImportTask[]>([]);
   let loading = $state(true);
@@ -28,18 +30,24 @@
       initialOwner = getUser()?.username || '';
     }
 
-    loadImports();
+    void loadImports();
   });
 
   async function loadImports() {
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     try {
-      taskList = await imports.list();
+      const list = await imports.list();
+      if (!isCurrent()) return;
+      taskList = list;
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

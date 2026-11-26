@@ -10,9 +10,11 @@
     type RemoteCredentialPayload,
   } from '$lib/api/remote-credentials';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
 
   const t = createT();
+  const latest = createLatest();
 
   let items = $state<RemoteCredential[]>([]);
   let loading = $state(true);
@@ -33,18 +35,24 @@
       goto('/login');
       return;
     }
-    load();
+    void load();
   });
 
   async function load() {
+    const isCurrent = latest.begin();
     try {
       loading = true;
       error = '';
-      items = await remoteCredentials.list();
+      const list = await remoteCredentials.list();
+      if (!isCurrent()) return;
+      items = list;
     } catch (err) {
+      if (!isCurrent()) return;
       error = toErrorMessage(err, t('remote_credentials.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

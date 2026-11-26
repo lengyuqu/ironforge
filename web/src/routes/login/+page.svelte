@@ -11,10 +11,12 @@
     beginMfa,
   } from '$lib/stores/auth.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { auth, type PublicSsoProvider } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
 
   const t = createT();
+  const ssoLatest = createLatest();
 
   let username = $state('');
   let password = $state('');
@@ -44,15 +46,21 @@
   });
 
   async function loadSsoProviders() {
+    const isCurrent = ssoLatest.begin();
     try {
       ssoLoading = true;
-      ssoProviders = (await auth.listSsoProviders()).filter(
+      const list = (await auth.listSsoProviders()).filter(
         (provider) => provider.provider_type !== 'ldap',
       );
+      if (!isCurrent()) return;
+      ssoProviders = list;
     } catch {
+      if (!isCurrent()) return;
       ssoProviders = [];
     } finally {
-      ssoLoading = false;
+      if (isCurrent()) {
+        ssoLoading = false;
+      }
     }
   }
 
@@ -97,7 +105,7 @@
   <title>{t('auth.login.title')} · IronForge</title>
 </svelte:head>
 
-<div class="login-page">
+<div class="page-container auth-page">
   <div class="login-card surface">
     <div class="login-header">
       <BrandMark size={40} />

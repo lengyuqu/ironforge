@@ -6,12 +6,14 @@
   import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { admin, type AuditLogEntry } from '$lib/api/client.svelte';
   import AuditFilters from '$lib/components/admin/AuditFilters.svelte';
   import AuditLogTable from '$lib/components/admin/AuditLogTable.svelte';
   import AuditDetailModal from '$lib/components/admin/AuditDetailModal.svelte';
 
   const t = createT();
+  const latest = createLatest();
 
   let logs = $state<AuditLogEntry[]>([]);
   let page = $state(0);
@@ -32,26 +34,35 @@
     if (!isAuthReady()) return;
     if (!isLoggedIn()) { goto('/login'); return; }
     if (!isAdmin()) { goto('/dashboard'); return; }
-    loadLogs();
+    void loadLogs();
   });
 
   async function loadLogs() {
+    const reqPage = page + 1; // L-4: Backend now uses 1-based page numbering
+    const reqPerPage = perPage;
+    const reqAction = actionFilter || undefined;
+    const reqResource = resourceFilter || undefined;
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     try {
       const result = await admin.listAuditLogs({
-        page: page + 1, // L-4: Backend now uses 1-based page numbering
-        per_page: perPage,
-        action: actionFilter || undefined,
-        resource_type: resourceFilter || undefined,
+        page: reqPage,
+        per_page: reqPerPage,
+        action: reqAction,
+        resource_type: reqResource,
       });
+      if (!isCurrent()) return;
       logs = result.logs;
       total = result.total;
       totalPages = Math.max(1, Math.ceil(result.total / result.per_page));
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

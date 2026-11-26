@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { createT } from '$lib/i18n';
 
   const t = createT();
 
-  const status = $derived($page.status);
-  const error = $derived($page.error);
+  const status = $derived(page.status);
+  const error = $derived(page.error);
 
   const titleKey = $derived(
     status === 404

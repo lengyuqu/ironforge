@@ -1,5 +1,8 @@
 <script lang="ts">
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import Pagination from '$lib/components/Pagination.svelte';
+  import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import { onMount } from 'svelte';
   import {
     notifications,
@@ -11,29 +14,73 @@
   import NotificationList from '$lib/components/notifications/NotificationList.svelte';
   import { createT } from '$lib/i18n';
   import { setUnreadCount } from '$lib/stores/unread.svelte';
+  import { createLatest } from '$lib/utils/latest';
+  import { toErrorMessage } from '$lib/utils/error';
+  import { buildQueryHref, readPageParam } from '$lib/utils/urlQuery';
 
   const t = createT();
+  const PER_PAGE = 20;
 
   let notifs = $state<NotificationItem[]>([]);
+  let total = $state(0);
   let unreadCount = $state(0);
   let loading = $state(true);
-  let filterUnread = $state(false);
+  let filterUnread = $derived(page.url.searchParams.get('unread') === '1');
+  let currentPage = $derived(readPageParam(page.url));
   let wsConnected = $state(false);
   let error = $state('');
 
+  const latest = createLatest();
+
+  $effect(() => {
+    void load();
+  });
+
   async function load() {
+    const reqUnread = filterUnread;
+    const reqPage = currentPage;
+    const userId = getUser()?.id;
+    const isCurrent = latest.begin();
     loading = true;
+    error = '';
     try {
-      const userId = getUser()?.id;
-      notifs = (await notifications.list(userId, filterUnread)).data;
-      const countData = await notifications.unreadCount(userId);
+      const [listResult, countData] = await Promise.all([
+        notifications.list(userId, reqUnread, reqPage, PER_PAGE),
+        notifications.unreadCount(userId),
+      ]);
+      if (!isCurrent()) return;
+      notifs = listResult.data;
+      total = listResult.pagination?.total ?? listResult.data.length;
       unreadCount = countData.unread_count || 0;
       setUnreadCount(unreadCount);
+      if (reqPage > 1 && listResult.data.length === 0 && total > 0) {
+        void goto(buildQueryHref(page.url, { page: null }), {
+          replaceState: true,
+          keepFocus: true,
+          noScroll: true,
+        });
+      }
     } catch (e) {
-      error = (e as Error).message || t('errors.load_failed');
+      if (!isCurrent()) return;
+      error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
+  }
+
+  function toggleUnreadFilter(next: boolean) {
+    void goto(buildQueryHref(page.url, { unread: next ? 1 : null, page: null }), {
+      keepFocus: true,
+      noScroll: true,
+    });
+  }
+
+  function changePage(nextPage: number) {
+    void goto(buildQueryHref(page.url, { page: nextPage === 1 ? null : nextPage }), {
+      keepFocus: true,
+    });
   }
 
   async function markAllRead() {
@@ -42,7 +89,7 @@
       await notifications.markAllRead(userId);
       await load();
     } catch (e) {
-      error = (e as Error).message || t('errors.load_failed');
+      error = toErrorMessage(e, t('errors.load_failed'));
     }
   }
 
@@ -70,7 +117,6 @@
     }
   }
 
-  load();
   onMount(() => {
     setupWebSocket();
     return () => disconnectNotificationWebSocket();
@@ -81,7 +127,7 @@
   <title>{t('notifications.title')} · IronForge</title>
 </svelte:head>
 
-<div class="container">
+<div class="page-container">
   <div class="header">
     <h1>{t('notifications.title')} {unreadCount > 0 ? `(${unreadCount})` : ''}</h1>
     <div class="actions">
@@ -89,7 +135,11 @@
         {wsConnected ? `🟢 ${t('nav.live')}` : `🔴 ${t('nav.offline')}`}
       </span>
       <label class="filter">
-        <input type="checkbox" bind:checked={filterUnread} onchange={load} />
+        <input
+          type="checkbox"
+          checked={filterUnread}
+          onchange={(e) => toggleUnreadFilter(e.currentTarget.checked)}
+        />
         {t('notifications.unread_only')}
       </label>
       {#if unreadCount > 0}
@@ -109,6 +159,8 @@
     onError={(message) => (error = message)}
   />
 
+  <Pagination {total} page={currentPage} perPage={PER_PAGE} onPageChange={changePage} />
+
   {#if !loading && notifs.length === 0 && wsConnected}
     <p class="hint">{t('notifications.hint')}</p>
   {/if}
@@ -127,7 +179,7 @@
   h1 { color: var(--text-primary); margin: 0; }
   .actions { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
   .ws-status { font-size: 0.8rem; color: var(--text-secondary); }
-  .ws-status.connected { color: #22c55e; }
+  .ws-status.connected { color: var(--green); }
 
   .filter {
     display: flex;

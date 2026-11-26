@@ -10,11 +10,13 @@
   import { runners, type RunnerListItem } from '$lib/api/client.svelte';
   import { isAdmin, isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createLatest } from '$lib/utils/latest';
   import RunnerRegisterForm from '$lib/components/admin/RunnerRegisterForm.svelte';
   import RunnerTable from '$lib/components/admin/RunnerTable.svelte';
   import RunnerDeleteModal from '$lib/components/admin/RunnerDeleteModal.svelte';
 
   const t = createT();
+  const latest = createLatest();
 
   let runnerList = $state<RunnerListItem[]>([]);
   let page = $state(1);
@@ -35,21 +37,28 @@
       goto('/dashboard');
       return;
     }
-    loadRunners();
+    void loadRunners();
   });
 
   async function loadRunners() {
+    const reqPage = page;
+    const reqPerPage = perPage;
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     try {
-      const result = await runners.list(page, perPage);
+      const result = await runners.list(reqPage, reqPerPage);
+      if (!isCurrent()) return;
       runnerList = result.data;
       total = result.pagination?.total ?? runnerList.length;
       totalPages = result.pagination?.total_pages ?? 1;
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed', 'Load failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

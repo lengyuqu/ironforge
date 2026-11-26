@@ -7,11 +7,13 @@
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import { mfa, type MfaBackupStatus, type MfaSetupResponse } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import MfaStatusSection from '$lib/components/settings/MfaStatusSection.svelte';
   import MfaSetupPanel from '$lib/components/settings/MfaSetupPanel.svelte';
   import BackupCodesPanel from '$lib/components/settings/BackupCodesPanel.svelte';
 
   const t = createT();
+  const latest = createLatest();
 
   let loading = $state(true);
   let saving = $state(false);
@@ -27,18 +29,24 @@
       goto('/login');
       return;
     }
-    loadSecurity();
+    void loadSecurity();
   });
 
   async function loadSecurity() {
+    const isCurrent = latest.begin();
     try {
       loading = true;
       error = '';
-      backupStatus = await mfa.backup();
+      const status = await mfa.backup();
+      if (!isCurrent()) return;
+      backupStatus = status;
     } catch (err) {
+      if (!isCurrent()) return;
       error = toErrorMessage(err, t('errors.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

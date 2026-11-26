@@ -7,6 +7,7 @@
   import { repos } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { toErrorMessage } from '$lib/utils/error';
   import HeroSection from '$lib/components/home/HeroSection.svelte';
   import FeaturesSection from '$lib/components/home/FeaturesSection.svelte';
@@ -17,22 +18,25 @@
   import type { ExploreRepo } from '$lib/types/entities';
 
   const t = createT();
+  const latest = createLatest();
 
   let repoList = $state<ExploreRepo[]>([]);
   let loading = $state(true);
   let error = $state('');
 
   $effect(() => {
-    loadRepos();
+    void loadRepos();
   });
 
   async function loadRepos() {
+    const currentUser = isLoggedIn() ? getUser() : null;
+    const isCurrent = latest.begin();
     try {
       loading = true;
       error = '';
-      const currentUser = isLoggedIn() ? getUser() : null;
       if (currentUser?.username) {
         const res = await repos.list(currentUser.username, 1, 6);
+        if (!isCurrent()) return;
         repoList = (res?.data || []).map((item) => ({
           ...item,
           owner_id: currentUser.id,
@@ -40,12 +44,16 @@
         }));
       } else {
         const r = await repos.explore(1, 6);
+        if (!isCurrent()) return;
         repoList = r && Array.isArray(r.data) ? r.data : [];
       }
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 </script>
@@ -56,7 +64,7 @@
 
 {#if isLoggedIn()}
   <!-- User Dashboard -->
-  <div class="dashboard">
+  <div class="page-container">
     <div class="dashboard-header">
       <h1>{t('dashboard.title')}</h1>
       <div class="dashboard-actions">
@@ -94,12 +102,6 @@
   }
 
   /* === Dashboard Styles (Logged In) === */
-  .dashboard {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 24px;
-  }
-
   .dashboard-header {
     display: flex;
     align-items: center;

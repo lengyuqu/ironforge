@@ -6,8 +6,10 @@
   import { repos } from '$lib/api/client.svelte';
   import type { ExploreRepo } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
 
   const t = createT();
+  const latest = createLatest();
 
   let repoList = $state<ExploreRepo[]>([]);
   let loading = $state(true);
@@ -18,22 +20,27 @@
   const perPage = 24;
 
   $effect(() => {
-    loadPage(1);
+    void loadPage(1);
   });
 
   async function loadPage(p: number) {
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     try {
       const result = await repos.explore(p, perPage);
+      if (!isCurrent()) return;
       repoList = result.data;
       totalPages = result.pagination?.total_pages ?? 1;
       totalCount = result.pagination?.total ?? 0;
       page = p;
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 </script>

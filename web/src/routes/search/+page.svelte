@@ -6,9 +6,10 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import { search } from '$lib/api/client.svelte';
   import type { SearchResult } from '$lib/api/search';
   import { toErrorMessage } from '$lib/utils/error';
@@ -17,6 +18,7 @@
   import { onMount } from 'svelte';
 
   const t = createT();
+  const latest = createLatest();
 
   let query = $state('');
   let activeType = $state('all');
@@ -39,7 +41,7 @@
 
   // Sync from URL on mount and on URL changes
   $effect(() => {
-    const url = $page.url;
+    const url = page.url;
     const q = url.searchParams.get('q') || '';
     const type = normalizeSearchType(url.searchParams.get('type'));
     const pg = parseInt(url.searchParams.get('page') || '1', 10);
@@ -49,7 +51,9 @@
       activeType = type;
       currentPage = pg;
       if (q) {
-        performSearch(q, type, pg);
+        void performSearch(q, type, pg);
+      } else {
+        latest.invalidate();
       }
     }
   });
@@ -68,20 +72,25 @@
   });
 
   async function performSearch(q: string, type: string, pg: number) {
+    const isCurrent = latest.begin();
     try {
       loading = true;
       hasSearched = true;
       searchError = '';
       const response = await search.search(q, type, pg, perPage);
+      if (!isCurrent()) return;
       results = response.results;
       total = response.total;
       currentPage = response.page;
     } catch (err: unknown) {
+      if (!isCurrent()) return;
       results = [];
       total = 0;
       searchError = toErrorMessage(err, t('search.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 
@@ -169,6 +178,10 @@
 </div>
 
 <style>
+  .search-page {
+    padding-top: var(--space-2);
+  }
+
   .search-header {
     margin-bottom: 24px;
   }

@@ -3,26 +3,34 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
+  import Pagination from '$lib/components/Pagination.svelte';
   import { isLoggedIn, getUser } from '$lib/stores/auth.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { createT } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
+  import { buildQueryHref, readPageParam } from '$lib/utils/urlQuery';
   import CreateRepoForm from '$lib/components/dashboard/CreateRepoForm.svelte';
   import RepoList from '$lib/components/dashboard/RepoList.svelte';
 
   const t = createT();
+  const PER_PAGE = 20;
 
   type RepoListItem = { id: number; name: string; description: string | null; is_private: boolean; created_at: string };
 
   let owner = $derived(getUser()?.username || '');
+  let currentPage = $derived(readPageParam(page.url));
   let repoList = $state<RepoListItem[]>([]);
+  let total = $state(0);
   let loading = $state(true);
   let error = $state('');
   let showCreate = $state(false);
 
+  const latest = createLatest();
+
   $effect(() => {
-    if ($page.url.searchParams.get('new') === '1') {
+    if (page.url.searchParams.get('new') === '1') {
       showCreate = true;
     }
   });
@@ -32,20 +40,45 @@
       goto('/login');
       return;
     }
-    loadRepos();
+    void loadRepos();
   });
 
   async function loadRepos() {
-    if (!owner) return;
+    const reqOwner = owner;
+    const reqPage = currentPage;
+    if (!reqOwner) {
+      loading = false;
+      return;
+    }
+    const isCurrent = latest.begin();
     try {
       loading = true;
-      const result = await repos.list(owner);
+      error = '';
+      const result = await repos.list(reqOwner, reqPage, PER_PAGE);
+      if (!isCurrent()) return;
       repoList = result.data;
+      total = result.pagination?.total ?? result.data.length;
+      if (reqPage > 1 && result.data.length === 0 && total > 0) {
+        void goto(buildQueryHref(page.url, { page: null, new: null }), {
+          replaceState: true,
+          keepFocus: true,
+          noScroll: true,
+        });
+      }
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
+  }
+
+  function changePage(nextPage: number) {
+    void goto(buildQueryHref(page.url, { page: nextPage === 1 ? null : nextPage, new: null }), {
+      keepFocus: true,
+    });
   }
 
   async function handleCreated(repoName: string) {
@@ -58,7 +91,7 @@
   <title>{t('dashboard.title')} · IronForge</title>
 </svelte:head>
 
-<div class="dashboard">
+<div class="page-container">
   <div class="dashboard-header">
     <h1>{t('dashboard.title')}</h1>
     <button class="btn-primary" onclick={() => showCreate = !showCreate}>
@@ -80,6 +113,7 @@
     <EmptyState title={t('dashboard.empty.no_repos')} description={t('dashboard.empty.get_started')} />
   {:else}
     <RepoList owner={owner} repos={repoList} />
+    <Pagination {total} page={currentPage} perPage={PER_PAGE} onPageChange={changePage} />
   {/if}
 </div>
 

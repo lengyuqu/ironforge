@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import { createT } from '$lib/i18n';
@@ -20,7 +20,7 @@
     }
   });
 
-  const currentPath = $derived($page.url.pathname);
+  const currentPath = $derived(page.url.pathname);
 
   const navItems: Array<{ path: string; label: string; icon: IconName }> = $derived([
     { path: '/settings/security', label: t('nav.security'), icon: 'shield' },

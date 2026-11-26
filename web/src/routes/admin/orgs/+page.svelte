@@ -6,10 +6,12 @@
   import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
   import { goto } from '$app/navigation';
   import { createT, formatDate } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
   import Modal from '$lib/components/Modal.svelte';
   import { admin, type AdminOrg } from '$lib/api/client.svelte';
 
   const t = createT();
+  const latest = createLatest();
 
   let orgs = $state<AdminOrg[]>([]);
   let page = $state(1);
@@ -26,21 +28,28 @@
     if (!isAuthReady()) return;
     if (!isLoggedIn()) { goto('/login'); return; }
     if (!isAdmin()) { goto('/dashboard'); return; }
-    loadOrgs();
+    void loadOrgs();
   });
 
   async function loadOrgs() {
+    const reqPage = page;
+    const reqPerPage = perPage;
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     try {
-      const result = await admin.listOrgs(page, perPage);
+      const result = await admin.listOrgs(reqPage, reqPerPage);
+      if (!isCurrent()) return;
       orgs = result.data;
       total = result.pagination?.total ?? 0;
       totalPages = result.pagination?.total_pages ?? 1;
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
   }
 

@@ -3,32 +3,62 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
-  import { page } from '$app/stores';
+  import Pagination from '$lib/components/Pagination.svelte';
+  import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import { repos, type RepoListEntry } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
+  import { createLatest } from '$lib/utils/latest';
+  import { buildQueryHref, readPageParam } from '$lib/utils/urlQuery';
 
   const t = createT();
+  const PER_PAGE = 20;
 
-  let owner = $derived($page.params.owner!);
+  let owner = $derived(page.params.owner!);
+  let currentPage = $derived(readPageParam(page.url));
   let repoList = $state<RepoListEntry[]>([]);
+  let total = $state(0);
   let loading = $state(true);
   let error = $state('');
 
+  const latest = createLatest();
+
   $effect(() => {
-    loadOwner();
+    void loadOwner();
   });
 
   async function loadOwner() {
+    const reqOwner = owner;
+    const reqPage = currentPage;
+    const isCurrent = latest.begin();
     loading = true;
     error = '';
     try {
-      const result = await repos.list(owner);
+      const result = await repos.list(reqOwner, reqPage, PER_PAGE);
+      if (!isCurrent()) return;
       repoList = result.data;
+      total = result.pagination?.total ?? result.data.length;
+      if (reqPage > 1 && result.data.length === 0 && total > 0) {
+        void goto(buildQueryHref(page.url, { page: null }), {
+          replaceState: true,
+          keepFocus: true,
+          noScroll: true,
+        });
+      }
     } catch (e) {
+      if (!isCurrent()) return;
       error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
-      loading = false;
+      if (isCurrent()) {
+        loading = false;
+      }
     }
+  }
+
+  function changePage(nextPage: number) {
+    void goto(buildQueryHref(page.url, { page: nextPage === 1 ? null : nextPage }), {
+      keepFocus: true,
+    });
   }
 </script>
 
@@ -74,6 +104,7 @@
         </a>
       {/each}
     </div>
+    <Pagination {total} page={currentPage} perPage={PER_PAGE} onPageChange={changePage} />
   {/if}
 </div>
 
