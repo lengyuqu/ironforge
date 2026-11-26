@@ -439,7 +439,10 @@ impl ActionFileSource for GitTreeSource {
         if repo.rev_parse_single(self.commit.as_str()).is_err() {
             return Err(ActionError::new(
                 ActionErrorKind::Io,
-                format!("commit '{}' does not resolve in the repository", self.commit),
+                format!(
+                    "commit '{}' does not resolve in the repository",
+                    self.commit
+                ),
             ));
         }
         let object_id = match repo.rev_parse_single(spec.as_str()) {
@@ -560,7 +563,11 @@ impl ActionFetcher {
     ///
     /// `parent` is the root a nested `./path` is relative to: the workspace for
     /// a repository-local Action, or the checkout of a remote Action.
-    pub fn resolve_within(&self, parent: &dyn ActionFileSource, uses: &str) -> Result<ResolvedAction> {
+    pub fn resolve_within(
+        &self,
+        parent: &dyn ActionFileSource,
+        uses: &str,
+    ) -> Result<ResolvedAction> {
         match ActionReference::parse(uses)? {
             ActionReference::Builtin { .. } => Err(fail(
                 ActionErrorKind::InvalidReference,
@@ -660,7 +667,10 @@ configured, so it cannot be fetched; a node or docker action would additionally 
         let _ = std::fs::remove_dir_all(&tmp);
         if let Some(parent) = tmp.parent() {
             std::fs::create_dir_all(parent).map_err(|error| {
-                fail(ActionErrorKind::Io, format!("failed to create the action cache: {error}"))
+                fail(
+                    ActionErrorKind::Io,
+                    format!("failed to create the action cache: {error}"),
+                )
             })?;
         }
 
@@ -717,7 +727,9 @@ configured, so it cannot be fetched; a node or docker action would additionally 
                 let _ = std::fs::remove_dir_all(&tmp);
                 return Err(fail(
                     ActionErrorKind::Fetch,
-                    format!("failed to store '{owner}/{repo}@{git_ref}' in the action cache: {error}"),
+                    format!(
+                        "failed to store '{owner}/{repo}@{git_ref}' in the action cache: {error}"
+                    ),
                 ));
             }
         }
@@ -795,10 +807,7 @@ fn read_manifest(source: &dyn ActionFileSource, dir: &str) -> Result<ActionManif
         } else {
             format!("{dir}/{name}")
         };
-        if let Some(bytes) = source
-            .read(&relative)
-            .map_err(anyhow::Error::new)?
-        {
+        if let Some(bytes) = source.read(&relative).map_err(anyhow::Error::new)? {
             let text = String::from_utf8(bytes).map_err(|_| {
                 fail(
                     ActionErrorKind::ManifestInvalid,
@@ -808,7 +817,10 @@ fn read_manifest(source: &dyn ActionFileSource, dir: &str) -> Result<ActionManif
             return ActionManifest::parse(&text).map_err(|error| {
                 fail(
                     ActionErrorKind::ManifestInvalid,
-                    format!("'{relative}' in '{}' is not a valid action manifest: {error}", source.location()),
+                    format!(
+                        "'{relative}' in '{}' is not a valid action manifest: {error}",
+                        source.location()
+                    ),
                 )
             });
         }
@@ -818,7 +830,10 @@ fn read_manifest(source: &dyn ActionFileSource, dir: &str) -> Result<ActionManif
         if dir.is_empty() {
             format!("no action.yml or action.yaml in '{}'", source.location())
         } else {
-            format!("no action.yml or action.yaml in '{}/{dir}'", source.location())
+            format!(
+                "no action.yml or action.yaml in '{}/{dir}'",
+                source.location()
+            )
         },
     ))
 }
@@ -922,18 +937,14 @@ impl ActionManifest {
         let using = runs
             .get("using")
             .and_then(|value| value.as_str())
-            .ok_or_else(|| {
-                fail(
-                    ActionErrorKind::ManifestInvalid,
-                    "`runs.using` is required",
-                )
-            })?;
+            .ok_or_else(|| fail(ActionErrorKind::ManifestInvalid, "`runs.using` is required"))?;
 
         let runs = match using {
             "composite" => {
-                let steps = runs.get("steps").cloned().unwrap_or_else(|| {
-                    rg_core::yaml::Value::Array(Vec::new())
-                });
+                let steps = runs
+                    .get("steps")
+                    .cloned()
+                    .unwrap_or_else(|| rg_core::yaml::Value::Array(Vec::new()));
                 let steps: Vec<GiteaStep> = serde_json::from_value(steps).map_err(|error| {
                     fail(
                         ActionErrorKind::ManifestInvalid,
@@ -971,9 +982,7 @@ impl ActionManifest {
     pub fn required_capabilities(&self) -> RunnerCapabilities {
         match self.runs {
             ActionRuns::Composite { .. } => RunnerCapabilities::default(),
-            _ => RunnerCapabilities {
-                actions_v1: true,
-            },
+            _ => RunnerCapabilities { actions_v1: true },
         }
     }
 }
@@ -995,9 +1004,7 @@ mod tests {
     fn references_are_parsed_into_their_four_shapes() {
         assert_eq!(
             ActionReference::parse("./a/b").unwrap(),
-            ActionReference::Local {
-                path: "a/b".into()
-            }
+            ActionReference::Local { path: "a/b".into() }
         );
         assert_eq!(
             ActionReference::parse("owner/repo/sub@v1").unwrap(),
@@ -1053,7 +1060,8 @@ mod tests {
         assert!(matches!(node.runs, ActionRuns::Node { .. }));
         assert!(node.required_capabilities().actions_v1);
 
-        let docker = ActionManifest::parse("runs:\n  using: docker\n  image: Dockerfile\n").unwrap();
+        let docker =
+            ActionManifest::parse("runs:\n  using: docker\n  image: Dockerfile\n").unwrap();
         assert!(matches!(docker.runs, ActionRuns::Docker { .. }));
         assert!(docker.required_capabilities().actions_v1);
 

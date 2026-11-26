@@ -23,7 +23,7 @@ use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap};
 
 use crate::action_fetch::{
-    is_builtin_action, ActionError, ActionErrorKind, ActionFileSource, ActionFetcher,
+    is_builtin_action, ActionError, ActionErrorKind, ActionFetcher, ActionFileSource,
     ActionManifest, ActionOutput, ActionRuns, ACTIONS_V1_CAPABILITY, MAX_COMPOSITE_DEPTH,
 };
 use crate::config::{CacheConfig, CiConfig, ConcurrencyConfig, JobConfig};
@@ -905,9 +905,8 @@ impl<'a> InstantiatedAction<'a> {
     }
 
     fn instantiate(&self, child: GiteaStep) -> GiteaStep {
-        let substitute = |text: &str| {
-            substitute_action_expressions(text, &self.inputs, self.action_path)
-        };
+        let substitute =
+            |text: &str| substitute_action_expressions(text, &self.inputs, self.action_path);
         let id = match (&self.id_prefix, child.id) {
             (Some(prefix), Some(id)) => Some(format!("{prefix}{id}")),
             (_, id) => id,
@@ -1016,11 +1015,13 @@ fn is_safe_output_name(name: &str) -> bool {
 /// generated script. See the `INPUT_*` injection in `InstantiatedAction`.
 fn is_safe_env_value(value: &str) -> bool {
     value.chars().all(|c| {
-        c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '@' | '+' | ',' | '=')
+        c.is_ascii_alphanumeric()
+            || matches!(c, '_' | '-' | '.' | '/' | ':' | '@' | '+' | ',' | '=')
     })
 }
 
-fn environment_name(value: &YamlValue) -> Option<String> {    match value {
+fn environment_name(value: &YamlValue) -> Option<String> {
+    match value {
         YamlValue::String(name) => Some(name.clone()),
         YamlValue::Object(mapping) => mapping
             .get("name")

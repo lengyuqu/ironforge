@@ -236,7 +236,11 @@ fn measure_push_initial(
         let ms = elapsed_ms(started);
 
         assert_eq!(updates.len(), 1, "expected one ref update");
-        assert_eq!(updates[0].status, "ok", "push rejected: {}", updates[0].message);
+        assert_eq!(
+            updates[0].status, "ok",
+            "push rejected: {}",
+            updates[0].message
+        );
         let pushed = gix::open(&target).expect("target must open");
         assert_eq!(
             pushed.head_id().expect("target HEAD").to_string(),
@@ -244,7 +248,14 @@ fn measure_push_initial(
             "target HEAD does not match the pushed tip"
         );
 
-        record(&mut samples, dataset.spec.name, Operation::PushInitial, rep, ms, pack.len() as u64);
+        record(
+            &mut samples,
+            dataset.spec.name,
+            Operation::PushInitial,
+            rep,
+            ms,
+            pack.len() as u64,
+        );
     }
 
     OpResult {
@@ -321,7 +332,11 @@ fn measure_push_incremental(
         let ms = elapsed_ms(started);
 
         assert_eq!(updates.len(), 1, "expected one ref update");
-        assert_eq!(updates[0].status, "ok", "push rejected: {}", updates[0].message);
+        assert_eq!(
+            updates[0].status, "ok",
+            "push rejected: {}",
+            updates[0].message
+        );
         let pushed = gix::open(&target).expect("target must open");
         assert_eq!(
             pushed.head_id().expect("target HEAD").to_string(),
@@ -457,10 +472,7 @@ fn measure_tree(
         );
     }
 
-    OpResult {
-        operation,
-        samples,
-    }
+    OpResult { operation, samples }
 }
 
 // ── Wire helpers ────────────────────────────────────────────────────
@@ -580,7 +592,11 @@ fn check_thresholds(name: DatasetName, results: &[OpResult], repetitions: usize)
         let measured = result.p50();
         match threshold_for(name, result.operation) {
             Some(threshold) => {
-                let verdict = if measured <= threshold as f64 { "ok" } else { "FAIL" };
+                let verdict = if measured <= threshold as f64 {
+                    "ok"
+                } else {
+                    "FAIL"
+                };
                 println!(
                     "[perf] threshold dataset={} op={} measured_ms={:.1} threshold_ms={} verdict={verdict} \
                      n={} p95_ms={:.1}",
@@ -639,14 +655,21 @@ fn environment_fingerprint() -> String {
             .unwrap_or(0),
         std::env::consts::OS,
         std::env::consts::ARCH,
-        if cfg!(debug_assertions) { "dev" } else { "release" },
+        if cfg!(debug_assertions) {
+            "dev"
+        } else {
+            "release"
+        },
         command_first_line("rustc", &["-V"]).unwrap_or_else(|| "unknown".to_string()),
         disk_kind(),
     )
 }
 
 fn command_first_line(program: &str, args: &[&str]) -> Option<String> {
-    let output = std::process::Command::new(program).args(args).output().ok()?;
+    let output = std::process::Command::new(program)
+        .args(args)
+        .output()
+        .ok()?;
     if !output.status.success() {
         return None;
     }
@@ -746,8 +769,7 @@ fn perf_materialize_dataset() {
         );
         return;
     };
-    let requested =
-        std::env::var("IRONFORGE_PERF_DATASET").unwrap_or_else(|_| "small".to_string());
+    let requested = std::env::var("IRONFORGE_PERF_DATASET").unwrap_or_else(|_| "small".to_string());
     let spec = match requested.as_str() {
         "small" => &perf_fixture::SMALL,
         "medium" => &perf_fixture::MEDIUM,

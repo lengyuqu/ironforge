@@ -434,9 +434,8 @@ fn describe_conflict(
     let theirs_blob = Some(their_id.to_string());
 
     let is_link = our_mode.is_link() || their_mode.is_link();
-    let is_submodule = kind == ConflictKind::Submodule
-        || our_mode.is_commit()
-        || their_mode.is_commit();
+    let is_submodule =
+        kind == ConflictKind::Submodule || our_mode.is_commit() || their_mode.is_commit();
 
     let mut entry = ConflictEntry {
         path,

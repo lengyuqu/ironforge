@@ -343,16 +343,19 @@ fn leaf_parts(index: usize, spec: &'static DatasetSpec) -> Vec<String> {
     let leaf = dir_index % 10;
     let mid = (dir_index / 10) % 10;
     let top = dir_index / 100;
-    vec![format!("g{top:03}"), format!("d{mid:02}"), format!("s{leaf}")]
+    vec![
+        format!("g{top:03}"),
+        format!("d{mid:02}"),
+        format!("s{leaf}"),
+    ]
 }
 
 /// File body derived only from `(path, commit index)`, so two runs produce
 /// identical bytes. Printable ASCII keeps the objects compressible like real
 /// source files instead of incompressible random data.
 fn file_content(path: &str, commit_index: usize, len: usize) -> Vec<u8> {
-    let mut state = fnv1a(path.as_bytes())
-        ^ (commit_index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
-        | 1;
+    let mut state =
+        fnv1a(path.as_bytes()) ^ (commit_index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
     let mut out = Vec::with_capacity(len);
     while out.len() < len {
         state = state
@@ -449,7 +452,10 @@ pub fn incremental_pack(repo_path: &Path, commit: &str) -> anyhow::Result<Vec<u8
 
 /// Object count from a pack header (`PACK`, version, big-endian count).
 pub fn pack_object_count(pack: &[u8]) -> u32 {
-    assert!(pack.len() >= 12 && pack.starts_with(b"PACK"), "not a pack stream");
+    assert!(
+        pack.len() >= 12 && pack.starts_with(b"PACK"),
+        "not a pack stream"
+    );
     u32::from_be_bytes([pack[8], pack[9], pack[10], pack[11]])
 }
 

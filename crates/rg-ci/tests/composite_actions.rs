@@ -349,7 +349,10 @@ jobs:
     assert_eq!(steps[0].id.as_deref(), Some("released.detect"));
     assert_eq!(steps[1].id.as_deref(), Some("released"));
     let publisher = steps[1].run.as_deref().expect("publisher has a script");
-    assert!(publisher.contains("version<<IRONFORGE_COMPOSITE_OUTPUT"), "{publisher}");
+    assert!(
+        publisher.contains("version<<IRONFORGE_COMPOSITE_OUTPUT"),
+        "{publisher}"
+    );
     assert!(
         publisher.contains(".ironforge-outputs/step-0.outputs"),
         "the inner step is at index 0: {publisher}"
@@ -446,7 +449,8 @@ fn fetches_a_real_remote_action_from_the_configured_base() {
     let base = std::env::var("IRONFORGE_ACTION_REMOTE_BASE")
         .expect("set IRONFORGE_ACTION_REMOTE_BASE to a git host such as https://github.com");
     let cache = tempfile::tempdir().unwrap();
-    let fetcher = ActionFetcher::for_directory(fixtures_root(), cache.path()).with_remote_base(base);
+    let fetcher =
+        ActionFetcher::for_directory(fixtures_root(), cache.path()).with_remote_base(base);
 
     let resolved = fetcher.resolve("actions/setup-node@v4").expect("fetch");
     assert!(matches!(resolved.manifest.runs, ActionRuns::Node { .. }));
