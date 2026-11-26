@@ -5,7 +5,6 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import PackageUploadForm from '$lib/components/packages/PackageUploadForm.svelte';
   import { createT } from '$lib/i18n';
 
@@ -31,16 +30,11 @@
   <title>{t('packages.upload')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="packages" />
-
-  <div class="page-header">
-    <h1>{t('packages.upload')}</h1>
-    <a href={`/${owner}/${repo}/packages`} class="btn-secondary">
-      {t('common.back', 'Back')}
-    </a>
-  </div>
-
-  <PackageUploadForm {owner} {repo} onUploaded={handleUploaded} />
+<div class="page-header">
+  <h1>{t('packages.upload')}</h1>
+  <a href={`/${owner}/${repo}/packages`} class="btn-secondary">
+    {t('common.back', 'Back')}
+  </a>
 </div>
 
+<PackageUploadForm {owner} {repo} onUploaded={handleUploaded} />

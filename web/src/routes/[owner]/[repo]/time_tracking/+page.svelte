@@ -2,7 +2,6 @@
   import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { issues, timeTracking } from '$lib/api/client.svelte';
   import type { Issue, TimeEntry } from '$lib/types/entities';
   import IssueSelector from '$lib/components/issues/IssueSelector.svelte';
@@ -89,63 +88,59 @@
   <title>{t('time_tracking.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="time_tracking" />
+<div class="page-header">
+  <h1>{t('time_tracking.title')}</h1>
+</div>
 
-  <div class="page-header">
-    <h1>{t('time_tracking.title')}</h1>
-  </div>
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
 
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
+<div class="layout">
+  <IssueSelector
+    issues={issueList}
+    loading={issueLoading}
+    selectedId={selectedIssue?.id ?? null}
+    onSelect={selectIssue}
+  />
 
-  <div class="layout">
-    <IssueSelector
-      issues={issueList}
-      loading={issueLoading}
-      selectedId={selectedIssue?.id ?? null}
-      onSelect={selectIssue}
-    />
+  <section class="main-panel">
+    {#if !selectedIssue}
+      <div class="select-hint surface">
+        <p>← {t('time_tracking.select_hint')}</p>
+      </div>
+    {:else}
+      <div class="issue-header">
+        <h2>
+          <a href={`/${owner}/${repo}/issues/${selectedIssue.number}`} class="issue-link">
+            #{selectedIssue.number} {selectedIssue.title}
+          </a>
+        </h2>
+        {#if totalFormatted}
+          <div class="total-badge">{t('time_tracking.total', { time: totalFormatted })}</div>
+        {/if}
+      </div>
 
-    <main class="main-panel">
-      {#if !selectedIssue}
-        <div class="select-hint surface">
-          <p>← {t('time_tracking.select_hint')}</p>
-        </div>
-      {:else}
-        <div class="issue-header">
-          <h2>
-            <a href={`/${owner}/${repo}/issues/${selectedIssue.number}`} class="issue-link">
-              #{selectedIssue.number} {selectedIssue.title}
-            </a>
-          </h2>
-          {#if totalFormatted}
-            <div class="total-badge">{t('time_tracking.total', { time: totalFormatted })}</div>
-          {/if}
-        </div>
+      <TimeEntryForm
+        {owner}
+        {repo}
+        issueNumber={selectedIssue.number}
+        onAdded={refreshEntries}
+      />
 
-        <TimeEntryForm
-          {owner}
-          {repo}
-          issueNumber={selectedIssue.number}
-          onAdded={refreshEntries}
-        />
-
-        <TimeEntryList
-          {owner}
-          {repo}
-          issueNumber={selectedIssue.number}
-          entries={entries}
-          loading={entriesLoading}
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPageChange={handlePageChange}
-          onRefresh={refreshEntries}
-        />
-      {/if}
-    </main>
-  </div>
+      <TimeEntryList
+        {owner}
+        {repo}
+        issueNumber={selectedIssue.number}
+        entries={entries}
+        loading={entriesLoading}
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={handlePageChange}
+        onRefresh={refreshEntries}
+      />
+    {/if}
+  </section>
 </div>
 
 <style>

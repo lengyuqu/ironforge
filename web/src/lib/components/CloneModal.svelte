@@ -184,7 +184,7 @@
   .clone-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 299;
+    z-index: calc(var(--z-popover) - 1);
   }
 
   .clone-dropdown {
@@ -196,8 +196,8 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     width: 340px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-    z-index: 300;
+    box-shadow: var(--shadow-md);
+    z-index: var(--z-popover);
   }
 
   .clone-header {

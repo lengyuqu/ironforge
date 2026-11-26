@@ -37,8 +37,12 @@
 
 <style>
   .hero {
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    color: white;
+    background:
+      radial-gradient(65% 80% at 50% 0%, color-mix(in srgb, var(--brand-ember) 14%, transparent), transparent 70%),
+      radial-gradient(50% 60% at 85% 20%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 65%),
+      linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border);
     padding: 80px 24px;
     text-align: center;
   }
@@ -50,7 +54,8 @@
 
   .hero-logo {
     margin-bottom: 24px;
-    opacity: 0.9;
+    display: flex;
+    justify-content: center;
   }
 
   .hero-title {
@@ -62,16 +67,16 @@
 
   .hero-subtitle {
     font-size: 20px;
-    font-weight: 400;
+    font-weight: 500;
     margin-bottom: 12px;
-    opacity: 0.9;
+    color: var(--text-primary);
   }
 
   .hero-desc {
     font-size: 16px;
-    opacity: 0.7;
+    color: var(--text-secondary);
     margin-bottom: 32px;
-    max-width: 600px;
+    max-width: 640px;
     margin-left: auto;
     margin-right: auto;
     line-height: 1.6;
@@ -81,37 +86,40 @@
     display: flex;
     gap: 16px;
     justify-content: center;
+    flex-wrap: wrap;
   }
 
   .btn-hero-primary {
     padding: 12px 32px;
     background: var(--green-dim);
-    color: white;
-    border: none;
-    border-radius: 8px;
+    color: var(--text-on-accent);
+    border: 1px solid var(--green-dim);
+    border-radius: var(--radius-lg);
     font-size: 16px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.2s, border-color 0.2s;
   }
 
   .btn-hero-primary:hover {
     background: var(--green);
+    border-color: var(--green);
   }
 
   .btn-hero-secondary {
     padding: 12px 32px;
-    background: rgba(255, 255, 255, 0.1);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 8px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
     font-size: 16px;
     font-weight: 600;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: background 0.2s, border-color 0.2s;
   }
 
   .btn-hero-secondary:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--bg-hover);
+    border-color: var(--accent);
   }
 </style>

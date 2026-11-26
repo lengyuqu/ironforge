@@ -7,7 +7,6 @@
   import { toErrorMessage } from '$lib/utils/error';
   import { createT, formatDate } from '$lib/i18n';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { buildBlobHref, buildHistoryHref } from '$lib/utils/repoUrls';
 
   const t = createT();
@@ -50,50 +49,46 @@
   <title>{owner}/{repo} · {t('repo.tabs.commits')} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="commits" />
+{#if filterPath}
+  <h1>{t('repo.commits_path_title', { path: filterPath })}</h1>
+  <p class="filter-links">
+    <a href={buildBlobHref(owner, repo, refName, filterPath)}>{filterPath}</a>
+    <span aria-hidden="true">·</span>
+    <a href={buildHistoryHref(owner, repo, refName, '')}>{t('repo.commits_clear_filter')}</a>
+  </p>
+{:else}
+  <h1>{t('repo.tabs.commits')}</h1>
+{/if}
 
-  {#if filterPath}
-    <h1>{t('repo.commits_path_title', { path: filterPath })}</h1>
-    <p class="filter-links">
-      <a href={buildBlobHref(owner, repo, refName, filterPath)}>{filterPath}</a>
-      <span aria-hidden="true">·</span>
-      <a href={buildHistoryHref(owner, repo, refName, '')}>{t('repo.commits_clear_filter')}</a>
-    </p>
-  {:else}
-    <h1>{t('repo.tabs.commits')}</h1>
-  {/if}
-  
-  {#if error}
-    <ErrorBanner message={error}>
-      <button class="btn btn-sm" onclick={() => window.location.reload()}>{t('common.retry')}</button>
-    </ErrorBanner>
-  {/if}
+{#if error}
+  <ErrorBanner message={error}>
+    <button class="btn btn-sm" onclick={() => window.location.reload()}>{t('common.retry')}</button>
+  </ErrorBanner>
+{/if}
 
-  {#if loading}
-    <LoadingState />
-  {:else if commits.length === 0}
-    <EmptyState title={filterPath ? t('repo.commits_path_empty') : t('repo.commits_empty', 'No commits yet.')} />
-  {:else}
-    <div class="commits-list">
-      {#each commits as commit}
-        <div class="commit-item">
-          <div class="commit-icon">📝</div>
-          <div class="commit-body">
-            <div class="commit-message">
-              <a href={`/${owner}/${repo}/commits/${commit.sha}`}>{commit.message}</a>
-            </div>
-            <div class="commit-meta">
-              <span class="commit-author">{commit.author}</span>
-              <span class="commit-date">{formatDate(commit.date)}</span>
-              <span class="commit-sha">{commit.sha.substring(0, 7)}</span>
-            </div>
+{#if loading}
+  <LoadingState />
+{:else if commits.length === 0}
+  <EmptyState title={filterPath ? t('repo.commits_path_empty') : t('repo.commits_empty', 'No commits yet.')} />
+{:else}
+  <div class="commits-list">
+    {#each commits as commit}
+      <div class="commit-item">
+        <div class="commit-icon">📝</div>
+        <div class="commit-body">
+          <div class="commit-message">
+            <a href={`/${owner}/${repo}/commits/${commit.sha}`}>{commit.message}</a>
+          </div>
+          <div class="commit-meta">
+            <span class="commit-author">{commit.author}</span>
+            <span class="commit-date">{formatDate(commit.date)}</span>
+            <span class="commit-sha">{commit.sha.substring(0, 7)}</span>
           </div>
         </div>
-      {/each}
-    </div>
-  {/if}
-</div>
+      </div>
+    {/each}
+  </div>
+{/if}
 
 <style>
   h1 {

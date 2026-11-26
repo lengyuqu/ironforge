@@ -66,6 +66,10 @@
   load();
 </script>
 
+<svelte:head>
+  <title>{org ? (org.display_name || org.name) : page.params.name} · {t('orgs.title')} · IronForge</title>
+</svelte:head>
+
 <div class="container">
   {#if loading}
     <LoadingState />

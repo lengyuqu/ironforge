@@ -5,7 +5,6 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { boards } from '$lib/api/client.svelte';
   import type { Board, BoardFull } from '$lib/types/entities';
   import BoardSwitcher from '$lib/components/boards/BoardSwitcher.svelte';
@@ -85,79 +84,75 @@
   <title>{t('repo.tabs.board')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="board" />
+<div class="page-header">
+  <h1>{t('board.title')}</h1>
+  <button class="btn-primary" onclick={() => (showCreateBoard = true)}>
+    + {t('board.createBoard')}
+  </button>
+</div>
 
-  <div class="page-header">
-    <h1>{t('board.title')}</h1>
-    <button class="btn-primary" onclick={() => (showCreateBoard = true)}>
-      + {t('board.createBoard')}
-    </button>
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
+
+{#if loading}
+  <LoadingState />
+{:else if boardList.length === 0}
+  <EmptyState icon="📋" title={t('board.noBoards')} description={t('board.noBoardsHint')} />
+{:else}
+  <div class="board-toolbar">
+    <BoardSwitcher
+      boards={boardList}
+      activeBoardId={activeBoardId}
+      onSelect={handleSelectBoard}
+      onAddBoard={() => (showCreateBoard = !showCreateBoard)}
+    />
+    <div class="toolbar-actions">
+      <button class="btn-outline btn-sm" onclick={() => (showAddColumn = !showAddColumn)}>
+        + {t('board.addColumn')}
+      </button>
+      {#if activeBoardId != null}
+        <button
+          class="btn-outline btn-sm btn-danger"
+          onclick={() => handleDeleteBoard(activeBoardId!)}
+        >
+          {t('board.deleteBoard')}
+        </button>
+      {/if}
+    </div>
   </div>
 
-  {#if error}
-    <ErrorBanner message={error} />
+  {#if showCreateBoard}
+    <BoardCreateForm {owner} {repo} onCreated={handleBoardCreated} onCancel={() => (showCreateBoard = false)} />
   {/if}
 
-  {#if loading}
-    <LoadingState />
-  {:else if boardList.length === 0}
-    <EmptyState icon="📋" title={t('board.noBoards')} description={t('board.noBoardsHint')} />
-  {:else}
-    <div class="board-toolbar">
-      <BoardSwitcher
-        boards={boardList}
-        activeBoardId={activeBoardId}
-        onSelect={handleSelectBoard}
-        onAddBoard={() => (showCreateBoard = !showCreateBoard)}
-      />
-      <div class="toolbar-actions">
-        <button class="btn-outline btn-sm" onclick={() => (showAddColumn = !showAddColumn)}>
-          + {t('board.addColumn')}
-        </button>
-        {#if activeBoardId != null}
-          <button
-            class="btn-outline btn-sm btn-danger"
-            onclick={() => handleDeleteBoard(activeBoardId!)}
-          >
-            {t('board.deleteBoard')}
-          </button>
-        {/if}
-      </div>
+  {#if showAddColumn && activeBoardId != null}
+    <ColumnCreateForm
+      {owner}
+      {repo}
+      boardId={activeBoardId}
+      onCreated={handleColumnCreated}
+      onCancel={() => (showAddColumn = false)}
+    />
+  {/if}
+
+  {#if activeBoard?.columns}
+    <div class="board-container">
+      {#each activeBoard.columns as { column, cards } (column.id)}
+        <BoardColumn
+          {owner}
+          {repo}
+          boardId={activeBoard!.board.id}
+          {column}
+          {cards}
+          onRefresh={async () => {
+            if (activeBoardId != null) await loadBoard(activeBoardId);
+          }}
+        />
+      {/each}
     </div>
-
-    {#if showCreateBoard}
-      <BoardCreateForm {owner} {repo} onCreated={handleBoardCreated} onCancel={() => (showCreateBoard = false)} />
-    {/if}
-
-    {#if showAddColumn && activeBoardId != null}
-      <ColumnCreateForm
-        {owner}
-        {repo}
-        boardId={activeBoardId}
-        onCreated={handleColumnCreated}
-        onCancel={() => (showAddColumn = false)}
-      />
-    {/if}
-
-    {#if activeBoard?.columns}
-      <div class="board-container">
-        {#each activeBoard.columns as { column, cards } (column.id)}
-          <BoardColumn
-            {owner}
-            {repo}
-            boardId={activeBoard!.board.id}
-            {column}
-            {cards}
-            onRefresh={async () => {
-              if (activeBoardId != null) await loadBoard(activeBoardId);
-            }}
-          />
-        {/each}
-      </div>
-    {/if}
   {/if}
-</div>
+{/if}
 
 <style>
 

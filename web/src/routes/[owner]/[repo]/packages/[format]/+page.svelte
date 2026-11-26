@@ -4,7 +4,6 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { packages, type PackageSummaryResponse } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
   import { packageFormatLabel } from '$lib/packageFormats';
@@ -70,47 +69,43 @@
   <title>{packageFormatLabel(format!)} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader owner={owner!} repo={repo!} activeTab="packages" />
-
-  <div class="page-header">
-    <h1>{t('packages.title')} — {packageFormatLabel(format!)}</h1>
-  </div>
-
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  {#if loading}
-    <LoadingState />
-  {:else if packageList.length === 0}
-    <EmptyState title={t('packages.no_packages')} />
-  {:else}
-    <div class="package-list">
-      {#each packageList as pkg}
-        <div class="package-card surface">
-          <div class="package-header">
-            <a href={packageHref(pkg)} class="package-name">{pkg.name}</a>
-            {#if pkg.latest_version}
-              <span class="version-badge">v{pkg.latest_version}</span>
-            {/if}
-          </div>
-
-          {#if pkg.description}
-            <p class="package-desc">{pkg.description}</p>
-          {/if}
-
-          <div class="install-section">
-            <pre><code>{getInstallCommand(pkg)}</code></pre>
-            <button class="copy-btn surface" onclick={() => navigator.clipboard.writeText(getInstallCommand(pkg))}>
-              {t('common.copy') || 'Copy'}
-            </button>
-          </div>
-        </div>
-      {/each}
-    </div>
-  {/if}
+<div class="page-header">
+  <h1>{t('packages.title')} — {packageFormatLabel(format!)}</h1>
 </div>
+
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
+
+{#if loading}
+  <LoadingState />
+{:else if packageList.length === 0}
+  <EmptyState title={t('packages.no_packages')} />
+{:else}
+  <div class="package-list">
+    {#each packageList as pkg}
+      <div class="package-card surface">
+        <div class="package-header">
+          <a href={packageHref(pkg)} class="package-name">{pkg.name}</a>
+          {#if pkg.latest_version}
+            <span class="version-badge">v{pkg.latest_version}</span>
+          {/if}
+        </div>
+
+        {#if pkg.description}
+          <p class="package-desc">{pkg.description}</p>
+        {/if}
+
+        <div class="install-section">
+          <pre><code>{getInstallCommand(pkg)}</code></pre>
+          <button class="copy-btn surface" onclick={() => navigator.clipboard.writeText(getInstallCommand(pkg))}>
+            {t('common.copy') || 'Copy'}
+          </button>
+        </div>
+      </div>
+    {/each}
+  </div>
+{/if}
 
 <style>
 

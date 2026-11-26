@@ -4,7 +4,6 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import {
     packages,
     type PackageDetailResponse,
@@ -52,40 +51,36 @@
   <title>{name} · {packageFormatLabel(format!)} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader owner={owner!} repo={repo!} activeTab="packages" />
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
 
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  {#if loading}
-    <LoadingState />
-  {:else if !packageInfo}
-    <EmptyState title={t('packages.no_packages')} />
-  {:else}
-    <div class="package-detail">
-      <div class="package-header">
-        <h1>{packageInfo.name}</h1>
-        <span class="download-count">{packageInfo.download_count}</span>
-      </div>
-
-      {#if packageInfo.description}
-        <p class="package-desc">{packageInfo.description}</p>
-      {/if}
-
-      <PackageVersions
-        owner={owner!}
-        repo={repo!}
-        format={format!}
-        name={name!}
-        packageName={packageInfo.name}
-        versions={versions}
-        onRefresh={loadPackage}
-      />
+{#if loading}
+  <LoadingState />
+{:else if !packageInfo}
+  <EmptyState title={t('packages.no_packages')} />
+{:else}
+  <div class="package-detail">
+    <div class="package-header">
+      <h1>{packageInfo.name}</h1>
+      <span class="download-count">{packageInfo.download_count}</span>
     </div>
-  {/if}
-</div>
+
+    {#if packageInfo.description}
+      <p class="package-desc">{packageInfo.description}</p>
+    {/if}
+
+    <PackageVersions
+      owner={owner!}
+      repo={repo!}
+      format={format!}
+      name={name!}
+      packageName={packageInfo.name}
+      versions={versions}
+      onRefresh={loadPackage}
+    />
+  </div>
+{/if}
 
 <style>
 

@@ -39,6 +39,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{t('settings.mirror.title')} · {owner}/{repo} · IronForge</title>
+</svelte:head>
+
 <div class="mirror-page">
   <div class="page-header">
     <div>

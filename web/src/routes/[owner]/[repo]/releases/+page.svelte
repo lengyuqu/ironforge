@@ -5,7 +5,6 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { releases, type ReleaseAsset } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
@@ -70,37 +69,33 @@
   <title>{t('repo.tabs.releases')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="releases" />
-
-  <div class="page-header">
-    <h1>{t('releases.title')}</h1>
-    <a href={newReleaseHref} class="btn-primary">{t('releases.new')}</a>
-  </div>
-
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  {#if loading}
-    <LoadingState />
-  {:else if releaseList.length === 0}
-    <EmptyState title={t('releases.no_releases')}>
-      <a href={newReleaseHref} class="btn-primary">{t('releases.new')}</a>
-    </EmptyState>
-  {:else}
-    <ReleaseList
-      {owner}
-      {repo}
-      releases={releaseList}
-      assets={releaseAssets}
-      {currentPage}
-      {totalPages}
-      onReload={loadReleases}
-      onPageChange={goToPage}
-    />
-  {/if}
+<div class="page-header">
+  <h1>{t('releases.title')}</h1>
+  <a href={newReleaseHref} class="btn-primary">{t('releases.new')}</a>
 </div>
+
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
+
+{#if loading}
+  <LoadingState />
+{:else if releaseList.length === 0}
+  <EmptyState title={t('releases.no_releases')}>
+    <a href={newReleaseHref} class="btn-primary">{t('releases.new')}</a>
+  </EmptyState>
+{:else}
+  <ReleaseList
+    {owner}
+    {repo}
+    releases={releaseList}
+    assets={releaseAssets}
+    {currentPage}
+    {totalPages}
+    onReload={loadReleases}
+    onPageChange={goToPage}
+  />
+{/if}
 
 <style>
 

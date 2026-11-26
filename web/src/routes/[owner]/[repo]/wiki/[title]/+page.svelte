@@ -5,7 +5,6 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { wiki } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
   import { renderMarkdown } from '$lib/utils/markdown';
@@ -97,66 +96,62 @@
   <title>{title} · {owner}/{repo} Wiki · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="wiki" />
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
 
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
+{#if loading}
+  <LoadingState />
+{:else if wikiPage}
+  <div class="wiki-layout">
+    <WikiSidebar
+      {owner}
+      {repo}
+      pages={allPages}
+      currentTitle={title}
+      {toc}
+      onScrollToHeading={scrollToHeading}
+    />
 
-  {#if loading}
-    <LoadingState />
-  {:else if wikiPage}
-    <div class="wiki-layout">
-      <WikiSidebar
-        {owner}
-        {repo}
-        pages={allPages}
-        currentTitle={title}
-        {toc}
-        onScrollToHeading={scrollToHeading}
-      />
-
-      <main class="wiki-main surface">
-        <div class="wiki-header">
-          <h1>{title}</h1>
-          <div class="header-actions">
-            {#if wikiPage.updated_at}
-              <span class="text-secondary text-sm">{t('wiki.last_edited', { date: formatDate(wikiPage.updated_at) })}</span>
-            {/if}
-            <button class="btn-outline" onclick={toggleHistory} class:active={showHistory}>{t('wiki.history')}</button>
-            <button class="btn-outline" onclick={() => editing = true}>{t('wiki.edit')}</button>
-            <button class="btn-outline btn-danger" onclick={handleDelete}>{t('wiki.delete') || 'Delete'}</button>
-          </div>
+    <article class="wiki-main surface">
+      <div class="wiki-header">
+        <h1>{title}</h1>
+        <div class="header-actions">
+          {#if wikiPage.updated_at}
+            <span class="text-secondary text-sm">{t('wiki.last_edited', { date: formatDate(wikiPage.updated_at) })}</span>
+          {/if}
+          <button class="btn-outline" onclick={toggleHistory} class:active={showHistory}>{t('wiki.history')}</button>
+          <button class="btn-outline" onclick={() => editing = true}>{t('wiki.edit')}</button>
+          <button class="btn-outline btn-danger" onclick={handleDelete}>{t('wiki.delete') || 'Delete'}</button>
         </div>
+      </div>
 
-        {#if showHistory}
-          <WikiHistoryPanel {owner} {repo} {title} currentVersion={wikiPage.version} onRestored={loadPage} />
-        {:else if editing}
-          <WikiEditPanel
-            {owner}
-            {repo}
-            {title}
-            initialContent={wikiPage.content}
-            initialVersion={wikiPage.version}
-            onSaved={() => { editing = false; loadPage(); }}
-            onCancel={() => editing = false}
-          />
-        {:else}
-          <div class="wiki-content markdown-body">
-            {@html renderedHtml}
-          </div>
-        {/if}
-
-        <div class="wiki-footer">
-          <a href={`/${owner}/${repo}/wiki`} class="back-link">← {t('wiki.back') || 'Back to Wiki'}</a>
+      {#if showHistory}
+        <WikiHistoryPanel {owner} {repo} {title} currentVersion={wikiPage.version} onRestored={loadPage} />
+      {:else if editing}
+        <WikiEditPanel
+          {owner}
+          {repo}
+          {title}
+          initialContent={wikiPage.content}
+          initialVersion={wikiPage.version}
+          onSaved={() => { editing = false; loadPage(); }}
+          onCancel={() => editing = false}
+        />
+      {:else}
+        <div class="wiki-content markdown-body">
+          {@html renderedHtml}
         </div>
-      </main>
-    </div>
-  {:else}
-    <EmptyState title={t('wiki.not_found') || 'Page not found'} />
-  {/if}
-</div>
+      {/if}
+
+      <div class="wiki-footer">
+        <a href={`/${owner}/${repo}/wiki`} class="back-link">← {t('wiki.back') || 'Back to Wiki'}</a>
+      </div>
+    </article>
+  </div>
+{:else}
+  <EmptyState title={t('wiki.not_found') || 'Page not found'} />
+{/if}
 
 <style>
 

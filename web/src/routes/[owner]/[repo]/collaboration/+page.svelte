@@ -3,7 +3,6 @@
   // stuck / in-flight work, and the task list. All titles are client-written
   // text; statuses are declarations by whoever set them.
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { createT } from '$lib/i18n';
@@ -145,178 +144,175 @@
   <title>{t('collab.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="collaboration" />
-  <CollabNav {owner} {repo} current="home" />
+<CollabNav {owner} {repo} current="home" />
 
-  <div class="page-header">
-    <h1>{t('collab.title')}</h1>
-  </div>
-  <p class="intro">{t('collab.intro')}</p>
+<div class="page-header">
+  <h1>{t('collab.title')}</h1>
+</div>
+<p class="intro">{t('collab.intro')}</p>
 
-  {#if accessDenied}
-    <EmptyState icon="🔒" title={t('collab.access_denied')} description={t('collab.access_denied_hint')} />
-  {:else}
-    <SectionCard
-      title={t('collab.inbox.title')}
-      note={t('collab.inbox.note')}
-      loading={inboxLoading}
-      error={inboxError}
-      count={inbox ? inbox.items.length : null}
-    >
-      {#if inboxForbidden}
-        <p class="muted">{t('collab.inbox.write_needed')}</p>
-      {:else if !inbox || inbox.items.length === 0}
-        <p class="muted">{t('collab.inbox.empty')}</p>
-      {:else}
-        <ul class="list">
-          {#each inbox.items as item (item.item_key)}
-            <li>
-              <div class="row">
-                <StatusBadge
-                  value={item.type}
-                  prefix="collab.inbox_type"
-                  known={KNOWN.inboxType}
-                  warn={['open_question']}
-                />
-                <span class="grow text">{item.title}</span>
-                <span class="when">{formatTime(item.occurred_at)}</span>
-                <a href={taskHref(item.task_id)}>{t('collab.open_task')}</a>
-                {#if item.type === 'open_question' || item.type === 'question_answer'}
-                  <Button
-                    size="sm"
-                    onclick={() => (openQuestionId = openQuestionId === item.object_id ? null : item.object_id)}
-                  >
-                    {openQuestionId === item.object_id ? t('collab.hide') : t('collab.inbox.review')}
-                  </Button>
-                {/if}
-              </div>
-              {#if openQuestionId === item.object_id}
-                <QuestionCard {owner} {repo} questionId={item.object_id} {userId} onChanged={loadInbox} />
-              {/if}
-            </li>
-          {/each}
-        </ul>
-        {#if inbox.truncated}<p class="muted">{t('collab.truncated')}</p>{/if}
-      {/if}
-    </SectionCard>
-
-    <SectionCard
-      title={t('collab.overview.title')}
-      note={t('collab.overview.note')}
-      loading={overviewLoading}
-      error={overviewError}
-    >
-      {#if overview}
-        <div class="grid">
-          {#each overview.sections.filter((s) => s.available) as section (section.name)}
-            <div class="ov">
-              <h3>
-                {t(`collab.section.${section.name}`)}
-                <span class="badge-count">{section.items.length}{section.truncated ? '+' : ''}</span>
-              </h3>
-              {#if section.items.length === 0}
-                <p class="muted">{t('collab.none')}</p>
-              {:else}
-                <ul class="list tight">
-                  {#each section.items as item (item.object_type + item.object_id)}
-                    <li>
-                      <a href={taskHref(item.task_id)} class="text">{item.title}</a>
-                      <div class="sub">
-                        <StatusBadge value={item.state} {...stateKind(item.object_type)} />
-                        {#each item.flags as flag}
-                          <StatusBadge value={flag} prefix="collab.flag" known={KNOWN.flag} warn={['unowned', 'session_not_online']} />
-                        {/each}
-                      </div>
-                    </li>
-                  {/each}
-                </ul>
+{#if accessDenied}
+  <EmptyState icon="🔒" title={t('collab.access_denied')} description={t('collab.access_denied_hint')} />
+{:else}
+  <SectionCard
+    title={t('collab.inbox.title')}
+    note={t('collab.inbox.note')}
+    loading={inboxLoading}
+    error={inboxError}
+    count={inbox ? inbox.items.length : null}
+  >
+    {#if inboxForbidden}
+      <p class="muted">{t('collab.inbox.write_needed')}</p>
+    {:else if !inbox || inbox.items.length === 0}
+      <p class="muted">{t('collab.inbox.empty')}</p>
+    {:else}
+      <ul class="list">
+        {#each inbox.items as item (item.item_key)}
+          <li>
+            <div class="row">
+              <StatusBadge
+                value={item.type}
+                prefix="collab.inbox_type"
+                known={KNOWN.inboxType}
+                warn={['open_question']}
+              />
+              <span class="grow text">{item.title}</span>
+              <span class="when">{formatTime(item.occurred_at)}</span>
+              <a href={taskHref(item.task_id)}>{t('collab.open_task')}</a>
+              {#if item.type === 'open_question' || item.type === 'question_answer'}
+                <Button
+                  size="sm"
+                  onclick={() => (openQuestionId = openQuestionId === item.object_id ? null : item.object_id)}
+                >
+                  {openQuestionId === item.object_id ? t('collab.hide') : t('collab.inbox.review')}
+                </Button>
               {/if}
             </div>
-          {/each}
-        </div>
-        {#each hiddenSections as s}
-          <p class="muted">{t(`collab.section.${s.name}`)}: {s.reason ?? t('collab.unavailable')}</p>
+            {#if openQuestionId === item.object_id}
+              <QuestionCard {owner} {repo} questionId={item.object_id} {userId} onChanged={loadInbox} />
+            {/if}
+          </li>
         {/each}
-      {/if}
-    </SectionCard>
+      </ul>
+      {#if inbox.truncated}<p class="muted">{t('collab.truncated')}</p>{/if}
+    {/if}
+  </SectionCard>
 
-    <SectionCard
-      title={t('collab.tasks.title')}
-      note={t('collab.tasks.note')}
-      loading={tasksLoading}
-      error={tasksError}
-      count={tasksLoading ? null : tasks.length}
-    >
-      {#snippet actions()}
-        <label class="filter">
-          <span>{t('collab.tasks.filter_status')}</span>
-          <select bind:value={statusFilter} onchange={onFilterChange}>
-            <option value="">{t('collab.tasks.all')}</option>
-            {#each TASK_STATUSES as s}
-              <option value={s}>{t(`collab.task_status.${s}`)}</option>
-            {/each}
-          </select>
-        </label>
-      {/snippet}
-      {#if tasks.length === 0}
-        <EmptyState title={t('collab.tasks.empty')} description={t('collab.tasks.empty_hint')} />
-      {:else}
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>{t('collab.field.title')}</th>
-                <th>{t('collab.field.status_declared')}</th>
-                <th>{t('collab.field.owner_session')}</th>
-                <th>{t('collab.field.branch')}</th>
-                <th>{t('collab.field.updated')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each tasks as task (task.id)}
-                <tr>
-                  <td class="text"><a href={taskHref(task.id)}>{task.title}</a></td>
-                  <td>
-                    <StatusBadge
-                      value={task.status}
-                      prefix="collab.task_status"
-                      known={KNOWN.taskStatus}
-                      good={['done']}
-                      warn={['waiting', 'blocked']}
-                      title={t('collab.declared_hint')}
-                    />
-                  </td>
-                  <td>
-                    <span class="text">{ownerLabel(task.owner_session_id)}</span>
-                    {#if task.owner_session_id && sessions?.get(task.owner_session_id)}
-                      <StatusBadge
-                        value={sessions.get(task.owner_session_id)!.state}
-                        prefix="collab.session_state"
-                        known={KNOWN.sessionState}
-                        good={['online']}
-                      />
-                    {/if}
-                  </td>
-                  <td class="mono text">{task.branch ?? '—'}</td>
-                  <td class="when">{formatTime(task.updated_at)}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-        {#if nextCursor}
-          <div class="more">
-            <Button disabled={moreLoading} onclick={() => loadTasks(true)}>
-              {moreLoading ? t('common.loading') : t('collab.load_more')}
-            </Button>
+  <SectionCard
+    title={t('collab.overview.title')}
+    note={t('collab.overview.note')}
+    loading={overviewLoading}
+    error={overviewError}
+  >
+    {#if overview}
+      <div class="grid">
+        {#each overview.sections.filter((s) => s.available) as section (section.name)}
+          <div class="ov">
+            <h3>
+              {t(`collab.section.${section.name}`)}
+              <span class="badge-count">{section.items.length}{section.truncated ? '+' : ''}</span>
+            </h3>
+            {#if section.items.length === 0}
+              <p class="muted">{t('collab.none')}</p>
+            {:else}
+              <ul class="list tight">
+                {#each section.items as item (item.object_type + item.object_id)}
+                  <li>
+                    <a href={taskHref(item.task_id)} class="text">{item.title}</a>
+                    <div class="sub">
+                      <StatusBadge value={item.state} {...stateKind(item.object_type)} />
+                      {#each item.flags as flag}
+                        <StatusBadge value={flag} prefix="collab.flag" known={KNOWN.flag} warn={['unowned', 'session_not_online']} />
+                      {/each}
+                    </div>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
           </div>
-        {/if}
+        {/each}
+      </div>
+      {#each hiddenSections as s}
+        <p class="muted">{t(`collab.section.${s.name}`)}: {s.reason ?? t('collab.unavailable')}</p>
+      {/each}
+    {/if}
+  </SectionCard>
+
+  <SectionCard
+    title={t('collab.tasks.title')}
+    note={t('collab.tasks.note')}
+    loading={tasksLoading}
+    error={tasksError}
+    count={tasksLoading ? null : tasks.length}
+  >
+    {#snippet actions()}
+      <label class="filter">
+        <span>{t('collab.tasks.filter_status')}</span>
+        <select bind:value={statusFilter} onchange={onFilterChange}>
+          <option value="">{t('collab.tasks.all')}</option>
+          {#each TASK_STATUSES as s}
+            <option value={s}>{t(`collab.task_status.${s}`)}</option>
+          {/each}
+        </select>
+      </label>
+    {/snippet}
+    {#if tasks.length === 0}
+      <EmptyState title={t('collab.tasks.empty')} description={t('collab.tasks.empty_hint')} />
+    {:else}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{t('collab.field.title')}</th>
+              <th>{t('collab.field.status_declared')}</th>
+              <th>{t('collab.field.owner_session')}</th>
+              <th>{t('collab.field.branch')}</th>
+              <th>{t('collab.field.updated')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each tasks as task (task.id)}
+              <tr>
+                <td class="text"><a href={taskHref(task.id)}>{task.title}</a></td>
+                <td>
+                  <StatusBadge
+                    value={task.status}
+                    prefix="collab.task_status"
+                    known={KNOWN.taskStatus}
+                    good={['done']}
+                    warn={['waiting', 'blocked']}
+                    title={t('collab.declared_hint')}
+                  />
+                </td>
+                <td>
+                  <span class="text">{ownerLabel(task.owner_session_id)}</span>
+                  {#if task.owner_session_id && sessions?.get(task.owner_session_id)}
+                    <StatusBadge
+                      value={sessions.get(task.owner_session_id)!.state}
+                      prefix="collab.session_state"
+                      known={KNOWN.sessionState}
+                      good={['online']}
+                    />
+                  {/if}
+                </td>
+                <td class="mono text">{task.branch ?? '—'}</td>
+                <td class="when">{formatTime(task.updated_at)}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+      {#if nextCursor}
+        <div class="more">
+          <Button disabled={moreLoading} onclick={() => loadTasks(true)}>
+            {moreLoading ? t('common.loading') : t('collab.load_more')}
+          </Button>
+        </div>
       {/if}
-      {#if sessions === null}<p class="muted">{t('collab.sessions_unavailable')}</p>{/if}
-    </SectionCard>
-  {/if}
-</div>
+    {/if}
+    {#if sessions === null}<p class="muted">{t('collab.sessions_unavailable')}</p>{/if}
+  </SectionCard>
+{/if}
 
 <style>
   .intro { margin: -8px 0 20px; color: var(--text-secondary); font-size: 13px; max-width: 80ch; }

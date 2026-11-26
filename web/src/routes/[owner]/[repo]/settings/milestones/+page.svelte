@@ -61,6 +61,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{t('settings.milestones')} · {owner}/{repo} · IronForge</title>
+</svelte:head>
+
 <div class="milestones-page">
   <div class="page-header">
     <h1>{t('settings.milestones')}</h1>

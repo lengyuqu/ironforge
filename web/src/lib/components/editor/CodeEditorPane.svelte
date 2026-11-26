@@ -1,5 +1,6 @@
 <script lang="ts">
   import { escapeHtml, languageFromPath } from '$lib/utils/editorFile';
+  import { highlightCode } from '$lib/utils/highlight';
 
   interface Props {
     value: string;
@@ -32,15 +33,10 @@
     const lang = language;
 
     try {
-      // Loaded lazily so highlight.js stays out of the main bundle.
-      const hljs = await import('highlight.js');
+      // Loaded lazily per language so highlight.js stays out of the main bundle.
+      const nextHtml = await highlightCode(content, lang);
       if (current !== requestId) return;
-
-      const highlighter = hljs.default;
-      highlighted =
-        lang && highlighter.getLanguage(lang)
-          ? highlighter.highlight(content, { language: lang }).value
-          : highlighter.highlightAuto(content).value;
+      highlighted = nextHtml;
     } catch {
       if (current === requestId) highlighted = escapeHtml(content);
     } finally {

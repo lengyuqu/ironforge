@@ -20,6 +20,25 @@ vi.mock('$lib/api/client.svelte', () => ({
 vi.mock('$app/navigation', () => ({ goto: (...a: unknown[]) => goto(...a) }));
 const goto = vi.fn();
 
+const pageStore = vi.hoisted(() => {
+  let current = { url: new URL('http://localhost/') };
+  const subs = new Set<(v: typeof current) => void>();
+  return {
+    setPath(path: string) {
+      current = { url: new URL(`http://localhost${path}`) };
+      for (const fn of subs) fn(current);
+    },
+    page: {
+      subscribe(fn: (v: typeof current) => void) {
+        fn(current);
+        subs.add(fn);
+        return () => subs.delete(fn);
+      },
+    },
+  };
+});
+vi.mock('$app/stores', () => ({ page: pageStore.page }));
+
 vi.mock('$lib/i18n', () => ({
   createT: () => (key: string, fallbackOrParams?: string | Record<string, unknown>) =>
     typeof fallbackOrParams === 'string' ? fallbackOrParams : key,
@@ -53,12 +72,23 @@ describe('Navbar.svelte', () => {
     goto.mockClear();
   });
 
-  it('shows sign-in / sign-up links when logged out', () => {
+  it('shows sign-in / sign-up links and language switcher when logged out', () => {
     render(Navbar);
 
     expect(screen.getByText('nav.sign_in')).toHaveAttribute('href', '/login');
     expect(screen.getByText('nav.sign_up')).toHaveAttribute('href', '/register');
+    expect(screen.getByLabelText('Change language')).toBeInTheDocument();
     expect(screen.queryByText('nav.notifications')).not.toBeInTheDocument();
+  });
+
+  it('marks the active route link with aria-current="page"', () => {
+    pageStore.setPath('/explore');
+    render(Navbar);
+
+    const exploreLink = screen.getByText('nav.explore').closest('a');
+    expect(exploreLink).toHaveClass('active');
+    expect(exploreLink).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByText('nav.dashboard').closest('a')).not.toHaveAttribute('aria-current');
   });
 
   it('shows the user area after login with the avatar initial', async () => {

@@ -16,6 +16,8 @@ describe('languageFromPath', () => {
     ['x.html', 'xml'],
     ['script.zsh', 'bash'],
     ['README.markdown', 'markdown'],
+    ['Dockerfile', 'dockerfile'],
+    ['src/Makefile', 'makefile'],
   ])('%s -> %s', (path, lang) => {
     expect(languageFromPath(path)).toBe(lang);
   });

@@ -62,6 +62,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{t('settings.branch_protection.title')} · {owner}/{repo} · IronForge</title>
+</svelte:head>
+
 <div class="branch-protection-page">
   <div class="page-header">
     <div>

@@ -120,7 +120,7 @@
   <title>{t('remote_credentials.title')} · IronForge</title>
 </svelte:head>
 
-<div class="page-container remote-credentials-page">
+<div class="remote-credentials-page">
   <header class="page-header">
     <h1>{t('remote_credentials.title')}</h1>
     <p>{t('remote_credentials.description')}</p>

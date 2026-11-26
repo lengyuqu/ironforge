@@ -7,7 +7,6 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import PipelineList from '$lib/components/pipelines/PipelineList.svelte';
   import JobLogModal from '$lib/components/pipelines/JobLogModal.svelte';
   import PipelineDetailPanel from '$lib/components/pipelines/PipelineDetailPanel.svelte';
@@ -161,46 +160,42 @@
   <title>{t('repo.tabs.pipelines')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="pipelines" />
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
 
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  {#if loading}
-    <LoadingState />
-  {:else if pipelineList.length === 0}
-    <EmptyState title={t('pipeline.no_pipelines')} description={t('pipeline.hint', { file: t('pipeline.file') })} />
-  {:else}
-    <div class="pipeline-layout">
-      <!-- Pipeline list -->
-      <div class="pipeline-list surface">
-        <PipelineList pipelines={pipelineList} selectedId={selectedPipeline?.id} onSelect={selectPipeline} />
-      </div>
-
-      <!-- Pipeline detail -->
-      <div class="pipeline-detail surface">
-        {#if selectedPipeline}
-          <PipelineDetailPanel
-            {owner}
-            {repo}
-            pipeline={selectedPipeline}
-            {approvedJobs}
-            onRetry={handleRetry}
-            onCancel={handleCancel}
-            onOpenJobLog={viewJobLog}
-            onPlayJob={handlePlay}
-            onApproveJob={handleApprove}
-            onRerunJob={handleRerun}
-          />
-        {:else}
-          <p class="text-secondary">{t('pipeline.select_detail')}</p>
-        {/if}
-      </div>
+{#if loading}
+  <LoadingState />
+{:else if pipelineList.length === 0}
+  <EmptyState title={t('pipeline.no_pipelines')} description={t('pipeline.hint', { file: t('pipeline.file') })} />
+{:else}
+  <div class="pipeline-layout">
+    <!-- Pipeline list -->
+    <div class="pipeline-list surface">
+      <PipelineList pipelines={pipelineList} selectedId={selectedPipeline?.id} onSelect={selectPipeline} />
     </div>
-  {/if}
-</div>
+
+    <!-- Pipeline detail -->
+    <div class="pipeline-detail surface">
+      {#if selectedPipeline}
+        <PipelineDetailPanel
+          {owner}
+          {repo}
+          pipeline={selectedPipeline}
+          {approvedJobs}
+          onRetry={handleRetry}
+          onCancel={handleCancel}
+          onOpenJobLog={viewJobLog}
+          onPlayJob={handlePlay}
+          onApproveJob={handleApprove}
+          onRerunJob={handleRerun}
+        />
+      {:else}
+        <p class="text-secondary">{t('pipeline.select_detail')}</p>
+      {/if}
+    </div>
+  </div>
+{/if}
 
 <!-- Log Viewer Modal -->
 {#if selectedJob}

@@ -1,8 +1,10 @@
 <script lang="ts">
-  // File tree panel — pure presentation: renders tree entries (dirs are
-  // clickable via onNavigateTo/onNavigateUp, files link to the blob viewer).
-  import { buildBlobHref } from '$lib/utils/repoUrls';
+  // File tree panel — pure presentation: renders tree entries (dirs link via
+  // buildTreeHref for keyboard/middle-click support and intercept plain clicks
+  // via onNavigateTo/onNavigateUp; files link to the blob viewer).
+  import { buildBlobHref, buildTreeHref } from '$lib/utils/repoUrls';
   import { createT } from '$lib/i18n';
+  import Icon from '$lib/components/Icon.svelte';
   import type { RepoTreeEntry } from '$lib/types/entities';
 
   interface Props {
@@ -19,34 +21,53 @@
 
   const t = createT();
 
+  const parentPath = $derived.by(() => {
+    if (!path) return '';
+    const parts = path.split('/');
+    parts.pop();
+    return parts.join('/');
+  });
+
   function formatFileSize(size: number) {
     if (size < 1024) return size + t('repo.file_size.b');
     if (size < 1024 * 1024) return (size / 1024).toFixed(1) + t('repo.file_size.kb');
     return (size / (1024 * 1024)).toFixed(1) + t('repo.file_size.mb');
   }
+
+  function handleTreeClick(e: MouseEvent, fn: () => void) {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    fn();
+  }
 </script>
 
 <div class="gh-card tree-panel">
   {#if path}
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-    <div class="entry" onclick={onNavigateUp} role="button" tabindex="0">
-      <span class="entry-icon">📁</span>
+    <a
+      href={buildTreeHref(owner, repo, ref, parentPath)}
+      class="entry"
+      onclick={(e) => handleTreeClick(e, onNavigateUp)}
+    >
+      <span class="entry-icon"><Icon name="folder-up" size={15} /></span>
       <span class="entry-name up">..</span>
-    </div>
+    </a>
   {/if}
   {#each entries as entry (entry.name)}
     {#if entry.kind === 'tree' || entry.kind === 'dir'}
-      <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <div class="entry" onclick={() => onNavigateTo(entry.name)} role="button" tabindex="0">
-        <span class="entry-icon">📁</span>
+      <a
+        href={buildTreeHref(owner, repo, ref, path ? `${path}/${entry.name}` : entry.name)}
+        class="entry"
+        onclick={(e) => handleTreeClick(e, () => onNavigateTo(entry.name))}
+      >
+        <span class="entry-icon dir-icon"><Icon name="folder" size={15} /></span>
         <span class="entry-name dir">{entry.name}</span>
-      </div>
+      </a>
     {:else}
       <a
         href={buildBlobHref(owner, repo, ref, path ? path + '/' + entry.name : entry.name)}
         class="entry file-entry"
       >
-        <span class="entry-icon">📄</span>
+        <span class="entry-icon"><Icon name="file" size={15} /></span>
         <span class="entry-name">{entry.name}</span>
         {#if entry.size}
           <span class="entry-size">{formatFileSize(entry.size)}</span>
@@ -73,10 +94,22 @@
     text-decoration: none;
     color: var(--text-primary);
   }
-  .entry:hover { background: var(--bg-hover); }
-  .file-entry { cursor: pointer; }
+  .entry:last-child {
+    border-bottom: none;
+  }
+  .entry:hover {
+    background: var(--bg-hover);
+    text-decoration: none;
+  }
 
-  .entry-icon { font-size: 14px; }
+  .entry-icon {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-secondary);
+  }
+  .entry-icon.dir-icon {
+    color: var(--accent);
+  }
   .entry-name { flex: 1; }
   .entry-name.dir { color: var(--text-primary); font-weight: 500; }
   .entry-name.up { color: var(--text-muted); }

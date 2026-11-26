@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, waitFor } from '@testing-library/svelte';
 
 vi.mock('$lib/i18n', () => ({
   createT: () => (key: string, fallbackOrParams?: string | Record<string, unknown>) =>
@@ -10,9 +10,12 @@ vi.mock('$lib/utils/markdown', () => ({
   renderMarkdown: vi.fn((s: string) => `<p>${s}</p>`),
 }));
 
-// The component dynamically imports highlight.js inside a $effect; stub it so
-// no real module resolution happens and no unhandled rejection is reported.
-vi.mock('highlight.js', () => ({ default: { highlightElement: vi.fn() } }));
+const highlightCodeToLines = vi.fn(async (code: string, _lang?: string) =>
+  code.split('\n').map((line) => `<span class="hljs-comment">${line}</span>`),
+);
+vi.mock('$lib/utils/highlight', () => ({
+  highlightCodeToLines: (...a: [string, string]) => highlightCodeToLines(...a),
+}));
 
 import BlobContentView from './BlobContentView.svelte';
 import type { BlobContent } from '$lib/types/entities';
@@ -46,7 +49,7 @@ describe('BlobContentView.svelte', () => {
     expect(document.querySelector('.code-view')).not.toBeInTheDocument();
   });
 
-  it('renders line-numbered code rows for text content', () => {
+  it('renders line-numbered code rows and applies per-line highlight output', async () => {
     render(BlobContentView, {
       ...baseProps,
       blob: makeBlob({ content: 'fn main() {\n    println!("hi");\n}' }),
@@ -56,6 +59,8 @@ describe('BlobContentView.svelte', () => {
     expect(lineNumbers.length).toBe(3);
     expect(screen.getByText('fn main() {')).toBeInTheDocument();
     expect(document.querySelector('.code-view')).toBeInTheDocument();
+    await waitFor(() => expect(highlightCodeToLines).toHaveBeenCalled());
+    await waitFor(() => expect(document.querySelectorAll('.code-view .hljs-comment')).toHaveLength(3));
   });
 
   it('renders the markdown body when in rendered mode', () => {

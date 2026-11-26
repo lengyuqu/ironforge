@@ -7,7 +7,6 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import ReleaseForm from '$lib/components/releases/ReleaseForm.svelte';
   import { releases } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
@@ -55,25 +54,20 @@
   <title>{t('releases.edit_title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="releases" />
-
-  <div class="page-header">
-    <h1>{t('releases.edit')} #{releaseId}</h1>
-  </div>
-
-  {#if notFound}
-    <EmptyState title={t('releases.invalid_id', 'Invalid release id.')}>
-      <a href={`/${owner}/${repo}/releases`} class="btn-primary">{t('releases.title')}</a>
-    </EmptyState>
-  {:else if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  {#if loading}
-    <LoadingState />
-  {:else if release}
-    <ReleaseForm {owner} {repo} {release} onSaved={handleSaved} />
-  {/if}
+<div class="page-header">
+  <h1>{t('releases.edit')} #{releaseId}</h1>
 </div>
 
+{#if notFound}
+  <EmptyState title={t('releases.invalid_id', 'Invalid release id.')}>
+    <a href={`/${owner}/${repo}/releases`} class="btn-primary">{t('releases.title')}</a>
+  </EmptyState>
+{:else if error}
+  <ErrorBanner message={error} />
+{/if}
+
+{#if loading}
+  <LoadingState />
+{:else if release}
+  <ReleaseForm {owner} {repo} {release} onSaved={handleSaved} />
+{/if}

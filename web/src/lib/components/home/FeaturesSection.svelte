@@ -1,17 +1,18 @@
 <script lang="ts">
   // Landing features grid — six static feature cards.
   import { createT } from '$lib/i18n';
+  import Icon, { type IconName } from '$lib/components/Icon.svelte';
 
   const t = createT();
 
-  const features = [
-    { icon: '🚀', key: 'lightweight' },
-    { icon: '🔧', key: 'all_in_one' },
-    { icon: '🔒', key: 'security' },
-    { icon: '🌐', key: 'self_hosted' },
-    { icon: '⚡', key: 'fast' },
-    { icon: '🛠️', key: 'extensible' },
-  ] as const;
+  const features: ReadonlyArray<{ icon: IconName; key: string }> = [
+    { icon: 'zap', key: 'lightweight' },
+    { icon: 'layers', key: 'all_in_one' },
+    { icon: 'shield', key: 'security' },
+    { icon: 'server', key: 'self_hosted' },
+    { icon: 'cpu', key: 'fast' },
+    { icon: 'agents', key: 'extensible' },
+  ];
 </script>
 
 <section class="features">
@@ -20,7 +21,7 @@
     <div class="features-grid">
       {#each features as feature (feature.key)}
         <div class="feature-card">
-          <div class="feature-icon">{feature.icon}</div>
+          <div class="feature-icon"><Icon name={feature.icon} size={28} /></div>
           <h3>{t(`home.features.${feature.key}.title`)}</h3>
           <p>{t(`home.features.${feature.key}.desc`)}</p>
         </div>
@@ -70,16 +71,24 @@
     padding: 24px;
     border: 1px solid var(--border);
     border-radius: 12px;
+    background: var(--bg-secondary);
     transition: border-color 0.2s, box-shadow 0.2s;
   }
 
   .feature-card:hover {
-    border-color: var(--green);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: var(--accent);
+    box-shadow: var(--shadow-md);
   }
 
   .feature-icon {
-    font-size: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-lg);
+    background: var(--accent-subtle);
+    color: var(--accent);
     margin-bottom: 16px;
   }
 

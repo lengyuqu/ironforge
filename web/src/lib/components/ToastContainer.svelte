@@ -33,7 +33,7 @@
     position: fixed;
     top: 72px;
     right: 20px;
-    z-index: 11000;
+    z-index: var(--z-toast);
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -48,7 +48,7 @@
     gap: 10px;
     min-width: 240px;
     padding: 12px 14px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--shadow-md);
     font-size: 14px;
     color: var(--text-primary);
     animation: toast-in 0.2s ease-out;

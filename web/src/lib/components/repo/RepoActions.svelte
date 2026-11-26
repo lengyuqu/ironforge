@@ -4,6 +4,7 @@
   import { repos } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
   import CloneModal from '$lib/components/CloneModal.svelte';
+  import Icon from '$lib/components/Icon.svelte';
   import { toast } from '$lib/components/toast.svelte';
 
   const t = createT();
@@ -102,21 +103,24 @@
     const starIsCurrent = () => starTicket === starVersion && scope === `${owner}/${repo}`;
     const watchIsCurrent = () => watchTicket === watchVersion && scope === `${owner}/${repo}`;
 
-    let nextStarred = false;
-    try {
-      nextStarred = (await repos.starred(owner, repo)).starred;
-    } catch {
-      nextStarred = false;
-    }
-    if (starIsCurrent()) starred = nextStarred;
-
-    let nextWatchState: WatchState = 'not_watching';
-    try {
-      nextWatchState = (await repos.watchStatus(owner, repo)).watch_state;
-    } catch {
-      nextWatchState = 'not_watching';
-    }
-    if (watchIsCurrent()) watchState = nextWatchState;
+    await Promise.all([
+      repos
+        .starred(owner, repo)
+        .then((res) => {
+          if (starIsCurrent()) starred = res.starred;
+        })
+        .catch(() => {
+          if (starIsCurrent()) starred = false;
+        }),
+      repos
+        .watchStatus(owner, repo)
+        .then((res) => {
+          if (watchIsCurrent()) watchState = res.watch_state;
+        })
+        .catch(() => {
+          if (watchIsCurrent()) watchState = 'not_watching';
+        }),
+    ]);
   }
 
   async function toggleStar() {
@@ -234,13 +238,15 @@
   <button
     class="action-btn btn btn-outline btn-sm"
     class:starred={starred}
-    class:btn-primary={starred}
     class:disabled={!isLoggedIn()}
     onclick={toggleStar}
+    aria-pressed={starred}
     title={isLoggedIn() ? (starred ? t('repo.unstar') : t('repo.star')) : t('repo.login_to_star')}
     aria-label={isLoggedIn() ? (starred ? t('repo.unstar') : t('repo.star')) : t('repo.login_to_star')}
   >
-    <span class="star-icon" aria-hidden="true">{starred ? '⭐' : '☆'}</span>
+    <span class="star-icon" data-starred={starred ? 'true' : 'false'} aria-hidden="true">
+      <Icon name={starred ? 'star-filled' : 'star'} size={15} />
+    </span>
     <span class="count">{starsLocalCount}</span>
   </button>
 
@@ -253,7 +259,9 @@
     title={isLoggedIn() ? getWatchLabel() : t('repo.login_to_watch')}
     aria-label={isLoggedIn() ? getWatchLabel() : t('repo.login_to_watch')}
   >
-    <span class="watch-icon" aria-hidden="true">👁</span>
+    <span class="watch-icon" aria-hidden="true">
+      <Icon name={watchState === 'ignoring' ? 'eye-off' : 'eye'} size={15} />
+    </span>
     <span class="label">{getWatchLabel()}</span>
   </button>
 
@@ -266,22 +274,22 @@
     title={getForkTitle()}
     aria-label={getForkTitle()}
   >
-    <span class="fork-icon">⚡</span>
+    <span class="fork-icon" aria-hidden="true"><Icon name="git-fork" size={15} /></span>
     <span class="label">{forking ? t('repo.forking') : t('repo.fork.label')}</span>
   </button>
 
-  <div class="clone-area" style="position:relative">
+  <div class="clone-area">
     <button
-      class="btn-code btn btn-primary"
+      class="btn-code btn"
       onclick={handleCloneClick}
       aria-haspopup="true"
       aria-expanded={showClone}
       aria-controls="clone-dropdown"
       aria-label={t('repo.clone_title')}
     >
-      <span class="code-icon" aria-hidden="true">⌄</span>
+      <span class="code-icon" aria-hidden="true"><Icon name="code" size={15} /></span>
       <span class="label">{t('repo.code')}</span>
-      <span class="caret" aria-hidden="true">▾</span>
+      <span class="caret" aria-hidden="true"><Icon name="chevron-down" size={13} /></span>
     </button>
     <CloneModal owner={owner} repo={repo} archiveRef={archiveRef} open={showClone} onClose={() => (showClone = false)} />
   </div>
@@ -332,8 +340,11 @@
 
   .star-icon,
   .watch-icon,
-  .fork-icon {
-    font-size: 16px;
+  .fork-icon,
+  .code-icon,
+  .caret {
+    display: inline-flex;
+    align-items: center;
   }
 
   .count {
@@ -357,7 +368,7 @@
     padding: 5px 14px;
     background: var(--green-dim);
     color: var(--text-on-accent);
-    border: 1px solid rgba(27,31,36,0.15);
+    border: 1px solid var(--green-dim);
     border-radius: var(--radius);
     font-size: 14px;
     font-weight: 600;
@@ -365,18 +376,13 @@
     line-height: 20px;
   }
   .btn-code:hover {
-    background: var(--green-dim);
-  }
-
-  .code-icon {
-    font-size: 14px;
-    line-height: 1;
+    background: var(--green);
+    border-color: var(--green);
   }
 
   .caret {
-    font-size: 10px;
     margin-left: 2px;
-    opacity: 0.7;
+    opacity: 0.85;
   }
 
   @media (max-width: 600px) {

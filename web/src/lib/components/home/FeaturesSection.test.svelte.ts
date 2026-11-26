@@ -21,6 +21,6 @@ describe('FeaturesSection.svelte', () => {
       expect(screen.getByText(`home.features.${key}.title`)).toBeInTheDocument();
       expect(screen.getByText(`home.features.${key}.desc`)).toBeInTheDocument();
     }
-    expect(document.querySelector('.feature-icon')?.textContent).toContain('🚀');
+    expect(document.querySelectorAll('.feature-icon svg').length).toBe(6);
   });
 });

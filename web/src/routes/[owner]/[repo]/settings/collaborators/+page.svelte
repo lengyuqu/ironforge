@@ -33,6 +33,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{t('settings.collaborators.title')} · {owner}/{repo} · IronForge</title>
+</svelte:head>
+
 <div class="collaborators-page">
   <div class="page-header">
     <div>

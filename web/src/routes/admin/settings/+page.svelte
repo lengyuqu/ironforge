@@ -95,7 +95,7 @@
 </div>
 
 <style>
-  .settings-page { max-width: 700px; margin: 0 auto; padding: 24px; }
+  .settings-page { max-width: 780px; }
   h1 {
     margin-bottom: 24px;
   }

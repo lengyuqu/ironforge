@@ -41,7 +41,7 @@
   <title>{t('settings.tokens.title')} · IronForge</title>
 </svelte:head>
 
-<div class="page-container tokens-page">
+<div class="tokens-page">
   <header class="page-header">
     <div>
       <h1>{t('settings.tokens.title', 'Access Tokens')}</h1>
@@ -60,7 +60,7 @@
 
 <style>
   .tokens-page {
-    max-width: 980px;
+    max-width: 880px;
   }
 
   h1 {

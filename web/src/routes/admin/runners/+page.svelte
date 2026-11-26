@@ -72,35 +72,32 @@
   <title>{t('admin.runners.title')} · IronForge</title>
 </svelte:head>
 
-<div class="container">
-  <div class="header">
-    <a href="/admin" class="back">← {t('admin.back')}</a>
-    <h1>{t('admin.runners.title')}</h1>
-    <p class="meta">{total} {t('admin.runners.total')}</p>
-  </div>
-
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  <RunnerRegisterForm onRegistered={loadRunners} />
-
-  {#if loading}
-    <LoadingState />
-  {:else if runnerList.length === 0}
-    <EmptyState title={t('admin.runners.empty')} />
-  {:else}
-    <RunnerTable items={runnerList} onDelete={(runner) => (deleteTarget = runner)} />
-
-    {#if totalPages > 1}
-      <div class="pagination">
-        <button onclick={prevPage} disabled={page <= 1}>{t('common.previous')}</button>
-        <span>{t('common.page_of', { page, total: totalPages })}</span>
-        <button onclick={nextPage} disabled={page >= totalPages}>{t('common.next')}</button>
-      </div>
-    {/if}
-  {/if}
+<div class="header">
+  <h1>{t('admin.runners.title')}</h1>
+  <p class="meta">{total} {t('admin.runners.total')}</p>
 </div>
+
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
+
+<RunnerRegisterForm onRegistered={loadRunners} />
+
+{#if loading}
+  <LoadingState />
+{:else if runnerList.length === 0}
+  <EmptyState title={t('admin.runners.empty')} />
+{:else}
+  <RunnerTable items={runnerList} onDelete={(runner) => (deleteTarget = runner)} />
+
+  {#if totalPages > 1}
+    <div class="pagination">
+      <button onclick={prevPage} disabled={page <= 1}>{t('common.previous')}</button>
+      <span>{t('common.page_of', { page, total: totalPages })}</span>
+      <button onclick={nextPage} disabled={page >= totalPages}>{t('common.next')}</button>
+    </div>
+  {/if}
+{/if}
 
 {#if deleteTarget}
   <RunnerDeleteModal
@@ -115,19 +112,8 @@
     margin-bottom: 1.5rem;
   }
 
-  .back {
-    color: var(--text-secondary);
-    text-decoration: none;
-    font-size: 0.9rem;
-  }
-
-  .back:hover {
-    color: var(--accent);
-    text-decoration: none;
-  }
-
   h1 {
-    margin: 0.5rem 0 0;
+    margin: 0 0 0.25rem;
   }
 
   .meta{

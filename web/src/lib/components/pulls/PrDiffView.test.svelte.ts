@@ -272,4 +272,43 @@ describe('PrDiffView.svelte', () => {
     await fireEvent.click(screen.getByText('pulls.diff.submit_comment'));
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('nope'));
   });
+
+  it('collapses and expands a file diff section and toggles all files', async () => {
+    const diff = makeDiff();
+    diff.files_changed.push({
+      path: 'src/b.ts',
+      status: 'added',
+      additions: 1,
+      deletions: 0,
+      patch: null,
+      lines: [{ kind: 'addition', content: 'export const ok = true;', old_line: null, new_line: 1 }],
+    });
+    diff.stats = { total_additions: 2, total_deletions: 0, files_changed: 2 };
+
+    render(PrDiffView, {
+      owner: 'o',
+      repo: 'r',
+      prNumber: 1,
+      pr: makePr(),
+      diffData: diff,
+      comments: [],
+      onChanged: () => {},
+    });
+
+    // Jump list renders when multiple files changed
+    expect(screen.getByLabelText('pulls.diff.jump_to_file')).toBeInTheDocument();
+
+    const toggleA = screen.getByLabelText('pulls.diff.toggle_file: src/a.ts');
+    expect(toggleA).toHaveAttribute('aria-expanded', 'true');
+    await fireEvent.click(toggleA);
+    expect(toggleA).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText('const b = 2;')).not.toBeInTheDocument();
+    expect(screen.getByText('export const ok = true;')).toBeInTheDocument();
+
+    // Collapse all, then expand all
+    await fireEvent.click(screen.getByText('pulls.diff.collapse_all'));
+    expect(screen.queryByText('export const ok = true;')).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByText('pulls.diff.expand_all'));
+    expect(screen.getByText('const b = 2;')).toBeInTheDocument();
+  });
 });

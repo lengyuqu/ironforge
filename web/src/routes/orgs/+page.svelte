@@ -50,6 +50,10 @@
   onMount(loadOrgs);
 </script>
 
+<svelte:head>
+  <title>{t('orgs.title')} · IronForge</title>
+</svelte:head>
+
 <div class="container">
   <div class="page-header">
     <div>

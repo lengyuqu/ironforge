@@ -7,7 +7,6 @@
   // anything that looks like a complete list.
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import CollabNav from '$lib/components/collaboration/CollabNav.svelte';
   import SectionCard from '$lib/components/collaboration/SectionCard.svelte';
   import GroupCreateForm from '$lib/components/collaboration/GroupCreateForm.svelte';
@@ -51,42 +50,39 @@
   <title>{t('collab_groups.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="collaboration" />
-  <CollabNav {owner} {repo} current="groups" />
+<CollabNav {owner} {repo} current="groups" />
 
-  <div class="page-header"><h1>{t('collab_groups.title')}</h1></div>
-  <p class="intro">{t('collab_groups.intro')}</p>
+<div class="page-header"><h1>{t('collab_groups.title')}</h1></div>
+<p class="intro">{t('collab_groups.intro')}</p>
 
-  <SectionCard title={t('collab_groups.create.title')} note={t('collab_groups.create.note')}>
-    <GroupCreateForm {owner} {repo} {onCreated} />
-  </SectionCard>
+<SectionCard title={t('collab_groups.create.title')} note={t('collab_groups.create.note')}>
+  <GroupCreateForm {owner} {repo} {onCreated} />
+</SectionCard>
 
-  <SectionCard title={t('collab_groups.open.title')} note={t('collab_groups.no_list_note')}>
-    <form class="open" onsubmit={open}>
-      <label>
-        <span class="form-label">{t('collab_groups.open.id_label')}</span>
-        <input class="form-input mono" bind:value={openId} autocomplete="off" />
-      </label>
-      <Button type="submit" disabled={!openId.trim()}>{t('collab_groups.open.button')}</Button>
-    </form>
+<SectionCard title={t('collab_groups.open.title')} note={t('collab_groups.no_list_note')}>
+  <form class="open" onsubmit={open}>
+    <label>
+      <span class="form-label">{t('collab_groups.open.id_label')}</span>
+      <input class="form-input mono" bind:value={openId} autocomplete="off" />
+    </label>
+    <Button type="submit" disabled={!openId.trim()}>{t('collab_groups.open.button')}</Button>
+  </form>
 
-    <h3>{t('collab_groups.remembered.title')}</h3>
-    <p class="muted">{t('collab_groups.remembered.note')}</p>
-    {#if remembered.length === 0}
-      <p class="muted" data-testid="remembered-empty">{t('collab_groups.remembered.empty')}</p>
-    {:else}
-      <ul class="list" data-testid="remembered-list">
-        {#each remembered as g (g.id)}
-          <li>
-            <a class="text" href={groupHref(g.id)}>{g.title || g.id}</a>
-            <Button size="sm" variant="ghost" onclick={() => drop(g.id)}>{t('collab_groups.remembered.forget')}</Button>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-  </SectionCard>
-</div>
+  <h3>{t('collab_groups.remembered.title')}</h3>
+  <p class="muted">{t('collab_groups.remembered.note')}</p>
+  {#if remembered.length === 0}
+    <p class="muted" data-testid="remembered-empty">{t('collab_groups.remembered.empty')}</p>
+  {:else}
+    <ul class="list" data-testid="remembered-list">
+      {#each remembered as g (g.id)}
+        <li>
+          <a class="text" href={groupHref(g.id)}>{g.title || g.id}</a>
+          <Button size="sm" variant="ghost" onclick={() => drop(g.id)}>{t('collab_groups.remembered.forget')}</Button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+</SectionCard>
 
 <style>
   .intro { margin: -8px 0 20px; color: var(--text-secondary); font-size: 13px; max-width: 80ch; }

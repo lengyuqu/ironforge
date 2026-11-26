@@ -7,7 +7,6 @@
   // that call from an agent session (it needs the session secret), and a signed-in
   // person has none. The page says so rather than working around it.
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { createT } from '$lib/i18n';
@@ -123,127 +122,124 @@
   <title>{t('collab_ops.templates.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="collaboration" />
-  <CollabNav {owner} {repo} current="templates" />
+<CollabNav {owner} {repo} current="templates" />
 
-  <div class="page-header">
-    <h1>{t('collab_ops.templates.title')}</h1>
-  </div>
-  <p class="intro">{t('collab_ops.templates.intro')}</p>
-
-  {#if accessDenied}
-    <EmptyState icon="🔒" title={t('collab.access_denied')} description={t('collab.access_denied_hint')} />
-  {:else}
-    <div class="notice" role="note" data-testid="from-template-notice">
-      <strong>{t('collab_ops.templates.no_task_title')}</strong>
-      {t('collab_ops.templates.no_task_body')}
-    </div>
-
-    <SectionCard
-      title={t('collab_ops.templates.list_title')}
-      note={adminHint}
-      {loading}
-      {error}
-      count={loading ? null : templates.length}
-    >
-      {#snippet actions()}
-        <Button
-          variant="primary"
-          size="sm"
-          onclick={() => {
-            creating = !creating;
-            editingId = null;
-          }}
-        >{t('collab_ops.templates.new')}</Button>
-      {/snippet}
-
-      {#if creating}
-        {#key formEpoch}
-          <TemplateForm {owner} {repo} template={null} onSaved={afterSaved} onCancel={() => (creating = false)} />
-        {/key}
-      {/if}
-
-      {#if templates.length === 0}
-        <EmptyState title={t('collab_ops.templates.empty')} description={t('collab_ops.templates.empty_hint')} />
-      {:else}
-        <ul class="list">
-          {#each templates as tpl (tpl.id)}
-            <li data-testid="template-row">
-              <div class="row">
-                <span class="grow text name">{tpl.name}</span>
-                <span class="ver" title={t('collab_ops.templates.latest_hint')}>v{tpl.latest_version}</span>
-                <span class="when">{formatTime(tpl.updated_at)}</span>
-                <Button size="sm" onclick={() => toggle(tpl)}>
-                  {openId === tpl.id ? t('collab.hide') : t('collab_ops.templates.details')}
-                </Button>
-                <Button size="sm" onclick={() => startEdit(tpl)}>{t('collab_ops.templates.edit')}</Button>
-              </div>
-
-              {#if editingId === tpl.id}
-                {#key formEpoch}
-                  <TemplateForm
-                    {owner}
-                    {repo}
-                    template={tpl}
-                    onSaved={afterSaved}
-                    onCancel={() => (editingId = null)}
-                    onConflict={() => afterConflict(tpl.id)}
-                  />
-                {/key}
-              {/if}
-
-              {#if openId === tpl.id}
-                {@const h = histories[tpl.id]}
-                <div class="detail">
-                  {#if !h || h.loading}
-                    <p class="muted">{t('common.loading')}</p>
-                  {:else if h.error}
-                    <p class="err" role="alert">{h.error}</p>
-                  {:else}
-                    <div class="versions" role="tablist" aria-label={t('collab_ops.templates.versions')}>
-                      {#each h.versions as v (v.version.version)}
-                        <button
-                          type="button"
-                          role="tab"
-                          aria-selected={h.selected === v.version.version}
-                          class:sel={h.selected === v.version.version}
-                          onclick={() => (histories[tpl.id].selected = v.version.version)}
-                        >v{v.version.version}</button>
-                      {/each}
-                    </div>
-                    {#each h.versions.filter((v) => v.version.version === h.selected) as v (v.version.version)}
-                      <p class="muted">
-                        {t('collab_ops.templates.version_meta', {
-                          version: v.version.version,
-                          user: v.version.created_by_user_id,
-                          time: formatTime(v.version.created_at),
-                        })}
-                        {#if v.version.version !== tpl.latest_version}· {t('collab_ops.templates.older_version')}{/if}
-                      </p>
-                      <TemplateContent content={v.version} />
-                    {/each}
-                    {#if tpl.latest_version > HISTORY_LIMIT}
-                      <p class="muted">{t('collab_ops.templates.history_capped', { n: HISTORY_LIMIT })}</p>
-                    {/if}
-                    <p class="muted">{t('collab_ops.templates.immutable_note')}</p>
-                  {/if}
-                </div>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-        {#if nextCursor}
-          <div class="more">
-            <Button disabled={moreLoading} onclick={() => load(true)}>
-              {moreLoading ? t('common.loading') : t('collab.load_more')}
-            </Button>
-          </div>
-        {/if}
-      {/if}
-    </SectionCard>
-  {/if}
+<div class="page-header">
+  <h1>{t('collab_ops.templates.title')}</h1>
 </div>
+<p class="intro">{t('collab_ops.templates.intro')}</p>
+
+{#if accessDenied}
+  <EmptyState icon="🔒" title={t('collab.access_denied')} description={t('collab.access_denied_hint')} />
+{:else}
+  <div class="notice" role="note" data-testid="from-template-notice">
+    <strong>{t('collab_ops.templates.no_task_title')}</strong>
+    {t('collab_ops.templates.no_task_body')}
+  </div>
+
+  <SectionCard
+    title={t('collab_ops.templates.list_title')}
+    note={adminHint}
+    {loading}
+    {error}
+    count={loading ? null : templates.length}
+  >
+    {#snippet actions()}
+      <Button
+        variant="primary"
+        size="sm"
+        onclick={() => {
+          creating = !creating;
+          editingId = null;
+        }}
+      >{t('collab_ops.templates.new')}</Button>
+    {/snippet}
+
+    {#if creating}
+      {#key formEpoch}
+        <TemplateForm {owner} {repo} template={null} onSaved={afterSaved} onCancel={() => (creating = false)} />
+      {/key}
+    {/if}
+
+    {#if templates.length === 0}
+      <EmptyState title={t('collab_ops.templates.empty')} description={t('collab_ops.templates.empty_hint')} />
+    {:else}
+      <ul class="list">
+        {#each templates as tpl (tpl.id)}
+          <li data-testid="template-row">
+            <div class="row">
+              <span class="grow text name">{tpl.name}</span>
+              <span class="ver" title={t('collab_ops.templates.latest_hint')}>v{tpl.latest_version}</span>
+              <span class="when">{formatTime(tpl.updated_at)}</span>
+              <Button size="sm" onclick={() => toggle(tpl)}>
+                {openId === tpl.id ? t('collab.hide') : t('collab_ops.templates.details')}
+              </Button>
+              <Button size="sm" onclick={() => startEdit(tpl)}>{t('collab_ops.templates.edit')}</Button>
+            </div>
+
+            {#if editingId === tpl.id}
+              {#key formEpoch}
+                <TemplateForm
+                  {owner}
+                  {repo}
+                  template={tpl}
+                  onSaved={afterSaved}
+                  onCancel={() => (editingId = null)}
+                  onConflict={() => afterConflict(tpl.id)}
+                />
+              {/key}
+            {/if}
+
+            {#if openId === tpl.id}
+              {@const h = histories[tpl.id]}
+              <div class="detail">
+                {#if !h || h.loading}
+                  <p class="muted">{t('common.loading')}</p>
+                {:else if h.error}
+                  <p class="err" role="alert">{h.error}</p>
+                {:else}
+                  <div class="versions" role="tablist" aria-label={t('collab_ops.templates.versions')}>
+                    {#each h.versions as v (v.version.version)}
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={h.selected === v.version.version}
+                        class:sel={h.selected === v.version.version}
+                        onclick={() => (histories[tpl.id].selected = v.version.version)}
+                      >v{v.version.version}</button>
+                    {/each}
+                  </div>
+                  {#each h.versions.filter((v) => v.version.version === h.selected) as v (v.version.version)}
+                    <p class="muted">
+                      {t('collab_ops.templates.version_meta', {
+                        version: v.version.version,
+                        user: v.version.created_by_user_id,
+                        time: formatTime(v.version.created_at),
+                      })}
+                      {#if v.version.version !== tpl.latest_version}· {t('collab_ops.templates.older_version')}{/if}
+                    </p>
+                    <TemplateContent content={v.version} />
+                  {/each}
+                  {#if tpl.latest_version > HISTORY_LIMIT}
+                    <p class="muted">{t('collab_ops.templates.history_capped', { n: HISTORY_LIMIT })}</p>
+                  {/if}
+                  <p class="muted">{t('collab_ops.templates.immutable_note')}</p>
+                {/if}
+              </div>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+      {#if nextCursor}
+        <div class="more">
+          <Button disabled={moreLoading} onclick={() => load(true)}>
+            {moreLoading ? t('common.loading') : t('collab.load_more')}
+          </Button>
+        </div>
+      {/if}
+    {/if}
+  </SectionCard>
+{/if}
 
 <style>
   .intro { margin: -8px 0 16px; color: var(--text-secondary); font-size: 13px; max-width: 80ch; }

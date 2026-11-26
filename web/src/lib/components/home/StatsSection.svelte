@@ -1,14 +1,14 @@
 <script lang="ts">
-  // Landing stats band — four static highlight numbers.
+  // Landing stats band — four static highlight metrics.
   import { createT } from '$lib/i18n';
 
   const t = createT();
 
   const stats = [
-    { number: '50MB', key: 'memory' },
-    { number: '1', key: 'binary' },
-    { number: '100%', key: 'compatible' },
     { number: 'Rust', key: 'language' },
+    { number: '1', key: 'binary' },
+    { number: 'MCP', key: 'mcp' },
+    { number: '100%', key: 'compatible' },
   ] as const;
 </script>
 

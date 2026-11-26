@@ -74,7 +74,7 @@
   <title>{t('settings.security.title')} · IronForge</title>
 </svelte:head>
 
-<div class="page-container security-page">
+<div class="security-page">
   <header class="page-header">
     <div>
       <h1>{t('settings.security.title')}</h1>
@@ -112,7 +112,7 @@
 
 <style>
   .security-page {
-    max-width: 980px;
+    max-width: 880px;
   }
 
   h1 {

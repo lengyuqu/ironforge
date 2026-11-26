@@ -1,10 +1,9 @@
 <script lang="ts">
   // Home page — two branches:
-  //   logged in  → dashboard with the user's repo grid
+  //   logged in  → dashboard with the signed-in user's own repositories
   //   logged out → marketing landing (hero / features / stats / public repos)
-  // Heavy UI lives in $lib/components/home/.
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
-  import { isLoggedIn } from '$lib/stores/auth.svelte';
+  import { getUser, isLoggedIn } from '$lib/stores/auth.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
@@ -31,9 +30,17 @@
     try {
       loading = true;
       error = '';
-      const r = await repos.explore(1, 6);
-      if (r && Array.isArray(r.data)) {
-        repoList = r.data;
+      const currentUser = isLoggedIn() ? getUser() : null;
+      if (currentUser?.username) {
+        const res = await repos.list(currentUser.username, 1, 6);
+        repoList = (res?.data || []).map((item) => ({
+          ...item,
+          owner_id: currentUser.id,
+          owner_name: currentUser.username,
+        }));
+      } else {
+        const r = await repos.explore(1, 6);
+        repoList = r && Array.isArray(r.data) ? r.data : [];
       }
     } catch (e: unknown) {
       error = toErrorMessage(e, t('errors.load_failed'));
@@ -52,9 +59,12 @@
   <div class="dashboard">
     <div class="dashboard-header">
       <h1>{t('dashboard.title')}</h1>
-      <button class="btn-primary" onclick={() => goto('/dashboard')}>
-        + {t('dashboard.new_repo')}
-      </button>
+      <div class="dashboard-actions">
+        <a href="/dashboard" class="btn-outline">{t('home.cta.go_dashboard')}</a>
+        <button class="btn-primary" onclick={() => goto('/dashboard?new=1')}>
+          + {t('dashboard.new_repo')}
+        </button>
+      </div>
     </div>
 
     {#if error}
@@ -94,11 +104,19 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
     margin-bottom: 24px;
   }
 
   .dashboard-header h1 {
     font-size: 24px;
+  }
+
+  .dashboard-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .dashboard-footer {
@@ -109,7 +127,7 @@
     display: inline-block;
     padding: 8px 20px;
     background: var(--green-dim);
-    color: white;
+    color: var(--text-on-accent);
     border-radius: 6px;
     text-decoration: none;
     font-size: 14px;

@@ -1,46 +1,69 @@
 // i18n module — Svelte 5 runes (migrated from Svelte 4 stores, tech-debt F-013 resolved).
 //
-// Module-level `$state` / `$derived` give us a single reactive locale that
-// every component shares without Svelte 4 writable/derived or `get()`.
-// `createT()` closes over `currentCatalog`, so locale changes propagate to
-// every component that calls `t()` — no stale snapshots.
+// `en.json` stays synchronous so the default render has zero flash and unit
+// tests resolve immediately; `zh-CN.json` is code-split and loaded on demand
+// when selected or detected from browser preferences.
 
 import en from './translations/en.json';
-import zhCN from './translations/zh-CN.json';
 
 export type Locale = 'en' | 'zh-CN';
 
 type TranslationCatalog = typeof en;
 
-const translations: Record<Locale, TranslationCatalog> = {
-  en,
-  'zh-CN': zhCN,
-};
+const SUPPORTED_LOCALES: readonly Locale[] = ['en', 'zh-CN'];
+
+let loadedCatalogs = $state<Partial<Record<Locale, TranslationCatalog>>>({ en });
+const pendingLoads = new Map<Locale, Promise<void>>();
+
+function isSupportedLocale(value: string | null): value is Locale {
+  return value !== null && (SUPPORTED_LOCALES as readonly string[]).includes(value);
+}
+
+function syncDocumentLang(targetLocale: Locale) {
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = targetLocale;
+  }
+}
+
+async function ensureLocaleLoaded(targetLocale: Locale): Promise<void> {
+  if (loadedCatalogs[targetLocale]) return;
+  let pending = pendingLoads.get(targetLocale);
+  if (!pending) {
+    pending = (async () => {
+      if (targetLocale === 'zh-CN') {
+        const mod = await import('./translations/zh-CN.json');
+        loadedCatalogs = { ...loadedCatalogs, 'zh-CN': mod.default };
+      }
+    })().finally(() => {
+      pendingLoads.delete(targetLocale);
+    });
+    pendingLoads.set(targetLocale, pending);
+  }
+  await pending;
+}
 
 // ── Locale detection ──────────────────────────────────────────────
 
 function detectLocale(): Locale {
   if (typeof window === 'undefined') return 'en';
-  const stored = localStorage.getItem('locale') as Locale | null;
-  if (stored && translations[stored]) return stored;
+  const stored = localStorage.getItem('locale');
+  if (isSupportedLocale(stored)) return stored;
   const browser = navigator.language;
   if (browser.startsWith('zh')) return 'zh-CN';
   return 'en';
 }
 
 // ── Reactive core ────────────────────────────────────────────────
-//
-// These are module-level runes.  Svelte 5's runtime sees them the same
-// way it sees component-scoped `$state` / `$derived` — every read inside
-// a component template or `$effect` is tracked automatically.
 
-let currentLocale = $state<Locale>(detectLocale());
-const currentCatalog = $derived(translations[currentLocale]);
+const initialLocale = detectLocale();
+let currentLocale = $state<Locale>(initialLocale);
+const currentCatalog = $derived(loadedCatalogs[currentLocale] ?? en);
 
-// Public `locale` object — a mutable ref that exposes both read and write.
-// Navbar & other components call `locale.set('zh-CN')`; template code uses
-// `locale.value` (runes don't support the Svelte-4 `$locale` auto-subscribe
-// shorthand for plain objects, but `.value` is always reactive).
+syncDocumentLang(initialLocale);
+if (initialLocale !== 'en') {
+  void ensureLocaleLoaded(initialLocale);
+}
+
 export const locale: { value: Locale; set: (l: Locale) => void; init: () => void } = {
   get value() {
     return currentLocale;
@@ -50,9 +73,14 @@ export const locale: { value: Locale; set: (l: Locale) => void; init: () => void
       localStorage.setItem('locale', newLocale);
     }
     currentLocale = newLocale;
+    syncDocumentLang(newLocale);
+    void ensureLocaleLoaded(newLocale);
   },
   init() {
-    currentLocale = detectLocale();
+    const detected = detectLocale();
+    currentLocale = detected;
+    syncDocumentLang(detected);
+    void ensureLocaleLoaded(detected);
   },
 };
 
@@ -73,12 +101,6 @@ function interpolate(str: string, params: Record<string, string | number>): stri
   return str.replace(/\{(\w+)\}/g, (_, key) => String(params[key] ?? `{${key}}`));
 }
 
-/**
- * Resolve a translation key against the currently-active catalog.
- * Called every time `t()` runs inside `createT()` — because `currentCatalog`
- * is a `$derived`, the read is tracked and components re-render on locale
- * switch (no stale snapshot from `get()`).
- */
 function resolveTranslation(key: string, options?: TranslationOptions): string {
   const value = getNestedValue(currentCatalog, key);
   const fallback = typeof options === 'string' ? options : key;
@@ -94,21 +116,12 @@ function resolveTranslation(key: string, options?: TranslationOptions): string {
   return value;
 }
 
-// Main standalone t() — used outside Svelte components (APIs, utils).
-// **Not reactive** — reads the current locale once.  Prefer `createT()`
-// inside components.
 export function t(key: string, params?: TranslationParams): string;
 export function t(key: string, fallback?: string): string;
 export function t(key: string, options?: TranslationOptions): string {
   return resolveTranslation(key, options);
 }
 
-/**
- * Returns a `t()` function that's reactive inside Svelte 5 components.
- * Closing over `currentCatalog` (a `$derived`) means each read is tracked
- * by Svelte's runtime — components that use `t('nav.dashboard')` re-render
- * automatically when `locale.set()` is called.
- */
 export function createT(): Translator {
   const translate: Translator = (key: string, options?: TranslationOptions): string => {
     return resolveTranslation(key, options);

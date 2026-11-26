@@ -6,8 +6,8 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { repos } from '$lib/api/client.svelte';
+  import { getRepoContext } from '$lib/stores/repoContext.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
   import { buildRepoQuery } from '$lib/utils/repoUrls';
@@ -19,6 +19,7 @@
   import ReadmeSection from '$lib/components/repo/ReadmeSection.svelte';
 
   const t = createT();
+  const repoCtx = getRepoContext();
 
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
@@ -68,6 +69,7 @@
       branches = branchData || [];
       commits = (logData.commits || []).slice(0, 5);
       repoInfo = repoData;
+      repoCtx?.setRepoInfo(repoData);
 
       // Load README when at root
       if (!path) {
@@ -120,48 +122,44 @@
   <title>{owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="code" starsCount={repoInfo?.stars_count || 0} defaultBranch={repoInfo?.default_branch} />
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
 
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
+{#if loading}
+  <LoadingState />
+{:else if commits.length === 0 && entries.length === 0}
+  <!-- Empty repository — setup guidance -->
+  <EmptyRepoGuide {owner} {repo} defaultBranch={repoInfo?.default_branch || 'main'} />
+{:else}
+  <RepoToolbar
+    {owner}
+    {repo}
+    {ref}
+    {path}
+    {branches}
+    {currentRefLabel}
+    onSelectBranch={selectBranch}
+  />
 
-  {#if loading}
-    <LoadingState />
-  {:else if commits.length === 0 && entries.length === 0}
-    <!-- Empty repository — setup guidance -->
-    <EmptyRepoGuide {owner} {repo} defaultBranch={repoInfo?.default_branch || 'main'} />
-  {:else}
-    <RepoToolbar
+  <div class="content-grid">
+    <FileTreePanel
       {owner}
       {repo}
       {ref}
       {path}
-      {branches}
-      {currentRefLabel}
-      onSelectBranch={selectBranch}
+      {entries}
+      onNavigateTo={navigateToPath}
+      onNavigateUp={navigateUp}
     />
+    <RecentCommitsPanel {owner} {repo} {ref} {commits} />
+  </div>
 
-    <div class="content-grid">
-      <FileTreePanel
-        {owner}
-        {repo}
-        {ref}
-        {path}
-        {entries}
-        onNavigateTo={navigateToPath}
-        onNavigateUp={navigateUp}
-      />
-      <RecentCommitsPanel {owner} {repo} {ref} {commits} />
-    </div>
-
-    <!-- README rendering (at repo root) -->
-    {#if !path}
-      <ReadmeSection content={readmeContent} loading={readmeLoading} />
-    {/if}
+  <!-- README rendering (at repo root) -->
+  {#if !path}
+    <ReadmeSection content={readmeContent} loading={readmeLoading} />
   {/if}
-</div>
+{/if}
 
 <style>
   .content-grid {

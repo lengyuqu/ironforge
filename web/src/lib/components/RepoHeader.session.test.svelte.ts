@@ -61,7 +61,7 @@ async function signInAs(username: string) {
   await login(username, 'pw');
 }
 
-const starIcon = () => document.querySelector('.star-icon')?.textContent;
+const starState = () => document.querySelector('.star-icon')?.getAttribute('data-starred');
 const starCount = () => document.querySelector('.count')?.textContent;
 
 describe('RepoHeader.svelte (signed in)', () => {
@@ -83,7 +83,7 @@ describe('RepoHeader.svelte (signed in)', () => {
       api.watchStatus.mockResolvedValue({ watch_state: 'watching' });
       render(RepoHeader, { owner: 'alice', repo: 'demo', starsCount: 3 });
 
-      await waitFor(() => expect(starIcon()).toBe('⭐'));
+      await waitFor(() => expect(starState()).toBe('true'));
       expect(api.starred).toHaveBeenCalledWith('alice', 'demo');
       expect(api.watchStatus).toHaveBeenCalledWith('alice', 'demo');
       expect(screen.getByLabelText('repo.unstar')).toBeInTheDocument();
@@ -96,7 +96,7 @@ describe('RepoHeader.svelte (signed in)', () => {
       render(RepoHeader, { owner: 'alice', repo: 'demo' });
 
       await waitFor(() => expect(api.watchStatus).toHaveBeenCalled());
-      expect(starIcon()).toBe('☆');
+      expect(starState()).toBe('false');
       expect(screen.getByLabelText('repo.watch')).toBeInTheDocument();
     });
   });
@@ -111,7 +111,7 @@ describe('RepoHeader.svelte (signed in)', () => {
 
       await fireEvent.click(screen.getByLabelText('repo.star'));
       // The request is still pending here, so this is the optimistic state.
-      await waitFor(() => expect(starIcon()).toBe('⭐'));
+      await waitFor(() => expect(starState()).toBe('true'));
       expect(starCount()).toBe('6');
 
       resolve({ starred: true });
@@ -123,10 +123,10 @@ describe('RepoHeader.svelte (signed in)', () => {
       api.starred.mockResolvedValue({ starred: true });
       api.star.mockResolvedValue({ starred: false });
       render(RepoHeader, { owner: 'alice', repo: 'demo', starsCount: 5 });
-      await waitFor(() => expect(starIcon()).toBe('⭐'));
+      await waitFor(() => expect(starState()).toBe('true'));
 
       await fireEvent.click(screen.getByLabelText('repo.unstar'));
-      await waitFor(() => expect(starIcon()).toBe('☆'));
+      await waitFor(() => expect(starState()).toBe('false'));
       expect(starCount()).toBe('4');
     });
 
@@ -138,7 +138,7 @@ describe('RepoHeader.svelte (signed in)', () => {
 
       await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
       expect(toast.error.mock.calls[0][0]).toContain('rate limited');
-      expect(starIcon()).toBe('☆');
+      expect(starState()).toBe('false');
       expect(starCount()).toBe('5');
     });
   });
@@ -263,14 +263,14 @@ describe('RepoHeader.svelte (signed in)', () => {
       await fireEvent.click(screen.getByLabelText('repo.star'));
       await act(async () => {});
       expect(api.star).toHaveBeenCalledWith('alice', 'demo');
-      expect(starIcon()).toBe('⭐');
+      expect(starState()).toBe('true');
       expect(starCount()).toBe('6');
 
       // The stale load now answers "not starred"; it must not undo the click.
       await act(async () => {
         resolveStarred({ starred: false });
       });
-      expect(starIcon()).toBe('⭐');
+      expect(starState()).toBe('true');
       expect(starCount()).toBe('6');
       expect(screen.getByLabelText('repo.unstar')).toBeInTheDocument();
     });
@@ -310,13 +310,13 @@ describe('RepoHeader.svelte (signed in)', () => {
       await act(async () => {
         pending[0]({ starred: true });
       });
-      expect(starIcon()).toBe('☆');
+      expect(starState()).toBe('false');
 
       // The new repo's own answer still lands.
       await act(async () => {
         pending[1]({ starred: true });
       });
-      expect(starIcon()).toBe('⭐');
+      expect(starState()).toBe('true');
     });
 
     it('ignores a late watch load from the previous repository after the header switched repos', async () => {
@@ -362,7 +362,7 @@ describe('RepoHeader.svelte (signed in)', () => {
         resolveStar({ starred: true });
       });
       // The stale answer must not be counted into the new repo.
-      expect(starIcon()).toBe('☆');
+      expect(starState()).toBe('false');
       expect(starCount()).toBe('0');
     });
 

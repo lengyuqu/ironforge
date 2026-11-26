@@ -6,6 +6,7 @@
   import { isLoggedIn, getUser } from '$lib/stores/auth.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { createT } from '$lib/i18n';
   import CreateRepoForm from '$lib/components/dashboard/CreateRepoForm.svelte';
   import RepoList from '$lib/components/dashboard/RepoList.svelte';
@@ -19,6 +20,12 @@
   let loading = $state(true);
   let error = $state('');
   let showCreate = $state(false);
+
+  $effect(() => {
+    if ($page.url.searchParams.get('new') === '1') {
+      showCreate = true;
+    }
+  });
 
   $effect(() => {
     if (!isLoggedIn()) {

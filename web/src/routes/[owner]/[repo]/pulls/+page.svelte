@@ -2,7 +2,6 @@
   import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { pulls } from '$lib/api/client.svelte';
   import type { PullRequest } from '$lib/types/entities';
   import PullFilterTabs from '$lib/components/pulls/PullFilterTabs.svelte';
@@ -47,32 +46,28 @@
   <title>{t('repo.tabs.pulls')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="pulls" starsCount={0} />
-
-  <div class="gh-toolbar pulls-toolbar">
-    <PullFilterTabs
-      filter={filterState}
-      onFilterChange={(next) => {
-        filterState = next;
-        loadPRs();
-      }}
-    />
-    <button class="btn-primary" onclick={() => (showCreate = !showCreate)}>
-      {t('pulls.new')}
-    </button>
-  </div>
-
-  {#if showCreate}
-    <PullCreateForm {owner} {repo} onCreated={handleCreated} onCancel={() => (showCreate = false)} />
-  {/if}
-
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  <PullList {owner} {repo} pullRequests={prList} {loading} filter={filterState} />
+<div class="gh-toolbar pulls-toolbar">
+  <PullFilterTabs
+    filter={filterState}
+    onFilterChange={(next) => {
+      filterState = next;
+      loadPRs();
+    }}
+  />
+  <button class="btn-primary" onclick={() => (showCreate = !showCreate)}>
+    {t('pulls.new')}
+  </button>
 </div>
+
+{#if showCreate}
+  <PullCreateForm {owner} {repo} onCreated={handleCreated} onCancel={() => (showCreate = false)} />
+{/if}
+
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
+
+<PullList {owner} {repo} pullRequests={prList} {loading} filter={filterState} />
 
 <style>
   .pulls-toolbar {

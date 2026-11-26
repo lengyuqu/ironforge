@@ -5,7 +5,6 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { wiki } from '$lib/api/client.svelte';
   import type { WikiPageSummary } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
@@ -53,52 +52,48 @@
   <title>{t('repo.tabs.wiki')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="wiki" starsCount={0} />
-
-  <div class="toolbar">
-    <h2>{t('wiki.pages')}</h2>
-    <button class="btn-primary" onclick={() => showCreate = !showCreate}>{t('wiki.new')}</button>
-  </div>
-
-  {#if showCreate}
-    <div class="create-form surface">
-      <form onsubmit={handleCreate}>
-        <label>
-          {t('wiki.create_form.title')}
-          <input type="text" bind:value={newTitle} required placeholder={t('wiki.create_form.title_placeholder')} />
-        </label>
-        <label>
-          {t('wiki.create_form.content')}
-          <textarea bind:value={newContent} rows="8" required placeholder={t('wiki.create_form.content_placeholder')}></textarea>
-        </label>
-        <div class="form-actions">
-          <button type="submit" class="btn-primary">{t('wiki.create_form.submit')}</button>
-          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{t('wiki.create_form.cancel')}</button>
-        </div>
-      </form>
-    </div>
-  {/if}
-
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  {#if loading}
-    <LoadingState />
-  {:else if pageList.length === 0}
-    <EmptyState title={t('wiki.empty')} />
-  {:else}
-    <div class="page-list">
-      {#each pageList as p}
-        <a href={`/${owner}/${repo}/wiki/${encodeURIComponent(p.title)}`} class="wiki-item">
-          📄 {p.title}
-          <span class="text-secondary text-sm">{formatDate(p.updated_at)}</span>
-        </a>
-      {/each}
-    </div>
-  {/if}
+<div class="toolbar">
+  <h2>{t('wiki.pages')}</h2>
+  <button class="btn-primary" onclick={() => showCreate = !showCreate}>{t('wiki.new')}</button>
 </div>
+
+{#if showCreate}
+  <div class="create-form surface">
+    <form onsubmit={handleCreate}>
+      <label>
+        {t('wiki.create_form.title')}
+        <input type="text" bind:value={newTitle} required placeholder={t('wiki.create_form.title_placeholder')} />
+      </label>
+      <label>
+        {t('wiki.create_form.content')}
+        <textarea bind:value={newContent} rows="8" required placeholder={t('wiki.create_form.content_placeholder')}></textarea>
+      </label>
+      <div class="form-actions">
+        <button type="submit" class="btn-primary">{t('wiki.create_form.submit')}</button>
+        <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{t('wiki.create_form.cancel')}</button>
+      </div>
+    </form>
+  </div>
+{/if}
+
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
+
+{#if loading}
+  <LoadingState />
+{:else if pageList.length === 0}
+  <EmptyState title={t('wiki.empty')} />
+{:else}
+  <div class="page-list">
+    {#each pageList as p}
+      <a href={`/${owner}/${repo}/wiki/${encodeURIComponent(p.title)}`} class="wiki-item">
+        📄 {p.title}
+        <span class="text-secondary text-sm">{formatDate(p.updated_at)}</span>
+      </a>
+    {/each}
+  </div>
+{/if}
 
 <style>
   .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }

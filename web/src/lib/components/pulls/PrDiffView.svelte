@@ -1,7 +1,7 @@
 <script lang="ts">
-  // PR diff view (changes tab) — file-by-file diff with per-line inline
-  // comments, reply threads and suggestion application. Owns the inline
-  // comment draft state; mutates via the reviews API and calls `onChanged`.
+  // PR diff view (changes tab) — file-by-file diff with jump list, collapsible
+  // file sections, per-line inline comments, reply threads and suggestions.
+  import Icon from '$lib/components/Icon.svelte';
   import SuggestionBlock from './SuggestionBlock.svelte';
   import { reviews, type DiffLine, type PrDiff } from '$lib/api/pulls';
   import { createT } from '$lib/i18n';
@@ -33,8 +33,33 @@
   let suggestionLineCount = $state(1);
   let applyingSuggestionId = $state<number | null>(null);
   let resolvingCommentId = $state<number | null>(null);
+  let collapsedFiles = $state<Record<string, boolean>>({});
 
   let rootComments = $derived(comments.filter((comment) => !comment.reply_to_id));
+  let allCollapsed = $derived(
+    Boolean(diffData?.files_changed.length && diffData.files_changed.every((f) => collapsedFiles[f.path])),
+  );
+
+  function toggleFile(filePath: string) {
+    collapsedFiles = { ...collapsedFiles, [filePath]: !collapsedFiles[filePath] };
+  }
+
+  function toggleAllFiles() {
+    if (!diffData) return;
+    const next = !allCollapsed;
+    const updated: Record<string, boolean> = {};
+    for (const file of diffData.files_changed) {
+      updated[file.path] = next;
+    }
+    collapsedFiles = updated;
+  }
+
+  function jumpToFile(filePath: string, index: number) {
+    if (collapsedFiles[filePath]) {
+      collapsedFiles = { ...collapsedFiles, [filePath]: false };
+    }
+    document.getElementById(`diff-file-${index}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 
   function commentLocation(path: string, line: DiffLine, index: number) {
     if (line.kind === 'deletion' && line.old_line != null) {
@@ -119,67 +144,102 @@
 <div class="diff-view">
   {#if diffData && diffData.files_changed.length > 0}
     <div class="diff-summary">
-      <strong>{t('pulls.files_changed_count', { count: diffData.stats.files_changed })}</strong>
-      <span class="addition-text">+{diffData.stats.total_additions}</span>
-      <span class="deletion-text">−{diffData.stats.total_deletions}</span>
+      <div class="diff-summary-meta">
+        <strong>{t('pulls.files_changed_count', { count: diffData.stats.files_changed })}</strong>
+        <span class="addition-text">+{diffData.stats.total_additions}</span>
+        <span class="deletion-text">−{diffData.stats.total_deletions}</span>
+      </div>
+      <button type="button" class="btn-outline btn-xs" onclick={toggleAllFiles}>
+        {allCollapsed ? t('pulls.diff.expand_all') : t('pulls.diff.collapse_all')}
+      </button>
     </div>
-    {#each diffData.files_changed as file (file.path)}
-      <section class="diff-file">
+
+    {#if diffData.files_changed.length > 1}
+      <nav class="diff-jump-list surface" aria-label={t('pulls.diff.jump_to_file')}>
+        {#each diffData.files_changed as file, fileIdx (file.path)}
+          <button type="button" class="diff-jump-item" onclick={() => jumpToFile(file.path, fileIdx)}>
+            <code class="truncate">{file.path}</code>
+            <span class="jump-stats">
+              <span class="addition-text">+{file.additions}</span>
+              <span class="deletion-text">−{file.deletions}</span>
+            </span>
+          </button>
+        {/each}
+      </nav>
+    {/if}
+
+    {#each diffData.files_changed as file, fileIdx (file.path)}
+      {@const collapsed = Boolean(collapsedFiles[file.path])}
+      <section class="diff-file" id={`diff-file-${fileIdx}`}>
         <header class="diff-file-header">
-          <code>{file.path}</code>
-          <span><span class="addition-text">+{file.additions}</span> <span class="deletion-text">−{file.deletions}</span></span>
+          <button
+            type="button"
+            class="file-toggle"
+            aria-expanded={!collapsed}
+            aria-label={`${t('pulls.diff.toggle_file')}: ${file.path}`}
+            onclick={() => toggleFile(file.path)}
+          >
+            <Icon name={collapsed ? 'chevron-right' : 'chevron-down'} size={14} />
+            <code>{file.path}</code>
+          </button>
+          <span class="file-stats">
+            <span class="addition-text">+{file.additions}</span>
+            <span class="deletion-text">−{file.deletions}</span>
+          </span>
         </header>
-        <div class="diff-lines">
-          {#each file.lines as line, index (`${file.path}:${index}`)}
-            {@const target = commentLocation(file.path, line, index)}
-            {@const lineComments = target ? commentsForLine(file.path, target.line, target.side) : []}
-            <div class="diff-line" class:addition={line.kind === 'addition'} class:deletion={line.kind === 'deletion'} class:meta={line.kind === 'meta'}>
-              <span class="comment-gutter">
-                {#if target}
-                  <button title={t('pulls.diff.add_comment')} aria-label={t('pulls.diff.add_comment')} onclick={() => startInlineComment(target, line.content)}>+</button>
-                {/if}
-              </span>
-              <span class="line-number">{line.old_line ?? ''}</span>
-              <span class="line-number">{line.new_line ?? ''}</span>
-              <code>{line.content || ' '}</code>
-            </div>
-            {#each lineComments as comment (comment.id)}
-              <div class="inline-thread" class:resolved={Boolean(comment.resolved_at)}>
-                <div>{comment.body}</div>
-                <SuggestionBlock
-                  {comment}
-                  onApply={() => applySuggestion(comment)}
-                  applying={applyingSuggestionId === comment.id}
-                />
-                {#each repliesFor(comment.id) as reply (reply.id)}
-                  <div class="inline-reply">{reply.body}</div>
-                {/each}
-                <button class="btn-link" disabled={resolvingCommentId === comment.id} onclick={() => setThreadResolved(comment, !comment.resolved_at)}>
-                  {comment.resolved_at ? t('pulls.threads.reopen') : t('pulls.threads.resolve')}
-                </button>
-              </div>
-            {/each}
-            {#if target && commentTarget?.key === target.key}
-              <div class="inline-comment-form">
-                <textarea bind:value={inlineCommentBody} rows="3" placeholder={t('pulls.diff.comment_placeholder')}></textarea>
-                {#if target.side === 'RIGHT'}
-                  <label class="suggestion-toggle"><input type="checkbox" bind:checked={suggestingChange} /> {t('pulls.suggestion.propose')}</label>
-                  {#if suggestingChange}
-                    <label class="range-control">
-                      {t('pulls.suggestion.line_count')}
-                      <input type="number" min="1" max="100" bind:value={suggestionLineCount} />
-                    </label>
-                    <textarea bind:value={suggestedContent} rows="4" placeholder={t('pulls.suggestion.placeholder')}></textarea>
+        {#if !collapsed}
+          <div class="diff-lines">
+            {#each file.lines as line, index (`${file.path}:${index}`)}
+              {@const target = commentLocation(file.path, line, index)}
+              {@const lineComments = target ? commentsForLine(file.path, target.line, target.side) : []}
+              <div class="diff-line" class:addition={line.kind === 'addition'} class:deletion={line.kind === 'deletion'} class:meta={line.kind === 'meta'}>
+                <span class="comment-gutter">
+                  {#if target}
+                    <button title={t('pulls.diff.add_comment')} aria-label={t('pulls.diff.add_comment')} onclick={() => startInlineComment(target, line.content)}>+</button>
                   {/if}
-                {/if}
-                <div>
-                  <button class="btn-primary" disabled={submittingInlineComment || !inlineCommentBody.trim()} onclick={submitInlineComment}>{t('pulls.diff.submit_comment')}</button>
-                  <button class="btn-secondary" disabled={submittingInlineComment} onclick={() => (commentTarget = null)}>{t('common.cancel')}</button>
-                </div>
+                </span>
+                <span class="line-number">{line.old_line ?? ''}</span>
+                <span class="line-number">{line.new_line ?? ''}</span>
+                <code>{line.content || ' '}</code>
               </div>
-            {/if}
-          {/each}
-        </div>
+              {#each lineComments as comment (comment.id)}
+                <div class="inline-thread" class:resolved={Boolean(comment.resolved_at)}>
+                  <div>{comment.body}</div>
+                  <SuggestionBlock
+                    {comment}
+                    onApply={() => applySuggestion(comment)}
+                    applying={applyingSuggestionId === comment.id}
+                  />
+                  {#each repliesFor(comment.id) as reply (reply.id)}
+                    <div class="inline-reply">{reply.body}</div>
+                  {/each}
+                  <button class="btn-link" disabled={resolvingCommentId === comment.id} onclick={() => setThreadResolved(comment, !comment.resolved_at)}>
+                    {comment.resolved_at ? t('pulls.threads.reopen') : t('pulls.threads.resolve')}
+                  </button>
+                </div>
+              {/each}
+              {#if target && commentTarget?.key === target.key}
+                <div class="inline-comment-form">
+                  <textarea bind:value={inlineCommentBody} rows="3" placeholder={t('pulls.diff.comment_placeholder')}></textarea>
+                  {#if target.side === 'RIGHT'}
+                    <label class="suggestion-toggle"><input type="checkbox" bind:checked={suggestingChange} /> {t('pulls.suggestion.propose')}</label>
+                    {#if suggestingChange}
+                      <label class="range-control">
+                        {t('pulls.suggestion.line_count')}
+                        <input type="number" min="1" max="100" bind:value={suggestionLineCount} />
+                      </label>
+                      <textarea bind:value={suggestedContent} rows="4" placeholder={t('pulls.suggestion.placeholder')}></textarea>
+                    {/if}
+                  {/if}
+                  <div>
+                    <button class="btn-primary" disabled={submittingInlineComment || !inlineCommentBody.trim()} onclick={submitInlineComment}>{t('pulls.diff.submit_comment')}</button>
+                    <button class="btn-secondary" disabled={submittingInlineComment} onclick={() => (commentTarget = null)}>{t('common.cancel')}</button>
+                  </div>
+                </div>
+              {/if}
+            {/each}
+          </div>
+        {/if}
       </section>
     {/each}
   {:else}
@@ -196,9 +256,50 @@
 
   .diff-summary {
     display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .diff-summary-meta {
+    display: flex;
     gap: 10px;
     align-items: center;
   }
+
+  .diff-jump-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 12px;
+  }
+
+  .diff-jump-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .diff-jump-item:hover {
+    border-color: var(--accent);
+    background: var(--bg-hover);
+  }
+
+  .jump-stats {
+    display: inline-flex;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
   .addition-text { color: var(--green); }
   .deletion-text { color: var(--red); }
 
@@ -210,10 +311,36 @@
   .diff-file-header {
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    gap: 12px;
     padding: 10px 12px;
     background: var(--bg-tertiary);
     border-bottom: 1px solid var(--border);
     font-size: 13px;
+  }
+
+  .file-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .file-toggle code {
+    overflow-wrap: anywhere;
+  }
+
+  .file-stats {
+    display: inline-flex;
+    gap: 6px;
+    flex-shrink: 0;
   }
 
   .diff-lines { overflow-x: auto; }
@@ -258,7 +385,18 @@
     color: transparent;
     cursor: pointer;
   }
-  .diff-line:hover .comment-gutter button { color: var(--text-on-accent); background: var(--accent); }
+  .diff-line:hover .comment-gutter button,
+  .comment-gutter button:focus-visible {
+    color: var(--text-on-accent);
+    background: var(--accent);
+  }
+
+  @media (hover: none) {
+    .comment-gutter button {
+      color: var(--text-secondary);
+      background: var(--bg-tertiary);
+    }
+  }
 
   .inline-comment-form,
   .inline-thread {
@@ -299,5 +437,12 @@
     width: 100%;
     resize: vertical;
     margin-bottom: 12px;
+  }
+
+  @media (max-width: 720px) {
+    .inline-comment-form,
+    .inline-thread {
+      margin: 8px;
+    }
   }
 </style>

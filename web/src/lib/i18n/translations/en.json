@@ -42,7 +42,17 @@
     "previous_page": "Previous page",
     "next_page": "Next page",
     "range_of": "{start}-{end} of {total}",
-    "no_items": "No items"
+    "no_items": "No items",
+    "skip_to_content": "Skip to main content"
+  },
+  "shortcuts": {
+    "title": "Keyboard shortcuts",
+    "focus_search": "Focus global search",
+    "toggle_help": "Show keyboard shortcuts",
+    "go_dashboard": "Go to Dashboard",
+    "go_explore": "Go to Explore",
+    "go_notifications": "Go to Notifications",
+    "go_search": "Go to Search"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -131,7 +141,7 @@
     "delete_failed": "Failed to delete SSH key"
   },
   "home": {
-    "tagline": "A lightweight, self-hosted Git service",
+    "tagline": "An AI-Agent-first Git hosting platform built in Rust",
     "features": {
       "secure": "Secure",
       "secure_desc": "Argon2 + JWT authentication",
@@ -143,7 +153,7 @@
       "title": "Why choose IronForge?",
       "lightweight": {
         "title": "Lightweight",
-        "desc": "Memory usage <50MB, minimal resource footprint"
+        "desc": "Compact single-binary Rust server with predictable resource usage"
       },
       "all_in_one": {
         "title": "All-in-One",
@@ -162,8 +172,8 @@
         "desc": "Rust-powered HTTP & SSH"
       },
       "extensible": {
-        "title": "Extensible",
-        "desc": "MCP server support, AI Agent integration"
+        "title": "Agent-Native",
+        "desc": "MCP server support, agent principals, and multi-agent collaboration"
       }
     },
     "cta": {
@@ -175,12 +185,13 @@
       "view_all": "View all",
       "empty": "No public repositories yet"
     },
-    "description": "IronForge is a lightweight Git hosting platform built in Rust, designed as a modern alternative to Gitea. Single binary deployment, memory efficient, full-featured.",
+    "description": "Single-binary Git hosting with full Repositories, Issues, PRs, Wiki, CI/CD, and Packages — plus first-class Agent principals, MCP tools, and multi-agent collaboration.",
     "sign_up": "Sign up",
     "sign_in": "Sign in",
     "stats": {
       "memory": "Memory Usage",
       "binary": "Single Binary",
+      "mcp": "Native AI Protocol",
       "compatible": "Git Compatible",
       "language": "Built with"
     },
@@ -356,7 +367,8 @@
       "commits": "Commits",
       "commits_empty": "No commits yet.",
       "settings": "Settings",
-      "runners": "Runners"
+      "runners": "Runners",
+      "nav_label": "Repository navigation"
     },
     "star": "Star",
     "unstar": "Unstar",
@@ -761,7 +773,11 @@
     "diff": {
       "add_comment": "Add a comment on this line",
       "comment_placeholder": "Leave an inline comment...",
-      "submit_comment": "Submit comment"
+      "submit_comment": "Submit comment",
+      "expand_all": "Expand all",
+      "collapse_all": "Collapse all",
+      "toggle_file": "Toggle file diff",
+      "jump_to_file": "Jump to changed file"
     },
     "suggestion": {
       "propose": "Propose this as a code suggestion",
@@ -949,6 +965,8 @@
   },
   "settings": {
     "title": "Settings",
+    "nav_label": "Repository settings navigation",
+    "user_nav_label": "Account settings navigation",
     "general": "General",
     "labels": "Labels",
     "ci_secrets": {
@@ -1311,6 +1329,8 @@
   },
   "admin": {
     "title": "Admin Panel",
+    "overview": "Overview",
+    "nav_label": "Admin navigation",
     "subtitle": "Site administration and user management",
     "back": "Back to Admin",
     "users": {
@@ -1820,7 +1840,17 @@
       "title": "Task",
       "not_found": "Task not found",
       "details": "Details",
-      "details_note": "Every value here was written by a client and is shown as plain text."
+      "details_note": "Every value here was written by a client and is shown as plain text.",
+      "open_questions_banner": "{count} open question(s) waiting for review",
+      "jump_to_discussions": "Review questions",
+      "tabs": {
+        "label": "Task sections",
+        "overview": "Overview",
+        "discussions": "Questions & Decisions",
+        "relations": "Deps & Overlaps",
+        "activity": "Handoffs & Log",
+        "ops": "Budget & Diagnostics"
+      }
     },
     "task_status": {
       "open": "open",

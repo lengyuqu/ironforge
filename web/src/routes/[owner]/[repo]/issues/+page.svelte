@@ -2,7 +2,6 @@
   import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { issues, type IssueConfig, type IssueTemplate } from '$lib/api/client.svelte';
   import type { Issue } from '$lib/types/entities';
 import IssueFilterTabs from '$lib/components/issues/IssueFilterTabs.svelte';
@@ -144,59 +143,55 @@ import { createT } from '$lib/i18n';
   <title>{t('issues.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="issues" starsCount={0} />
-
-  <div class="gh-toolbar issues-toolbar">
-    <IssueFilterTabs
-      filter={filterState}
-      onFilterChange={(next) => {
-        filterState = next;
-        loadIssues();
-      }}
-      milestones={milestoneList}
-      milestoneFilter={milestoneFilter}
-      onMilestoneChange={(next) => {
-        milestoneFilter = next;
-        loadIssues();
-      }}
-    />
-    <button class="btn-primary" onclick={openCreate}>
-      {t('issues.new')}
-    </button>
-  </div>
-
-  {#if showChooser}
-    <IssueTemplateChooser
-      templates={issueTemplates}
-      config={templateConfig}
-      warning={configWarning}
-      onChoose={chooseTemplate}
-      onClose={() => (showChooser = false)}
-    />
-  {/if}
-
-  {#if showCreate}
-    {#key draftKey}
-      <IssueCreateForm
-        {owner}
-        {repo}
-        initialTitle={draftTitle}
-        initialBody={draftBody}
-        initialLabels={draftLabels}
-        initialAssignees={draftAssignees}
-        onCreated={handleCreated}
-        onCancel={handleFormCancel}
-      />
-    {/key}
-  {/if}
-
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  <IssueList {owner} {repo} issues={issueList} {loading} filter={filterState} />
+<div class="gh-toolbar issues-toolbar">
+  <IssueFilterTabs
+    filter={filterState}
+    onFilterChange={(next) => {
+      filterState = next;
+      loadIssues();
+    }}
+    milestones={milestoneList}
+    milestoneFilter={milestoneFilter}
+    onMilestoneChange={(next) => {
+      milestoneFilter = next;
+      loadIssues();
+    }}
+  />
+  <button class="btn-primary" onclick={openCreate}>
+    {t('issues.new')}
+  </button>
 </div>
+
+{#if showChooser}
+  <IssueTemplateChooser
+    templates={issueTemplates}
+    config={templateConfig}
+    warning={configWarning}
+    onChoose={chooseTemplate}
+    onClose={() => (showChooser = false)}
+  />
+{/if}
+
+{#if showCreate}
+  {#key draftKey}
+    <IssueCreateForm
+      {owner}
+      {repo}
+      initialTitle={draftTitle}
+      initialBody={draftBody}
+      initialLabels={draftLabels}
+      initialAssignees={draftAssignees}
+      onCreated={handleCreated}
+      onCancel={handleFormCancel}
+    />
+  {/key}
+{/if}
+
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
+
+<IssueList {owner} {repo} issues={issueList} {loading} filter={filterState} />
 
 <style>
   .issues-toolbar {

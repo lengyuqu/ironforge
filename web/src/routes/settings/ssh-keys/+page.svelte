@@ -94,7 +94,7 @@
   <title>{t('ssh_keys.title')} · IronForge</title>
 </svelte:head>
 
-<div class="page-container ssh-keys-page">
+<div class="ssh-keys-page">
   <header class="page-header">
     <h1>{t('ssh_keys.title')}</h1>
     <p>{t('ssh_keys.description')}</p>

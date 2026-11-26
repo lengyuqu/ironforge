@@ -84,39 +84,40 @@
   }
 </script>
 
-<div class="container">
-  <div class="header">
-    <a href="/admin" class="back">← {t('admin.back')}</a>
-    <h1>{t('admin.audit.title')}</h1>
-    <p class="meta">{total} {t('admin.audit.total')}</p>
-  </div>
+<svelte:head>
+  <title>{t('admin.audit.title')} · {t('admin.title')} · IronForge</title>
+</svelte:head>
 
-  <AuditFilters
-    bind:actionFilter
-    bind:resourceFilter
-    onApply={applyFilter}
-    onClear={clearFilters}
-  />
-
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  {#if loading}
-    <LoadingState />
-  {:else if logs.length === 0}
-    <EmptyState title={t('admin.audit.empty')} />
-  {:else}
-    <AuditLogTable
-      {logs}
-      {page}
-      {totalPages}
-      onOpenDetail={openDetail}
-      onPrevPage={prevPage}
-      onNextPage={nextPage}
-    />
-  {/if}
+<div class="header">
+  <h1>{t('admin.audit.title')}</h1>
+  <p class="meta">{total} {t('admin.audit.total')}</p>
 </div>
+
+<AuditFilters
+  bind:actionFilter
+  bind:resourceFilter
+  onApply={applyFilter}
+  onClear={clearFilters}
+/>
+
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
+
+{#if loading}
+  <LoadingState />
+{:else if logs.length === 0}
+  <EmptyState title={t('admin.audit.empty')} />
+{:else}
+  <AuditLogTable
+    {logs}
+    {page}
+    {totalPages}
+    onOpenDetail={openDetail}
+    onPrevPage={prevPage}
+    onNextPage={nextPage}
+  />
+{/if}
 
 {#if selectedLog}
   <AuditDetailModal log={selectedLog} onClose={closeDetail} />
@@ -124,9 +125,7 @@
 
 <style>
   .header { margin-bottom: 1rem; }
-  .back { color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; }
-  .back:hover { color: var(--accent); text-decoration: none; }
-  h1 { margin: 0.5rem 0 0; }
+  h1 { margin: 0 0 0.25rem; }
   .meta { color: var(--text-secondary); margin: 0; }
 
 </style>

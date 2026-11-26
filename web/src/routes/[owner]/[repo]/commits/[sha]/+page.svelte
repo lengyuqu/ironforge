@@ -5,7 +5,6 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import { repos } from '$lib/api/client.svelte';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
   import type { CombinedCommitStatus, CommitStatus, RepoCommitEntry } from '$lib/types/entities';
@@ -88,21 +87,21 @@
   }
 </script>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="commits" />
+<svelte:head>
+  <title>{sha.slice(0, 7)} · {owner}/{repo} · IronForge</title>
+</svelte:head>
 
-  <div class="commit-status-page">
-    {#if loading}
-      <LoadingState />
-    {:else if error}
-      <ErrorBanner message={error}>
-        <button class="btn btn-sm" onclick={() => loadData()}>{t('common.retry')}</button>
-      </ErrorBanner>
-    {:else if commitInfo}
-      <CommitInfoCard commit={commitInfo} gpgSignature={gpgSignature} />
-      <StatusChecksPanel combined={combinedStatus} {statuses} />
-    {/if}
-  </div>
+<div class="commit-status-page">
+  {#if loading}
+    <LoadingState />
+  {:else if error}
+    <ErrorBanner message={error}>
+      <button class="btn btn-sm" onclick={() => loadData()}>{t('common.retry')}</button>
+    </ErrorBanner>
+  {:else if commitInfo}
+    <CommitInfoCard commit={commitInfo} gpgSignature={gpgSignature} />
+    <StatusChecksPanel combined={combinedStatus} {statuses} />
+  {/if}
 </div>
 
 <style>

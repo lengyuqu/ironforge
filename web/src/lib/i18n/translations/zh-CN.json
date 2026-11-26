@@ -42,7 +42,17 @@
     "previous_page": "上一页",
     "next_page": "下一页",
     "range_of": "第 {start}-{end} 条,共 {total} 条",
-    "no_items": "暂无数据"
+    "no_items": "暂无数据",
+    "skip_to_content": "跳至主要内容"
+  },
+  "shortcuts": {
+    "title": "键盘快捷键",
+    "focus_search": "聚焦全局搜索",
+    "toggle_help": "显示键盘快捷键",
+    "go_dashboard": "前往仪表板",
+    "go_explore": "前往探索",
+    "go_notifications": "前往通知",
+    "go_search": "前往搜索"
   },
   "nav": {
     "dashboard": "仪表板",
@@ -131,8 +141,8 @@
     "delete_failed": "删除 SSH 密钥失败"
   },
   "home": {
-    "tagline": "轻量级自托管 Git 服务",
-    "description": "IronForge 是用 Rust 构建的轻量级 Git 托管平台，作为 Gitea 的现代替代品。单二进制部署，内存高效，功能完整。",
+    "tagline": "面向 AI Agent 编程的 Rust Git 托管平台",
+    "description": "单二进制部署的全功能 Git 托管平台（仓库、Issue、PR、Wiki、CI/CD、包注册表），内置 Agent 主体身份、MCP 工具与多 Agent 协作原语。",
     "sign_up": "注册",
     "sign_in": "登录",
     "cta": {
@@ -150,7 +160,7 @@
       "cicd_desc": "内置流水线引擎",
       "lightweight": {
         "title": "轻量级",
-        "desc": "内存占用 <50MB，最小化资源消耗"
+        "desc": "Rust 单二进制部署，紧凑高效、资源占用可控"
       },
       "all_in_one": {
         "title": "一站式",
@@ -169,13 +179,14 @@
         "desc": "用 Rust 构建，性能卓越"
       },
       "extensible": {
-        "title": "可扩展",
-        "desc": "MCP 服务器支持，AI Agent 集成"
+        "title": "Agent 原生",
+        "desc": "内置 MCP 服务器、Agent 主体身份与多 Agent 协作"
       }
     },
     "stats": {
       "memory": "内存占用",
       "binary": "单二进制",
+      "mcp": "原生 AI 协议",
       "compatible": "Git 兼容",
       "language": "构建语言"
     },
@@ -356,7 +367,8 @@
       "commits": "提交",
       "commits_empty": "暂无提交。",
       "settings": "设置",
-      "runners": "Runner"
+      "runners": "Runner",
+      "nav_label": "仓库导航"
     },
     "private": "私有",
     "star": "收藏",
@@ -761,7 +773,11 @@
     "diff": {
       "add_comment": "在此行添加评论",
       "comment_placeholder": "留下行级评论...",
-      "submit_comment": "提交评论"
+      "submit_comment": "提交评论",
+      "expand_all": "全部展开",
+      "collapse_all": "全部折叠",
+      "toggle_file": "展开或折叠文件差异",
+      "jump_to_file": "跳转到变更文件"
     },
     "suggestion": {
       "propose": "将此评论作为代码建议",
@@ -949,6 +965,8 @@
   },
   "settings": {
     "title": "设置",
+    "nav_label": "仓库设置导航",
+    "user_nav_label": "账号设置导航",
     "general": "常规",
     "labels": "标签",
     "ci_secrets": {
@@ -1311,6 +1329,8 @@
   },
   "admin": {
     "title": "管理面板",
+    "overview": "概览",
+    "nav_label": "管理后台导航",
     "subtitle": "站点管理和用户管理",
     "back": "返回管理",
     "users": {
@@ -1820,7 +1840,17 @@
       "title": "任务",
       "not_found": "未找到该任务",
       "details": "详情",
-      "details_note": "此处所有值均由客户端写入，以纯文本显示。"
+      "details_note": "此处所有值均由客户端写入，以纯文本显示。",
+      "open_questions_banner": "有 {count} 个待答复问题需要确认",
+      "jump_to_discussions": "前往查看",
+      "tabs": {
+        "label": "任务分栏",
+        "overview": "概览与完成度",
+        "discussions": "问答与决策",
+        "relations": "依赖与冲突",
+        "activity": "交接与消息",
+        "ops": "预算与诊断"
+      }
     },
     "task_status": {
       "open": "待处理",

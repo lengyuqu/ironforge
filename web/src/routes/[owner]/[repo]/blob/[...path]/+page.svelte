@@ -6,7 +6,6 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
@@ -83,61 +82,57 @@
   <title>{filePath} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="code" />
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
 
-  {#if error}
-    <ErrorBanner message={error} />
+{#if loading}
+  <LoadingState />
+{:else if blobData}
+  <BlobBreadcrumb {owner} {repo} {ref} {filePath} />
+
+  <BlobFileHeader
+    {owner}
+    {repo}
+    {ref}
+    {filePath}
+    {isText}
+    {isMarkdown}
+    {lineCount}
+    size={blobData.size}
+    {canEdit}
+    {viewMode}
+    sha={blobData.sha}
+    blameActive={blameMode}
+    onToggleBlame={toggleBlame}
+    onToggleView={() => (viewMode = viewMode === 'rendered' ? 'source' : 'rendered')}
+    onToggleDelete={() => (deleteOpen = !deleteOpen)}
+  />
+
+  {#if blobData.is_binary}
+    <div class="warning-banner">{t('repo.blob.binary_file')}</div>
+  {:else if blobData.size > MAX_EDITABLE_SIZE}
+    <div class="warning-banner">{t('repo.blob.large_file')}</div>
   {/if}
 
-  {#if loading}
-    <LoadingState />
-  {:else if blobData}
-    <BlobBreadcrumb {owner} {repo} {ref} {filePath} />
-
-    <BlobFileHeader
+  {#if deleteOpen && blobData.sha}
+    <BlobDeletePanel
       {owner}
       {repo}
       {ref}
       {filePath}
-      {isText}
-      {isMarkdown}
-      {lineCount}
-      size={blobData.size}
-      {canEdit}
-      {viewMode}
       sha={blobData.sha}
-      blameActive={blameMode}
-      onToggleBlame={toggleBlame}
-      onToggleView={() => (viewMode = viewMode === 'rendered' ? 'source' : 'rendered')}
-      onToggleDelete={() => (deleteOpen = !deleteOpen)}
+      onClose={() => (deleteOpen = false)}
+      onDeleted={handleDeleted}
     />
-
-    {#if blobData.is_binary}
-      <div class="warning-banner">{t('repo.blob.binary_file')}</div>
-    {:else if blobData.size > MAX_EDITABLE_SIZE}
-      <div class="warning-banner">{t('repo.blob.large_file')}</div>
-    {/if}
-
-    {#if deleteOpen && blobData.sha}
-      <BlobDeletePanel
-        {owner}
-        {repo}
-        {ref}
-        {filePath}
-        sha={blobData.sha}
-        onClose={() => (deleteOpen = false)}
-        onDeleted={handleDeleted}
-      />
-    {/if}
-
-    {#if blameMode && isText}
-      <BlobBlameView {owner} {repo} {ref} {filePath} />
-    {:else}
-      <BlobContentView blob={blobData} {filePath} {isText} {isMarkdown} {viewMode} />
-    {/if}
   {/if}
-</div>
+
+  {#if blameMode && isText}
+    <BlobBlameView {owner} {repo} {ref} {filePath} />
+  {:else}
+    <BlobContentView blob={blobData} {filePath} {isText} {isMarkdown} {viewMode} />
+  {/if}
+{/if}
 
 <style>
   .warning-banner {

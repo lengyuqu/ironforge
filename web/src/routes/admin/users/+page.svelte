@@ -50,31 +50,32 @@
   }
 </script>
 
-<div class="container">
-  <div class="header">
-    <a href="/admin" class="back">← {t('admin.back')}</a>
-    <h1>{t('admin.users.title')}</h1>
-    <p class="meta">{total} {t('admin.users.total')}</p>
-  </div>
+<svelte:head>
+  <title>{t('admin.users.title')} · {t('admin.title')} · IronForge</title>
+</svelte:head>
 
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  {#if loading}
-    <LoadingState />
-  {:else}
-    <AdminUserTable
-      users={users}
-      page={page}
-      totalPages={totalPages}
-      onPageChange={handlePageChange}
-      onEdit={(u) => (editTarget = u)}
-      onDelete={(u) => (deleteTarget = u)}
-      onRefresh={loadUsers}
-    />
-  {/if}
+<div class="header">
+  <h1>{t('admin.users.title')}</h1>
+  <p class="meta">{total} {t('admin.users.total')}</p>
 </div>
+
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
+
+{#if loading}
+  <LoadingState />
+{:else}
+  <AdminUserTable
+    users={users}
+    page={page}
+    totalPages={totalPages}
+    onPageChange={handlePageChange}
+    onEdit={(u) => (editTarget = u)}
+    onDelete={(u) => (deleteTarget = u)}
+    onRefresh={loadUsers}
+  />
+{/if}
 
 {#if editTarget}
   <UserEditModal
@@ -94,8 +95,6 @@
 
 <style>
   .header { margin-bottom: 1.5rem; }
-  .back { color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; }
-  .back:hover { color: var(--accent); text-decoration: none; }
-  h1 { margin: 0.5rem 0 0; }
+  h1 { margin: 0 0 0.25rem; }
   .meta { color: var(--text-secondary); margin: 0; }
 </style>

@@ -23,7 +23,7 @@
     font-size: 13px;
     font-weight: 500;
     border-bottom: 1px solid;
-    z-index: 50;
+    z-index: var(--z-banner);
   }
   .info { background: rgba(46, 164, 255, 0.15); color: #6db7ff; border-bottom-color: color-mix(in srgb, var(--accent) 40%, transparent); }
   .warning { background: rgba(255, 211, 88, 0.12); color: #f2cc60; border-bottom-color: color-mix(in srgb, var(--yellow) 50%, transparent); }

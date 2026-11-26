@@ -203,12 +203,12 @@
   .modal-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 10000;
+    z-index: var(--z-modal);
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: rgba(0, 0, 0, 0.6);
+    background: var(--overlay);
     animation: fade-in 0.15s ease-out;
   }
 
@@ -216,7 +216,7 @@
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-lg);
     width: min(480px, 100%);
     max-height: min(80vh, 100%);
     display: flex;

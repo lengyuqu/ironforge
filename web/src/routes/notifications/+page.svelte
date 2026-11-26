@@ -77,6 +77,10 @@
   });
 </script>
 
+<svelte:head>
+  <title>{t('notifications.title')} · IronForge</title>
+</svelte:head>
+
 <div class="container">
   <div class="header">
     <h1>{t('notifications.title')} {unreadCount > 0 ? `(${unreadCount})` : ''}</h1>

@@ -1,78 +1,41 @@
 <script lang="ts">
-  import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
-  import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
+  import Icon, { type IconName } from '$lib/components/Icon.svelte';
 
   const t = createT();
 
-  $effect(() => {
-    if (!isAuthReady()) return;
-    if (!isLoggedIn()) {
-      goto('/login');
-      return;
-    }
-    if (!isAdmin()) {
-      goto('/dashboard');
-    }
-  });
+  const cards: Array<{ href: string; icon: IconName; titleKey: string; descKey: string }> = [
+    { href: '/admin/users', icon: 'users', titleKey: 'admin.users.title', descKey: 'admin.users.desc' },
+    { href: '/admin/orgs', icon: 'building', titleKey: 'admin.orgs.title', descKey: 'admin.orgs.desc' },
+    { href: '/admin/audit', icon: 'clipboard', titleKey: 'admin.audit.title', descKey: 'admin.audit.desc' },
+    { href: '/admin/runners', icon: 'cpu', titleKey: 'admin.runners.title', descKey: 'admin.runners.desc' },
+    { href: '/admin/settings', icon: 'settings', titleKey: 'admin.settings.title', descKey: 'admin.settings.desc' },
+  ];
 </script>
 
-<div class="container">
-  <div class="header">
-    <h1>{t('admin.title')}</h1>
-    <p class="subtitle">{t('admin.subtitle')}</p>
-  </div>
+<svelte:head>
+  <title>{t('admin.title')} · IronForge</title>
+</svelte:head>
 
-  <div class="cards">
-    <a href="/admin/users" class="card">
-      <div class="card-icon">👥</div>
-      <div class="card-body">
-        <h2>{t('admin.users.title')}</h2>
-        <p>{t('admin.users.desc')}</p>
-      </div>
-      <div class="card-arrow">→</div>
-    </a>
+<div class="header">
+  <h1>{t('admin.title')}</h1>
+  <p class="subtitle">{t('admin.subtitle')}</p>
+</div>
 
-    <a href="/admin/orgs" class="card">
-      <div class="card-icon">🏢</div>
+<div class="cards">
+  {#each cards as card (card.href)}
+    <a href={card.href} class="card">
+      <div class="card-icon"><Icon name={card.icon} size={24} /></div>
       <div class="card-body">
-        <h2>{t('admin.orgs.title')}</h2>
-        <p>{t('admin.orgs.desc')}</p>
+        <h2>{t(card.titleKey)}</h2>
+        <p>{t(card.descKey)}</p>
       </div>
-      <div class="card-arrow">→</div>
+      <div class="card-arrow" aria-hidden="true">→</div>
     </a>
-
-    <a href="/admin/audit" class="card">
-      <div class="card-icon">📋</div>
-      <div class="card-body">
-        <h2>{t('admin.audit.title')}</h2>
-        <p>{t('admin.audit.desc')}</p>
-      </div>
-      <div class="card-arrow">→</div>
-    </a>
-
-    <a href="/admin/runners" class="card">
-      <div class="card-icon">▶</div>
-      <div class="card-body">
-        <h2>{t('admin.runners.title')}</h2>
-        <p>{t('admin.runners.desc')}</p>
-      </div>
-      <div class="card-arrow">→</div>
-    </a>
-
-    <a href="/admin/settings" class="card">
-      <div class="card-icon">⚙️</div>
-      <div class="card-body">
-        <h2>{t('admin.settings.title')}</h2>
-        <p>{t('admin.settings.desc')}</p>
-      </div>
-      <div class="card-arrow">→</div>
-    </a>
-  </div>
+  {/each}
 </div>
 
 <style>
-
   .header {
     margin-bottom: 2rem;
   }
@@ -113,8 +76,14 @@
   }
 
   .card-icon {
-    font-size: 2rem;
-    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-lg);
+    background: var(--bg-tertiary);
+    color: var(--accent);
     flex-shrink: 0;
   }
 

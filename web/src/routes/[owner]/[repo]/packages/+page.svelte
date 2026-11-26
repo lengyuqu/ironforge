@@ -3,7 +3,6 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { packages, type PackageSummaryResponse } from '$lib/api/client.svelte';
   import PackageList from '$lib/components/packages/PackageList.svelte';
   import { createT } from '$lib/i18n';
@@ -66,53 +65,49 @@
   <title>{t('repo.tabs.packages')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader owner={owner!} repo={repo!} activeTab="packages" />
-
-  <div class="page-header">
-    <h1>{t('repo.tabs.packages')}</h1>
-    <a href={`/${owner}/${repo}/packages/upload`} class="btn-primary">{t('packages.upload')}</a>
-  </div>
-
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  <div class="filters">
-    <div class="filter-group">
-      <label for="format-filter">{t('packages.format')}:</label>
-      <select id="format-filter" bind:value={formatFilter} onchange={handleFormatChange}>
-        <option value="">{t('common.all') || 'All'}</option>
-        {#each PACKAGE_FORMATS as f (f)}
-          <option value={f}>{packageFormatOptionLabel(f)}</option>
-        {/each}
-      </select>
-    </div>
-
-    <div class="search-group">
-      <input
-        type="text"
-        placeholder={t('common.search') || 'Search...'}
-        bind:value={searchQuery}
-        onkeydown={(e) => e.key === 'Enter' && handleSearch()}
-      />
-      <button class="btn-secondary" onclick={handleSearch}>{t('common.search') || 'Search'}</button>
-    </div>
-  </div>
-
-  {#if loading}
-    <LoadingState />
-  {:else}
-    <PackageList
-      owner={owner!}
-      repo={repo!}
-      packages={packageList}
-      currentPage={currentPage}
-      totalPages={totalPages}
-      onPageChange={handlePageChange}
-    />
-  {/if}
+<div class="page-header">
+  <h1>{t('repo.tabs.packages')}</h1>
+  <a href={`/${owner}/${repo}/packages/upload`} class="btn-primary">{t('packages.upload')}</a>
 </div>
+
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
+
+<div class="filters">
+  <div class="filter-group">
+    <label for="format-filter">{t('packages.format')}:</label>
+    <select id="format-filter" bind:value={formatFilter} onchange={handleFormatChange}>
+      <option value="">{t('common.all') || 'All'}</option>
+      {#each PACKAGE_FORMATS as f (f)}
+        <option value={f}>{packageFormatOptionLabel(f)}</option>
+      {/each}
+    </select>
+  </div>
+
+  <div class="search-group">
+    <input
+      type="text"
+      placeholder={t('common.search') || 'Search...'}
+      bind:value={searchQuery}
+      onkeydown={(e) => e.key === 'Enter' && handleSearch()}
+    />
+    <button class="btn-secondary" onclick={handleSearch}>{t('common.search') || 'Search'}</button>
+  </div>
+</div>
+
+{#if loading}
+  <LoadingState />
+{:else}
+  <PackageList
+    owner={owner!}
+    repo={repo!}
+    packages={packageList}
+    currentPage={currentPage}
+    totalPages={totalPages}
+    onPageChange={handlePageChange}
+  />
+{/if}
 
 <style>
 

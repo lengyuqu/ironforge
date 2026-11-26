@@ -5,10 +5,12 @@
   --bg-hover: #30363d;
   --border: #30363d;
   --border-light: #21262d;
+  --border-subtle: #21262d;
   --text-primary: #e6edf3;
   --text-secondary: #8b949e;
   --text-muted: #6e7681;
   --accent: #58a6ff;
+  --accent-rgb: 88, 166, 255;
   --accent-hover: #79c0ff;
   --green: #3fb950;
   --green-dim: #238636;
@@ -27,6 +29,12 @@
   --overlay: rgba(0, 0, 0, 0.6);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.4);
+  --z-banner: 50;
+  --z-nav: 100;
+  --z-dropdown: 200;
+  --z-popover: 300;
+  --z-modal: 1000;
+  --z-toast: 1100;
   --focus-ring: 0 0 0 3px var(--accent-subtle);
   --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
@@ -560,6 +568,35 @@ select[aria-invalid='true']:focus {
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .w-full { width: 100%; }
 
+/* Skip link & reduced motion */
+.skip-link {
+  position: fixed;
+  left: -9999px;
+  top: 8px;
+  z-index: var(--z-toast);
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus-visible {
+  left: 12px;
+  outline: 2px solid var(--text-on-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Shared layout styles */
 .page-container {
   max-width: var(--layout-max);
@@ -595,26 +632,26 @@ main > .search-page,
 main > .container,
 main > .login-page,
 main > .reset-page {
-  max-width: var(--layout-max) !important;
-  margin: 0 auto !important;
-  padding: var(--layout-block-padding) var(--layout-gutter) !important;
+  max-width: var(--layout-max);
+  margin: 0 auto;
+  padding: var(--layout-block-padding) var(--layout-gutter);
   width: 100%;
 }
 
 main > .page-container-narrow {
-  max-width: var(--layout-narrow-max) !important;
+  max-width: var(--layout-narrow-max);
 }
 
 main > .search-page {
-  padding-top: 8px !important;
+  padding-top: 8px;
 }
 
 main > .login-page,
 main > .reset-page {
   display: flex;
   min-height: calc(100vh - 62px);
-  align-items: center !important;
-  justify-content: center !important;
+  align-items: center;
+  justify-content: center;
 }
 
 @media (max-width: 900px) {
@@ -634,7 +671,7 @@ main > .reset-page {
   main > .container,
   main > .login-page,
   main > .reset-page {
-    padding: 20px 16px !important;
+    padding: 20px 16px;
   }
 }
 

@@ -12,7 +12,6 @@
   //  * `version` only exists for people who can write to the anchor repository;
   //    readers get no write controls.
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import CollabNav from '$lib/components/collaboration/CollabNav.svelte';
   import SectionCard from '$lib/components/collaboration/SectionCard.svelte';
   import StatusBadge from '$lib/components/collaboration/StatusBadge.svelte';
@@ -157,116 +156,113 @@
   <title>{group?.title ?? t('collab_groups.detail.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="collaboration" />
-  <CollabNav {owner} {repo} current="groups" />
+<CollabNav {owner} {repo} current="groups" />
 
-  <p class="back"><a href={`/${owner}/${repo}/collaboration/groups`}>← {t('collab_groups.detail.back')}</a></p>
+<p class="back"><a href={`/${owner}/${repo}/collaboration/groups`}>← {t('collab_groups.detail.back')}</a></p>
 
-  {#if loading && !group}
-    <LoadingSpinner />
-  {:else if denied}
-    <EmptyState icon="🔒" title={t('collab.access_denied')} description={t('collab.access_denied_hint')} />
-  {:else if notFound}
-    <EmptyState title={t('collab_groups.detail.not_found')} description={t('collab_groups.detail.not_found_hint')} />
-  {:else if group}
-    <div class="page-header"><h1 class="text" data-testid="group-title">{group.title}</h1></div>
-    <p class="muted">
-      {t('collab_groups.detail.created', {
-        who: `${group.created_by_kind} ${shortId(group.created_by_id)}`,
-        time: formatTime(group.created_at),
-      })}
-      · {t('collab_groups.detail.declared')}
-    </p>
-    {#if group.description}
-      <p class="desc text" data-testid="group-description">{group.description}</p>
-    {:else}
-      <p class="muted">{t('collab_groups.detail.no_description')}</p>
-    {/if}
-    <p class="warn">{t('collab_groups.sharing_warning')}</p>
-    {#if version !== undefined}
-      <p class="muted" data-testid="group-version">{t('collab_groups.detail.version', { version })}</p>
-    {:else}
-      <p class="muted" data-testid="read-only-note">{t('collab_groups.detail.read_only')}</p>
-    {/if}
-
-    {#if notice}<p class="notice" role="status" data-testid="conflict-notice">{notice}</p>{/if}
-    {#if error}<ErrorBanner message={error} />{/if}
-
-    <SectionCard title={t('collab_groups.links.title')} note={t('collab_groups.links.note')}>
-      {#if links.length === 0}
-        <p class="muted" data-testid="links-empty">{t('collab_groups.links.empty')}</p>
-      {:else}
-        <ul class="list" data-testid="links-list">
-          {#each links as link (link.id)}
-            <li data-testid="group-link">
-              <div class="row">
-                <a class="text mono" href={repoHref(link)}>{link.target_repo.owner}/{link.target_repo.name}</a>
-                {#if version !== undefined}
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    disabled={removing !== null}
-                    onclick={() => removeLink(link)}
-                  >{t('collab_groups.links.remove')}</Button>
-                {/if}
-              </div>
-              {#if link.task}
-                <div class="row sub">
-                  <span class="muted">{t('collab_groups.links.task')}</span>
-                  <a class="text" href={taskHref(link)}>{link.task.title}</a>
-                  <StatusBadge
-                    value={link.task.status}
-                    prefix="collab.task_status"
-                    known={KNOWN.taskStatus}
-                    good={['done']}
-                    warn={['waiting', 'blocked']}
-                    title={t('collab.declared_hint')}
-                  />
-                </div>
-              {/if}
-              {#if link.commit}
-                <div class="row sub">
-                  <span class="muted">{t('collab_groups.links.commit')}</span>
-                  <code class="mono">{shortId(link.commit.sha)}</code>
-                  <StatusBadge
-                    value={link.commit.commit_state}
-                    prefix="collab_groups.commit_state"
-                    known={['available', 'unavailable']}
-                    good={['available']}
-                    warn={['unavailable']}
-                  />
-                </div>
-              {/if}
-              <p class="muted">
-                {t('collab_groups.links.added', {
-                  who: `${link.created_by_kind} ${shortId(link.created_by_id)}`,
-                  time: formatTime(link.created_at),
-                })}
-              </p>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-      {#if nextCursor}
-        <div class="more">
-          <Button disabled={moreLoading} onclick={loadMore}>
-            {moreLoading ? t('common.loading') : t('collab_groups.links.load_more')}
-          </Button>
-        </div>
-      {/if}
-      {#if asOf}<p class="muted" data-testid="links-as-of">{t('collab_groups.links.as_of', { time: formatTime(asOf) })}</p>{/if}
-    </SectionCard>
-
-    {#if version !== undefined}
-      <SectionCard title={t('collab_groups.add.title')} note={t('collab_groups.add.note')}>
-        <GroupAddLinkForm {owner} {repo} {groupId} {version} onChanged={load} />
-      </SectionCard>
-    {/if}
-  {:else if error}
-    <ErrorBanner message={error} />
+{#if loading && !group}
+  <LoadingSpinner />
+{:else if denied}
+  <EmptyState icon="🔒" title={t('collab.access_denied')} description={t('collab.access_denied_hint')} />
+{:else if notFound}
+  <EmptyState title={t('collab_groups.detail.not_found')} description={t('collab_groups.detail.not_found_hint')} />
+{:else if group}
+  <div class="page-header"><h1 class="text" data-testid="group-title">{group.title}</h1></div>
+  <p class="muted">
+    {t('collab_groups.detail.created', {
+      who: `${group.created_by_kind} ${shortId(group.created_by_id)}`,
+      time: formatTime(group.created_at),
+    })}
+    · {t('collab_groups.detail.declared')}
+  </p>
+  {#if group.description}
+    <p class="desc text" data-testid="group-description">{group.description}</p>
+  {:else}
+    <p class="muted">{t('collab_groups.detail.no_description')}</p>
   {/if}
-</div>
+  <p class="warn">{t('collab_groups.sharing_warning')}</p>
+  {#if version !== undefined}
+    <p class="muted" data-testid="group-version">{t('collab_groups.detail.version', { version })}</p>
+  {:else}
+    <p class="muted" data-testid="read-only-note">{t('collab_groups.detail.read_only')}</p>
+  {/if}
+
+  {#if notice}<p class="notice" role="status" data-testid="conflict-notice">{notice}</p>{/if}
+  {#if error}<ErrorBanner message={error} />{/if}
+
+  <SectionCard title={t('collab_groups.links.title')} note={t('collab_groups.links.note')}>
+    {#if links.length === 0}
+      <p class="muted" data-testid="links-empty">{t('collab_groups.links.empty')}</p>
+    {:else}
+      <ul class="list" data-testid="links-list">
+        {#each links as link (link.id)}
+          <li data-testid="group-link">
+            <div class="row">
+              <a class="text mono" href={repoHref(link)}>{link.target_repo.owner}/{link.target_repo.name}</a>
+              {#if version !== undefined}
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={removing !== null}
+                  onclick={() => removeLink(link)}
+                >{t('collab_groups.links.remove')}</Button>
+              {/if}
+            </div>
+            {#if link.task}
+              <div class="row sub">
+                <span class="muted">{t('collab_groups.links.task')}</span>
+                <a class="text" href={taskHref(link)}>{link.task.title}</a>
+                <StatusBadge
+                  value={link.task.status}
+                  prefix="collab.task_status"
+                  known={KNOWN.taskStatus}
+                  good={['done']}
+                  warn={['waiting', 'blocked']}
+                  title={t('collab.declared_hint')}
+                />
+              </div>
+            {/if}
+            {#if link.commit}
+              <div class="row sub">
+                <span class="muted">{t('collab_groups.links.commit')}</span>
+                <code class="mono">{shortId(link.commit.sha)}</code>
+                <StatusBadge
+                  value={link.commit.commit_state}
+                  prefix="collab_groups.commit_state"
+                  known={['available', 'unavailable']}
+                  good={['available']}
+                  warn={['unavailable']}
+                />
+              </div>
+            {/if}
+            <p class="muted">
+              {t('collab_groups.links.added', {
+                who: `${link.created_by_kind} ${shortId(link.created_by_id)}`,
+                time: formatTime(link.created_at),
+              })}
+            </p>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+    {#if nextCursor}
+      <div class="more">
+        <Button disabled={moreLoading} onclick={loadMore}>
+          {moreLoading ? t('common.loading') : t('collab_groups.links.load_more')}
+        </Button>
+      </div>
+    {/if}
+    {#if asOf}<p class="muted" data-testid="links-as-of">{t('collab_groups.links.as_of', { time: formatTime(asOf) })}</p>{/if}
+  </SectionCard>
+
+  {#if version !== undefined}
+    <SectionCard title={t('collab_groups.add.title')} note={t('collab_groups.add.note')}>
+      <GroupAddLinkForm {owner} {repo} {groupId} {version} onChanged={load} />
+    </SectionCard>
+  {/if}
+{:else if error}
+  <ErrorBanner message={error} />
+{/if}
 
 <style>
   .back { margin: 0 0 8px; font-size: 13px; }

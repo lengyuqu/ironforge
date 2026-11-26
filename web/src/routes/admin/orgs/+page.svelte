@@ -75,66 +75,67 @@
 
 </script>
 
-<div class="container">
-  <div class="header">
-    <a href="/admin" class="back">← {t('admin.back')}</a>
-    <h1>{t('admin.orgs.title')}</h1>
-    <p class="meta">{total} {t('admin.orgs.total')}</p>
+<svelte:head>
+  <title>{t('admin.orgs.title')} · {t('admin.title')} · IronForge</title>
+</svelte:head>
+
+<div class="header">
+  <h1>{t('admin.orgs.title')}</h1>
+  <p class="meta">{total} {t('admin.orgs.total')}</p>
+</div>
+
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
+
+{#if loading}
+  <LoadingState />
+{:else if orgs.length === 0}
+  <EmptyState title={t('orgs.no_repos')} />
+{:else}
+  <div class="table-wrap">
+    <table class="orgs-table">
+      <thead>
+        <tr>
+          <th>{t('admin.orgs.col.name')}</th>
+          <th>{t('admin.users.display_name')}</th>
+          <th>{t('admin.orgs.col.visibility')}</th>
+          <th>{t('admin.orgs.col.owner_id')}</th>
+          <th>{t('admin.orgs.col.created')}</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {#each orgs as org}
+          <tr>
+            <td class="name">
+              <a href={`/orgs/${org.name}`}>{org.name}</a>
+            </td>
+            <td class="display-name">{org.display_name || '—'}</td>
+            <td>
+              <span class="badge" class:private={org.visibility === 'private'}>
+                {org.visibility}
+              </span>
+            </td>
+            <td class="owner">#{org.owner_id}</td>
+            <td class="date">{formatDate(org.created_at)}</td>
+            <td class="actions">
+              <button class="btn-danger" onclick={() => confirmDelete(org)}>{t('common.delete')}</button>
+            </td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
   </div>
 
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  {#if loading}
-    <LoadingState />
-  {:else if orgs.length === 0}
-    <EmptyState title={t('orgs.no_repos')} />
-  {:else}
-    <div class="table-wrap">
-      <table class="orgs-table">
-        <thead>
-          <tr>
-            <th>{t('admin.orgs.col.name')}</th>
-            <th>{t('admin.users.display_name')}</th>
-            <th>{t('admin.orgs.col.visibility')}</th>
-            <th>{t('admin.orgs.col.owner_id')}</th>
-            <th>{t('admin.orgs.col.created')}</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each orgs as org}
-            <tr>
-              <td class="name">
-                <a href={`/orgs/${org.name}`}>{org.name}</a>
-              </td>
-              <td class="display-name">{org.display_name || '—'}</td>
-              <td>
-                <span class="badge" class:private={org.visibility === 'private'}>
-                  {org.visibility}
-                </span>
-              </td>
-              <td class="owner">#{org.owner_id}</td>
-              <td class="date">{formatDate(org.created_at)}</td>
-              <td class="actions">
-                <button class="btn-danger" onclick={() => confirmDelete(org)}>{t('common.delete')}</button>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+  {#if totalPages > 1}
+    <div class="pagination">
+      <button onclick={prevPage} disabled={page <= 1}>← {t('common.previous')}</button>
+      <span>{t('common.page_of', { page, total: totalPages })}</span>
+      <button onclick={nextPage} disabled={page >= totalPages}>{t('common.next')} →</button>
     </div>
-
-    {#if totalPages > 1}
-      <div class="pagination">
-        <button onclick={prevPage} disabled={page <= 1}>← {t('common.previous')}</button>
-        <span>{t('common.page_of', { page, total: totalPages })}</span>
-        <button onclick={nextPage} disabled={page >= totalPages}>{t('common.next')} →</button>
-      </div>
-    {/if}
   {/if}
-</div>
+{/if}
 
 <!-- Delete confirm -->
   {#if showDeleteConfirm && deleteTarget}
@@ -156,9 +157,7 @@
 
 <style>
   .header { margin-bottom: 1.5rem; }
-  .back { color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; }
-  .back:hover { color: var(--accent); text-decoration: none; }
-  h1 { margin: 0.5rem 0 0; }
+  h1 { margin: 0 0 0.25rem; }
   .meta { color: var(--text-secondary); margin: 0; }
 
   .table-wrap { overflow-x: auto; }

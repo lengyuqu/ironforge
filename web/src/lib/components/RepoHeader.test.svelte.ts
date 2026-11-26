@@ -82,11 +82,11 @@ describe('RepoHeader.svelte', () => {
     render(RepoHeader, { owner: 'alice', repo: 'demo' });
 
     const starBtn = screen.getByLabelText('repo.login_to_star');
-    expect(document.querySelector('.star-icon')?.textContent).toBe('☆');
+    expect(document.querySelector('.star-icon')?.getAttribute('data-starred')).toBe('false');
 
     await fireEvent.click(starBtn);
     expect(reposStar).not.toHaveBeenCalled();
-    expect(document.querySelector('.star-icon')?.textContent).toBe('☆');
+    expect(document.querySelector('.star-icon')?.getAttribute('data-starred')).toBe('false');
   });
 
   it('toggles the clone modal open state from the Code button', async () => {

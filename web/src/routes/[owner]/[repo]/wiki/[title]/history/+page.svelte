@@ -5,7 +5,6 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { wiki } from '$lib/api/client.svelte';
   import type { WikiRevision } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
@@ -49,7 +48,9 @@
   }
 </script>
 
-<RepoHeader {owner} {repo} activeTab="wiki" />
+<svelte:head>
+  <title>{t('wiki.history')} · {title} · {owner}/{repo} · IronForge</title>
+</svelte:head>
 
 <div class="content">
   <div class="header">

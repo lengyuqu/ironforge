@@ -2,7 +2,6 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import AttachmentPanel from '$lib/components/AttachmentPanel.svelte';
   import { issues, type ReactionSummary } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
@@ -88,66 +87,62 @@
   <title>{issue?.title || `${t('issues.title')} #${number}`} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="issues" starsCount={0} />
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
 
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
+{#if loading}
+  <LoadingState />
+{:else if issue}
+  <div class="issue-detail">
+    <IssueHeader {issue} />
 
-  {#if loading}
-    <LoadingState />
-  {:else if issue}
-    <div class="issue-detail">
-      <IssueHeader {issue} />
+    <AssigneesPanel {owner} {repo} issueNumber={number} />
 
-      <AssigneesPanel {owner} {repo} issueNumber={number} />
+    <IssueMilestonePanel
+      {owner}
+      {repo}
+      issueNumber={number}
+      milestoneId={issue.milestone_id}
+      onChanged={loadIssue}
+    />
 
-      <IssueMilestonePanel
-        {owner}
-        {repo}
-        issueNumber={number}
-        milestoneId={issue.milestone_id}
-        onChanged={loadIssue}
+    {#if issue.body}
+      <CommentCard
+        author={issue.author}
+        createdAt={issue.created_at}
+        body={issue.body}
+        reactions={issueReactions}
+        onToggleReaction={toggleIssueReaction}
       />
+    {/if}
 
-      {#if issue.body}
-        <CommentCard
-          author={issue.author}
-          createdAt={issue.created_at}
-          body={issue.body}
-          reactions={issueReactions}
-          onToggleReaction={toggleIssueReaction}
-        />
-      {/if}
+    <AttachmentPanel {owner} {repo} target="issues" targetId={number} />
 
-      <AttachmentPanel {owner} {repo} target="issues" targetId={number} />
+    {#each commentList as comment (comment.id)}
+      <CommentCard
+        author={comment.author}
+        createdAt={comment.created_at}
+        body={comment.body}
+        reactions={commentReactions[comment.id] || []}
+        onToggleReaction={(content) => toggleCommentReaction(comment.id, content)}
+      >
+        {#snippet children()}
+          <AttachmentPanel {owner} {repo} target="issues/comments" targetId={comment.id} />
+        {/snippet}
+      </CommentCard>
+    {/each}
 
-      {#each commentList as comment (comment.id)}
-        <CommentCard
-          author={comment.author}
-          createdAt={comment.created_at}
-          body={comment.body}
-          reactions={commentReactions[comment.id] || []}
-          onToggleReaction={(content) => toggleCommentReaction(comment.id, content)}
-        >
-          {#snippet children()}
-            <AttachmentPanel {owner} {repo} target="issues/comments" targetId={comment.id} />
-          {/snippet}
-        </CommentCard>
-      {/each}
-
-      <IssueCommentForm
-        {owner}
-        {repo}
-        issueNumber={number}
-        issueState={issue.state}
-        onError={(message) => (error = message)}
-        onChanged={loadIssue}
-      />
-    </div>
-  {/if}
-</div>
+    <IssueCommentForm
+      {owner}
+      {repo}
+      issueNumber={number}
+      issueState={issue.state}
+      onError={(message) => (error = message)}
+      onChanged={loadIssue}
+    />
+  </div>
+{/if}
 
 <style>
   .issue-detail { max-width: 800px; }

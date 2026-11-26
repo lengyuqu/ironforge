@@ -61,6 +61,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{t('settings.labels')} · {owner}/{repo} · IronForge</title>
+</svelte:head>
+
 <div class="labels-page">
   <div class="page-header">
     <h1>{t('settings.labels')}</h1>

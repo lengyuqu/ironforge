@@ -1,15 +1,22 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { getUser, isLoggedIn, isAdmin, logout } from '$lib/stores/auth.svelte';
   import { locale, createT, type Locale } from '$lib/i18n';
   import Dropdown from './Dropdown.svelte';
   import BrandMark from './BrandMark.svelte';
+  import Icon from './Icon.svelte';
   import { getUnreadCount, refreshUnreadCount } from '$lib/stores/unread.svelte';
 
   const t = createT();
 
   let search = $state('');
   let unread = $derived(getUnreadCount());
+  let pathname = $derived($page?.url?.pathname || '');
+
+  function isActive(prefix: string): boolean {
+    return pathname === prefix || pathname.startsWith(`${prefix}/`);
+  }
 
   // Keep the unread badge fresh while signed in; the page also refreshes it.
   $effect(() => {
@@ -57,15 +64,13 @@
         <span class="logo-text">IronForge</span>
       </a>
 
-      <a href="/dashboard" class="nav-link">{t('nav.dashboard')}</a>
-      <a href="/explore" class="nav-link">{t('nav.explore')}</a>
-      <a href="/search" class="nav-link">{t('nav.search')}</a>
+      <a href="/dashboard" class="nav-link" class:active={isActive('/dashboard')} aria-current={isActive('/dashboard') ? 'page' : undefined}>{t('nav.dashboard')}</a>
+      <a href="/explore" class="nav-link" class:active={isActive('/explore')} aria-current={isActive('/explore') ? 'page' : undefined}>{t('nav.explore')}</a>
+      <a href="/search" class="nav-link" class:active={isActive('/search')} aria-current={isActive('/search') ? 'page' : undefined}>{t('nav.search')}</a>
     </div>
 
     <div class="navbar-search">
-      <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
-        <path d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm-.82 4.74a6 6 0 1 1 1.06-1.06l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04Z"/>
-      </svg>
+      <Icon name="search" size={15} />
       <input
         type="search"
         class="search-input"
@@ -84,6 +89,8 @@
         <a
           href="/notifications"
           class="nav-link"
+          class:active={isActive('/notifications')}
+          aria-current={isActive('/notifications') ? 'page' : undefined}
           aria-label={unread > 0
             ? `${t('nav.notifications')} (${t('nav.unread_count', { count: unread })})`
             : undefined}
@@ -91,21 +98,23 @@
           {t('nav.notifications')}
           {#if unread > 0}<span class="unread-badge" data-testid="unread-badge">{unread > 99 ? '99+' : unread}</span>{/if}
         </a>
-        <a href="/orgs" class="nav-link">{t('nav.organizations')}</a>
-        <a href="/imports" class="nav-link">{t('nav.imports', 'Imports')}</a>
+        <a href="/orgs" class="nav-link" class:active={isActive('/orgs')} aria-current={isActive('/orgs') ? 'page' : undefined}>{t('nav.organizations')}</a>
+        <a href="/imports" class="nav-link" class:active={isActive('/imports')} aria-current={isActive('/imports') ? 'page' : undefined}>{t('nav.imports', 'Imports')}</a>
+      {/if}
 
-        <div class="lang-menu-container">
-          <Dropdown ariaLabel={t('nav.change_language', 'Change language')} triggerClass="lang-btn">
-            {#snippet trigger()}
-              {locale.value === 'zh-CN' ? t('nav.chinese', '中文') : t('nav.english', 'EN')}
-            {/snippet}
-            {#snippet menu(close)}
-              <button onclick={() => { setLocale('en'); close(); }} class:active={locale.value === 'en'} role="menuitem">{t('nav.english', 'English')}</button>
-              <button onclick={() => { setLocale('zh-CN'); close(); }} class:active={locale.value === 'zh-CN'} role="menuitem">{t('nav.chinese', '中文')}</button>
-            {/snippet}
-          </Dropdown>
-        </div>
+      <div class="lang-menu-container">
+        <Dropdown ariaLabel={t('nav.change_language', 'Change language')} triggerClass="lang-btn">
+          {#snippet trigger()}
+            {locale.value === 'zh-CN' ? t('nav.chinese', '中文') : t('nav.english', 'EN')}
+          {/snippet}
+          {#snippet menu(close)}
+            <button onclick={() => { setLocale('en'); close(); }} class:active={locale.value === 'en'} role="menuitem">{t('nav.english', 'English')}</button>
+            <button onclick={() => { setLocale('zh-CN'); close(); }} class:active={locale.value === 'zh-CN'} role="menuitem">{t('nav.chinese', '中文')}</button>
+          {/snippet}
+        </Dropdown>
+      </div>
 
+      {#if isLoggedIn()}
         <div class="user-menu-container">
           <Dropdown ariaLabel="User menu" triggerClass="user-btn">
             {#snippet trigger()}
@@ -145,7 +154,7 @@
   .navbar {
     position: sticky;
     top: 0;
-    z-index: 100;
+    z-index: var(--z-nav);
     background: color-mix(in srgb, var(--bg-secondary) 92%, transparent 8%);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--border);
@@ -226,6 +235,12 @@
     color: var(--text-primary);
     background: var(--bg-hover);
     text-decoration: none;
+  }
+
+  .nav-link.active {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    font-weight: 600;
   }
 
   .navbar-search {

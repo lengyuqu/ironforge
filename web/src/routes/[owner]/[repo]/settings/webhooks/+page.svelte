@@ -33,6 +33,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{t('settings.webhooks.title', 'Webhooks')} · {owner}/{repo} · IronForge</title>
+</svelte:head>
+
 <div class="webhooks-page">
   <div class="page-header">
     <div>

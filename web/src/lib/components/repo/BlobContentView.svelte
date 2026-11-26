@@ -1,8 +1,10 @@
 <script lang="ts">
   // Blob content view — renders the file body: markdown (rendered/source),
-  // code with line numbers + highlight.js, binary or empty placeholders.
+  // code with line numbers + selective highlight.js, binary or empty placeholders.
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { createT } from '$lib/i18n';
+  import { languageFromPath } from '$lib/utils/editorFile';
+  import { highlightCodeToLines } from '$lib/utils/highlight';
   import { renderMarkdown } from '$lib/utils/markdown';
   import type { BlobContent } from '$lib/types/entities';
 
@@ -26,41 +28,30 @@
     isMarkdown && isText && blob?.content ? renderMarkdown(blob.content) : ''
   );
 
-  const langClass = $derived.by(() => {
-    const ext = filePath.split('.').pop()?.toLowerCase();
-    const map: Record<string, string> = {
-      c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp',
-      rs: 'rust', go: 'go', py: 'python', js: 'javascript', ts: 'typescript',
-      jsx: 'javascript', tsx: 'typescript', java: 'java', rb: 'ruby',
-      php: 'php', swift: 'swift', kt: 'kotlin', dart: 'dart',
-      html: 'html', css: 'css', scss: 'scss', json: 'json', xml: 'xml',
-      yaml: 'yaml', yml: 'yaml', toml: 'ini', md: 'markdown',
-      sh: 'bash', bash: 'bash', zsh: 'bash', sql: 'sql',
-      dockerfile: 'dockerfile', makefile: 'makefile'
-    };
-    return map[ext || ''] || '';
-  });
+  const lang = $derived(languageFromPath(filePath));
+  let highlightedLines = $state<string[] | null>(null);
+  let highlightRequestId = 0;
 
   $effect(() => {
-    if (blob && (!isMarkdown || viewMode === 'source')) {
-      setTimeout(highlightCode, 0);
-    }
-  });
+    const content = blob?.content;
+    const activeLang = lang;
+    const shouldHighlight = Boolean(
+      blob && isText && !blob.is_binary && content && (!isMarkdown || viewMode === 'source')
+    );
 
-  function highlightCode() {
-    try {
-      import('highlight.js')
-        .then((hljs) => {
-          const blocks = document.querySelectorAll('.code-view code.hljs-code');
-          blocks.forEach((block) => {
-            hljs.default.highlightElement(block as HTMLElement);
-          });
-        })
-        .catch(() => {});
-    } catch {
-      // Optional highlighting should never block file viewing.
+    if (!shouldHighlight || !content) {
+      highlightedLines = null;
+      return;
     }
-  }
+
+    const reqId = ++highlightRequestId;
+    highlightedLines = null;
+    highlightCodeToLines(content, activeLang).then((lines) => {
+      if (reqId === highlightRequestId) {
+        highlightedLines = lines;
+      }
+    });
+  });
 </script>
 
 <div class="file-content">
@@ -74,11 +65,11 @@
     <div class="code-view">
       <table class="code-table">
         <tbody>
-          {#each contentLines as line (line.num)}
+          {#each contentLines as line, index (line.num)}
             <tr>
               <td class="line-number">{line.num}</td>
               <td class="line-content">
-                <code class="hljs-code {langClass}">{line.text || ' '}</code>
+                <code class="hljs hljs-code {lang ? `language-${lang}` : ''}">{#if highlightedLines && highlightedLines[index] !== undefined}{@html highlightedLines[index] || ' '}{:else}{line.text || ' '}{/if}</code>
               </td>
             </tr>
           {/each}
@@ -128,7 +119,7 @@
   .line-content {
     padding: 0 16px;
     white-space: pre;
-    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-family: var(--font-mono);
   }
 
   .hljs-code {
@@ -168,10 +159,5 @@
     display: block;
     padding: 12px;
     overflow: auto;
-  }
-
-  .empty-state {
-    padding: 24px;
-    color: var(--text-muted);
   }
 </style>

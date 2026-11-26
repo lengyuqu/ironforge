@@ -36,13 +36,22 @@ const LANGUAGE_BY_EXTENSION: Record<string, string> = {
   zsh: 'bash',
   sql: 'sql',
   dockerfile: 'dockerfile',
+  makefile: 'makefile',
   md: 'markdown',
   markdown: 'markdown',
 };
 
+const LANGUAGE_BY_BASENAME: Record<string, string> = {
+  dockerfile: 'dockerfile',
+  makefile: 'makefile',
+  gnumakefile: 'makefile',
+};
+
 /** highlight.js language for a path, or '' when the extension is unknown. */
 export function languageFromPath(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase() || '';
+  const filename = path.split('/').pop()?.toLowerCase() || '';
+  if (LANGUAGE_BY_BASENAME[filename]) return LANGUAGE_BY_BASENAME[filename];
+  const ext = filename.includes('.') ? filename.split('.').pop() || '' : '';
   return LANGUAGE_BY_EXTENSION[ext] || '';
 }
 

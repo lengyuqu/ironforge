@@ -9,7 +9,6 @@
   //    change is recorded by the platform. Both are labelled.
   //  * There is deliberately no ranking and no per-session / per-agent view.
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import CollabNav from '$lib/components/collaboration/CollabNav.svelte';
   import SectionCard from '$lib/components/collaboration/SectionCard.svelte';
   import StatusBadge from '$lib/components/collaboration/StatusBadge.svelte';
@@ -138,161 +137,158 @@
   <title>{t('collab_health.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="collaboration" />
-  <CollabNav {owner} {repo} current="health" />
+<CollabNav {owner} {repo} current="health" />
 
-  <div class="page-header"><h1>{t('collab_health.title')}</h1></div>
-  <p class="intro">{t('collab_health.intro')}</p>
+<div class="page-header"><h1>{t('collab_health.title')}</h1></div>
+<p class="intro">{t('collab_health.intro')}</p>
 
-  {#if adminsOnly}
-    <EmptyState icon="🔒" title={t('collab_health.admins_only')} description={t('collab_health.admins_only_hint')} />
-  {:else if signedOut}
-    <EmptyState icon="🔒" title={t('collab_health.signed_out')} description={t('collab_health.signed_out_hint')} />
-  {:else}
-    <div class="toolbar">
-      <label class="filter">
-        <span>{t('collab_health.window.label')}</span>
-        <select value={days} onchange={(e) => (days = Number(e.currentTarget.value))} data-testid="window-select">
-          {#each WINDOW_DAYS as d}
-            <option value={d}>{t('collab_health.window.days', { days: d })}</option>
-          {/each}
-        </select>
-      </label>
-    </div>
-    {#if error}<ErrorBanner message={error} />{/if}
+{#if adminsOnly}
+  <EmptyState icon="🔒" title={t('collab_health.admins_only')} description={t('collab_health.admins_only_hint')} />
+{:else if signedOut}
+  <EmptyState icon="🔒" title={t('collab_health.signed_out')} description={t('collab_health.signed_out_hint')} />
+{:else}
+  <div class="toolbar">
+    <label class="filter">
+      <span>{t('collab_health.window.label')}</span>
+      <select value={days} onchange={(e) => (days = Number(e.currentTarget.value))} data-testid="window-select">
+        {#each WINDOW_DAYS as d}
+          <option value={d}>{t('collab_health.window.days', { days: d })}</option>
+        {/each}
+      </select>
+    </label>
+  </div>
+  {#if error}<ErrorBanner message={error} />{/if}
 
-    <SectionCard
-      title={t('collab_health.coverage.title')}
-      note={t('collab_health.coverage.note')}
-      {loading}
-    >
-      {#if health}
-        <dl class="facts" data-testid="coverage">
-          <dt>{t('collab_health.coverage.range')}</dt>
-          <dd>{formatTime(health.range.from)} → {formatTime(health.range.to)} ({health.range.timezone}, {health.range.interval})</dd>
-          <dt>{t('collab_health.coverage.start')}</dt>
-          <dd>
-            {#if health.coverage_start}{formatTime(health.coverage_start)}{:else}<em>{t('collab_health.coverage.none')}</em>{/if}
-          </dd>
-          <dt>{t('collab_health.coverage.baseline')}</dt>
-          <dd>
-            {#if health.baseline.taken_at}{formatTime(health.baseline.taken_at)}{:else}<em>{t('collab_health.coverage.baseline_none')}</em>{/if}
-          </dd>
-          <dt>{t('collab_health.coverage.computed')}</dt>
-          <dd>{formatTime(health.computed_at)} · {t('collab_health.coverage.version', { version: health.metric_version })}</dd>
-        </dl>
-        {#if health.partial}
-          <p class="banner" role="status" data-testid="partial-banner">{t('collab_health.coverage.partial_banner')}</p>
-        {/if}
-      {/if}
-    </SectionCard>
-
+  <SectionCard
+    title={t('collab_health.coverage.title')}
+    note={t('collab_health.coverage.note')}
+    {loading}
+  >
     {#if health}
-      <SectionCard title={t('collab_health.metrics.title')} note={t('collab_health.metrics.note')}>
-        <div class="grid">
-          {#each health.metrics as metric (metric.id)}
-            <article class="metric" data-testid="metric" data-metric={metric.id}>
-              <h3>{label('collab_health.metric', metric.id, KNOWN_HEALTH.metric)}</h3>
-              <div class="chips">
-                <StatusBadge
-                  value={metric.status}
-                  prefix="collab_health.status"
-                  known={KNOWN_HEALTH.status}
-                  good={['complete']}
-                  warn={['partial', 'unknown']}
-                />
-                <StatusBadge
-                  value={metric.source}
-                  prefix="collab_health.source"
-                  known={KNOWN_HEALTH.source}
-                  title={t('collab_health.source_hint')}
-                />
-              </div>
-              {#if metric.status === 'unknown' || !metric.value}
-                <p class="unknown" data-testid="metric-unknown">
-                  {t('collab_health.unknown')}
-                  {#if metric.reason}
-                    — {label('collab_health.reason', metric.reason, KNOWN_HEALTH.reason)}
-                  {/if}
-                </p>
-              {:else}
-                {#if metric.status === 'partial'}<p class="muted">{t('collab_health.lower_bound')}</p>{/if}
-                <dl class="values">
-                  {#each valueRows(metric.value) as row (row.key)}
-                    <dt>{rowLabel(row.key)}</dt>
-                    <dd data-testid="value-{row.key}">{renderRow(metric, row)}</dd>
-                  {/each}
-                </dl>
-              {/if}
-              {#each metric.notes as note}<p class="muted">{noteText(note)}</p>{/each}
-              {#if metric.drill_down.length > 0}
-                <div class="drills">
-                  {#each metric.drill_down as d (d.metric)}
-                    <Button size="sm" onclick={() => (drillMetric = d.metric)}>
-                      {label('collab_health.drill_metric', d.metric, KNOWN_HEALTH.drill)}
-                    </Button>
-                  {/each}
-                </div>
-              {/if}
-            </article>
-          {/each}
-        </div>
-        <p class="muted">{t('collab_health.no_ranking')}</p>
-      </SectionCard>
-
-      {#if drillMetric}
-        <SectionCard
-          title={t('collab_health.drill.title', { metric: label('collab_health.drill_metric', drillMetric, KNOWN_HEALTH.drill) })}
-          note={t('collab_health.drill.note')}
-        >
-          {#key drillMetric + health.computed_at}
-            <HealthDrill {owner} {repo} metric={drillMetric} from={health.range.from} to={health.range.to} />
-          {/key}
-          <div class="more"><Button size="sm" variant="ghost" onclick={() => (drillMetric = null)}>{t('collab_health.drill.close')}</Button></div>
-        </SectionCard>
-      {/if}
-
-      {#if qualityRows.length > 0}
-        <SectionCard title={t('collab_health.quality.title')} note={t('collab_health.quality.note')}>
-          <dl class="values" data-testid="data-quality">
-            {#each qualityRows as [key, n] (key)}
-              <dt>{label('collab_health.quality', key, KNOWN_HEALTH.quality)}</dt>
-              <dd>{n}</dd>
-            {/each}
-          </dl>
-        </SectionCard>
+      <dl class="facts" data-testid="coverage">
+        <dt>{t('collab_health.coverage.range')}</dt>
+        <dd>{formatTime(health.range.from)} → {formatTime(health.range.to)} ({health.range.timezone}, {health.range.interval})</dd>
+        <dt>{t('collab_health.coverage.start')}</dt>
+        <dd>
+          {#if health.coverage_start}{formatTime(health.coverage_start)}{:else}<em>{t('collab_health.coverage.none')}</em>{/if}
+        </dd>
+        <dt>{t('collab_health.coverage.baseline')}</dt>
+        <dd>
+          {#if health.baseline.taken_at}{formatTime(health.baseline.taken_at)}{:else}<em>{t('collab_health.coverage.baseline_none')}</em>{/if}
+        </dd>
+        <dt>{t('collab_health.coverage.computed')}</dt>
+        <dd>{formatTime(health.computed_at)} · {t('collab_health.coverage.version', { version: health.metric_version })}</dd>
+      </dl>
+      {#if health.partial}
+        <p class="banner" role="status" data-testid="partial-banner">{t('collab_health.coverage.partial_banner')}</p>
       {/if}
     {/if}
+  </SectionCard>
 
-    <SectionCard title={t('collab_health.baseline.title')} note={t('collab_health.baseline.note')}>
-      <p class="text">{t('collab_health.baseline.explain')}</p>
-      {#if health?.baseline.taken_at}
-        <p class="muted" data-testid="baseline-taken">
-          {t('collab_health.baseline.already', { time: formatTime(health.baseline.taken_at) })}
-        </p>
-      {/if}
-      {#if baselineError}<ErrorBanner message={baselineError} />{/if}
-      <Button variant="danger" disabled={baselineBusy || loading} onclick={takeBaseline}>
-        {baselineBusy ? t('common.loading') : t('collab_health.baseline.button')}
-      </Button>
-      {#if baselineReport}
-        <div class="report" data-testid="baseline-report" role="status">
-          <p>{t('collab_health.baseline.done', { time: formatTime(baselineReport.observed_at) })}</p>
-          <p class="muted">
-            {t('collab_health.baseline.added', {
-              tasks: baselineReport.added.tasks,
-              handoffs: baselineReport.added.handoffs,
-              questions: baselineReport.added.questions,
-            })}
-            {#if baselineReport.existed_before}· {t('collab_health.baseline.existed')}{/if}
-          </p>
-          <p class="muted">{noteText(baselineReport.note)}</p>
-        </div>
-      {/if}
+  {#if health}
+    <SectionCard title={t('collab_health.metrics.title')} note={t('collab_health.metrics.note')}>
+      <div class="grid">
+        {#each health.metrics as metric (metric.id)}
+          <article class="metric" data-testid="metric" data-metric={metric.id}>
+            <h3>{label('collab_health.metric', metric.id, KNOWN_HEALTH.metric)}</h3>
+            <div class="chips">
+              <StatusBadge
+                value={metric.status}
+                prefix="collab_health.status"
+                known={KNOWN_HEALTH.status}
+                good={['complete']}
+                warn={['partial', 'unknown']}
+              />
+              <StatusBadge
+                value={metric.source}
+                prefix="collab_health.source"
+                known={KNOWN_HEALTH.source}
+                title={t('collab_health.source_hint')}
+              />
+            </div>
+            {#if metric.status === 'unknown' || !metric.value}
+              <p class="unknown" data-testid="metric-unknown">
+                {t('collab_health.unknown')}
+                {#if metric.reason}
+                  — {label('collab_health.reason', metric.reason, KNOWN_HEALTH.reason)}
+                {/if}
+              </p>
+            {:else}
+              {#if metric.status === 'partial'}<p class="muted">{t('collab_health.lower_bound')}</p>{/if}
+              <dl class="values">
+                {#each valueRows(metric.value) as row (row.key)}
+                  <dt>{rowLabel(row.key)}</dt>
+                  <dd data-testid="value-{row.key}">{renderRow(metric, row)}</dd>
+                {/each}
+              </dl>
+            {/if}
+            {#each metric.notes as note}<p class="muted">{noteText(note)}</p>{/each}
+            {#if metric.drill_down.length > 0}
+              <div class="drills">
+                {#each metric.drill_down as d (d.metric)}
+                  <Button size="sm" onclick={() => (drillMetric = d.metric)}>
+                    {label('collab_health.drill_metric', d.metric, KNOWN_HEALTH.drill)}
+                  </Button>
+                {/each}
+              </div>
+            {/if}
+          </article>
+        {/each}
+      </div>
+      <p class="muted">{t('collab_health.no_ranking')}</p>
     </SectionCard>
+
+    {#if drillMetric}
+      <SectionCard
+        title={t('collab_health.drill.title', { metric: label('collab_health.drill_metric', drillMetric, KNOWN_HEALTH.drill) })}
+        note={t('collab_health.drill.note')}
+      >
+        {#key drillMetric + health.computed_at}
+          <HealthDrill {owner} {repo} metric={drillMetric} from={health.range.from} to={health.range.to} />
+        {/key}
+        <div class="more"><Button size="sm" variant="ghost" onclick={() => (drillMetric = null)}>{t('collab_health.drill.close')}</Button></div>
+      </SectionCard>
+    {/if}
+
+    {#if qualityRows.length > 0}
+      <SectionCard title={t('collab_health.quality.title')} note={t('collab_health.quality.note')}>
+        <dl class="values" data-testid="data-quality">
+          {#each qualityRows as [key, n] (key)}
+            <dt>{label('collab_health.quality', key, KNOWN_HEALTH.quality)}</dt>
+            <dd>{n}</dd>
+          {/each}
+        </dl>
+      </SectionCard>
+    {/if}
   {/if}
-</div>
+
+  <SectionCard title={t('collab_health.baseline.title')} note={t('collab_health.baseline.note')}>
+    <p class="text">{t('collab_health.baseline.explain')}</p>
+    {#if health?.baseline.taken_at}
+      <p class="muted" data-testid="baseline-taken">
+        {t('collab_health.baseline.already', { time: formatTime(health.baseline.taken_at) })}
+      </p>
+    {/if}
+    {#if baselineError}<ErrorBanner message={baselineError} />{/if}
+    <Button variant="danger" disabled={baselineBusy || loading} onclick={takeBaseline}>
+      {baselineBusy ? t('common.loading') : t('collab_health.baseline.button')}
+    </Button>
+    {#if baselineReport}
+      <div class="report" data-testid="baseline-report" role="status">
+        <p>{t('collab_health.baseline.done', { time: formatTime(baselineReport.observed_at) })}</p>
+        <p class="muted">
+          {t('collab_health.baseline.added', {
+            tasks: baselineReport.added.tasks,
+            handoffs: baselineReport.added.handoffs,
+            questions: baselineReport.added.questions,
+          })}
+          {#if baselineReport.existed_before}· {t('collab_health.baseline.existed')}{/if}
+        </p>
+        <p class="muted">{noteText(baselineReport.note)}</p>
+      </div>
+    {/if}
+  </SectionCard>
+{/if}
 
 <style>
   .intro { margin: -8px 0 20px; color: var(--text-secondary); font-size: 13px; max-width: 80ch; }

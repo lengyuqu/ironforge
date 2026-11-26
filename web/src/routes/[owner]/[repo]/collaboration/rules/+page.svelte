@@ -6,7 +6,6 @@
   // The page lists paths and blob ids as plain text and links to the normal file
   // viewer; it never fetches or renders file content itself.
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
@@ -73,112 +72,109 @@
   <title>{t('collab_ops.rules.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="collaboration" />
-  <CollabNav {owner} {repo} current="rules" />
+<CollabNav {owner} {repo} current="rules" />
 
-  <div class="page-header">
-    <h1>{t('collab_ops.rules.title')}</h1>
-  </div>
-  <p class="intro">{t('collab_ops.rules.intro')}</p>
-
-  {#if accessDenied}
-    <EmptyState icon="🔒" title={t('collab.access_denied')} description={t('collab.access_denied_hint')} />
-  {:else}
-    <div class="notice" role="note" data-testid="rules-content-notice">
-      <strong>{t('collab_ops.rules.content_title')}</strong>
-      {t('collab_ops.rules.content_body')}
-    </div>
-
-    <section class="card surface">
-      <form class="bar" onsubmit={submit}>
-        <label class="f">
-          <span>{t('collab_ops.rules.ref_label')}</span>
-          <input type="text" bind:value={refInput} placeholder="HEAD" data-testid="rules-ref" />
-        </label>
-        <label class="f">
-          <span>{t('collab_ops.rules.path_label')}</span>
-          <input type="text" bind:value={pathInput} placeholder={t('collab_ops.rules.path_placeholder')} data-testid="rules-path" />
-        </label>
-        <Button type="submit" variant="primary" disabled={loading}>{t('collab_ops.rules.show')}</Button>
-      </form>
-
-      {#if error}<ErrorBanner message={error} />{/if}
-      {#if notFound}
-        <p class="problem" role="alert" data-testid="rules-ref-not-found">{t('collab_ops.rules.ref_not_found')}</p>
-      {/if}
-
-      {#if loading}
-        <LoadingSpinner />
-      {:else if result}
-        <dl class="meta" data-testid="rules-meta">
-          <dt>{t('collab_ops.rules.requested_ref')}</dt>
-          <dd class="mono text">{result.requested_ref}</dd>
-          <dt>{t('collab_ops.rules.resolved_commit')}</dt>
-          <dd class="mono text">
-            {#if result.resolved_commit}
-              <span title={result.resolved_commit}>{result.resolved_commit}</span>
-            {:else}
-              <span class="muted">{t('collab_ops.rules.no_commits')}</span>
-            {/if}
-          </dd>
-          <dt>{t('collab_ops.rules.governed_path')}</dt>
-          <dd class="mono text">{result.path === '' ? t('collab_ops.rules.root') : result.path}</dd>
-          <dt>{t('collab_ops.rules.discovery')}</dt>
-          <dd>v{result.discovery_version}</dd>
-          <dt>{t('collab_ops.rules.manifest')}</dt>
-          <dd data-testid="rules-manifest">
-            {#if result.manifest.status === 'absent'}
-              {t('collab_ops.rules.manifest_absent')}
-            {:else if result.manifest.status === 'valid'}
-              {t('collab_ops.rules.manifest_valid')}
-            {:else if result.manifest.status === 'invalid'}
-              <span class="bad">{t('collab_ops.rules.manifest_invalid')}</span>
-              {#if result.manifest.error}<span class="text err-detail">{result.manifest.error}</span>{/if}
-              <span class="muted">{t('collab_ops.rules.manifest_invalid_note')}</span>
-            {:else}
-              <span class="text">{result.manifest.status}</span>
-            {/if}
-          </dd>
-        </dl>
-
-        {#if result.entries.length === 0}
-          <EmptyState title={t('collab_ops.rules.none')} description={t('collab_ops.rules.none_hint')} />
-        {:else}
-          <p class="muted">{t('collab_ops.rules.order_note')}</p>
-          <ol class="list" data-testid="rules-entries">
-            {#each result.entries as entry (entry.path)}
-              <li>
-                <div class="row">
-                  <span class="mono text path">{entry.path}</span>
-                  <a href={viewerHref(entry.path, result.resolved_commit)}>{t('collab_ops.rules.open_file')}</a>
-                </div>
-                <div class="sub">
-                  <span>{t('collab_ops.rules.applies_to')}: <span class="mono text">{entry.applies_to === '' ? t('collab_ops.rules.root') : entry.applies_to}</span></span>
-                  <span>{t('collab_ops.rules.found_by')}: {sourceLabel(entry.source)}</span>
-                  <span>{sizeText(entry.size)}</span>
-                  <span title={entry.blob_sha}>blob <span class="mono">{shortId(entry.blob_sha)}</span></span>
-                  {#if entry.oversize}<span class="bad">{t('collab_ops.rules.oversize')}</span>{/if}
-                  <span class="muted">{t('collab_ops.rules.repo_content')}</span>
-                </div>
-              </li>
-            {/each}
-          </ol>
-        {/if}
-
-        {#if result.skipped.length > 0}
-          <h2 class="subh">{t('collab_ops.rules.skipped')}</h2>
-          <ul class="list" data-testid="rules-skipped">
-            {#each result.skipped as s (s.path)}
-              <li><span class="mono text">{s.path}</span> <span class="muted">— {reasonLabel(s.reason)}</span></li>
-            {/each}
-          </ul>
-        {/if}
-        {#if result.truncated}<p class="muted">{t('collab_ops.rules.truncated')}</p>{/if}
-      {/if}
-    </section>
-  {/if}
+<div class="page-header">
+  <h1>{t('collab_ops.rules.title')}</h1>
 </div>
+<p class="intro">{t('collab_ops.rules.intro')}</p>
+
+{#if accessDenied}
+  <EmptyState icon="🔒" title={t('collab.access_denied')} description={t('collab.access_denied_hint')} />
+{:else}
+  <div class="notice" role="note" data-testid="rules-content-notice">
+    <strong>{t('collab_ops.rules.content_title')}</strong>
+    {t('collab_ops.rules.content_body')}
+  </div>
+
+  <section class="card surface">
+    <form class="bar" onsubmit={submit}>
+      <label class="f">
+        <span>{t('collab_ops.rules.ref_label')}</span>
+        <input type="text" bind:value={refInput} placeholder="HEAD" data-testid="rules-ref" />
+      </label>
+      <label class="f">
+        <span>{t('collab_ops.rules.path_label')}</span>
+        <input type="text" bind:value={pathInput} placeholder={t('collab_ops.rules.path_placeholder')} data-testid="rules-path" />
+      </label>
+      <Button type="submit" variant="primary" disabled={loading}>{t('collab_ops.rules.show')}</Button>
+    </form>
+
+    {#if error}<ErrorBanner message={error} />{/if}
+    {#if notFound}
+      <p class="problem" role="alert" data-testid="rules-ref-not-found">{t('collab_ops.rules.ref_not_found')}</p>
+    {/if}
+
+    {#if loading}
+      <LoadingSpinner />
+    {:else if result}
+      <dl class="meta" data-testid="rules-meta">
+        <dt>{t('collab_ops.rules.requested_ref')}</dt>
+        <dd class="mono text">{result.requested_ref}</dd>
+        <dt>{t('collab_ops.rules.resolved_commit')}</dt>
+        <dd class="mono text">
+          {#if result.resolved_commit}
+            <span title={result.resolved_commit}>{result.resolved_commit}</span>
+          {:else}
+            <span class="muted">{t('collab_ops.rules.no_commits')}</span>
+          {/if}
+        </dd>
+        <dt>{t('collab_ops.rules.governed_path')}</dt>
+        <dd class="mono text">{result.path === '' ? t('collab_ops.rules.root') : result.path}</dd>
+        <dt>{t('collab_ops.rules.discovery')}</dt>
+        <dd>v{result.discovery_version}</dd>
+        <dt>{t('collab_ops.rules.manifest')}</dt>
+        <dd data-testid="rules-manifest">
+          {#if result.manifest.status === 'absent'}
+            {t('collab_ops.rules.manifest_absent')}
+          {:else if result.manifest.status === 'valid'}
+            {t('collab_ops.rules.manifest_valid')}
+          {:else if result.manifest.status === 'invalid'}
+            <span class="bad">{t('collab_ops.rules.manifest_invalid')}</span>
+            {#if result.manifest.error}<span class="text err-detail">{result.manifest.error}</span>{/if}
+            <span class="muted">{t('collab_ops.rules.manifest_invalid_note')}</span>
+          {:else}
+            <span class="text">{result.manifest.status}</span>
+          {/if}
+        </dd>
+      </dl>
+
+      {#if result.entries.length === 0}
+        <EmptyState title={t('collab_ops.rules.none')} description={t('collab_ops.rules.none_hint')} />
+      {:else}
+        <p class="muted">{t('collab_ops.rules.order_note')}</p>
+        <ol class="list" data-testid="rules-entries">
+          {#each result.entries as entry (entry.path)}
+            <li>
+              <div class="row">
+                <span class="mono text path">{entry.path}</span>
+                <a href={viewerHref(entry.path, result.resolved_commit)}>{t('collab_ops.rules.open_file')}</a>
+              </div>
+              <div class="sub">
+                <span>{t('collab_ops.rules.applies_to')}: <span class="mono text">{entry.applies_to === '' ? t('collab_ops.rules.root') : entry.applies_to}</span></span>
+                <span>{t('collab_ops.rules.found_by')}: {sourceLabel(entry.source)}</span>
+                <span>{sizeText(entry.size)}</span>
+                <span title={entry.blob_sha}>blob <span class="mono">{shortId(entry.blob_sha)}</span></span>
+                {#if entry.oversize}<span class="bad">{t('collab_ops.rules.oversize')}</span>{/if}
+                <span class="muted">{t('collab_ops.rules.repo_content')}</span>
+              </div>
+            </li>
+          {/each}
+        </ol>
+      {/if}
+
+      {#if result.skipped.length > 0}
+        <h2 class="subh">{t('collab_ops.rules.skipped')}</h2>
+        <ul class="list" data-testid="rules-skipped">
+          {#each result.skipped as s (s.path)}
+            <li><span class="mono text">{s.path}</span> <span class="muted">— {reasonLabel(s.reason)}</span></li>
+          {/each}
+        </ul>
+      {/if}
+      {#if result.truncated}<p class="muted">{t('collab_ops.rules.truncated')}</p>{/if}
+    {/if}
+  </section>
+{/if}
 
 <style>
   .intro { margin: -8px 0 16px; color: var(--text-secondary); font-size: 13px; max-width: 80ch; }

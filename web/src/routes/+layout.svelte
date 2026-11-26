@@ -6,14 +6,15 @@
   import Layout from '$lib/components/Layout.svelte';
   import ToastContainer from '$lib/components/ToastContainer.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-import { fetchUser, isAuthReady, clearAuth, getUser } from '$lib/stores/auth.svelte';
-import { registerKeyboardShortcuts } from '$lib/stores/instance.svelte';
-import { locale, createT } from '$lib/i18n';
-import { onMount } from 'svelte';
-import type { Snippet } from 'svelte';
-import { setBanner } from '$lib/stores/instance.svelte';
-import { withBackendBase, UNAUTHORIZED_EVENT } from '$lib/api/_base.svelte';
-import { goto } from '$app/navigation';
+  import ShortcutsModal from '$lib/components/ShortcutsModal.svelte';
+  import { fetchUser, isAuthReady, clearAuth, getUser } from '$lib/stores/auth.svelte';
+  import { registerKeyboardShortcuts } from '$lib/stores/instance.svelte';
+  import { locale, createT } from '$lib/i18n';
+  import { onMount } from 'svelte';
+  import type { Snippet } from 'svelte';
+  import { setBanner } from '$lib/stores/instance.svelte';
+  import { withBackendBase, UNAUTHORIZED_EVENT } from '$lib/api/_base.svelte';
+  import { goto } from '$app/navigation';
 
   interface Props {
     children: Snippet;
@@ -22,6 +23,7 @@ import { goto } from '$app/navigation';
   let { children }: Props = $props();
 
   const t = createT();
+  let shortcutsOpen = $state(false);
 
   // Initialize i18n on first load
   locale.init();
@@ -29,7 +31,10 @@ import { goto } from '$app/navigation';
   // Register global keyboard shortcuts and fetch user on mount
   onMount(() => {
     fetchUser();
-    const unregister = registerKeyboardShortcuts();
+    const unregister = registerKeyboardShortcuts({
+      onToggleShortcutsHelp: () => (shortcutsOpen = !shortcutsOpen),
+      onNavigate: (path) => goto(path),
+    });
     checkBackendReadiness();
 
     // Session-expiry handling: non-auth API calls that answer 401 fire
@@ -69,10 +74,11 @@ import { goto } from '$app/navigation';
 </script>
 
 <div class="app">
+  <a href="#main-content" class="skip-link">{t('common.skip_to_content')}</a>
   <InstanceBanner />
   <Navbar />
   <Layout>
-    <main>
+    <main id="main-content" tabindex="-1">
       {#if isAuthReady()}
         {@render children()}
       {:else}
@@ -84,6 +90,7 @@ import { goto } from '$app/navigation';
 
 <ToastContainer />
 <ConfirmDialog />
+<ShortcutsModal open={shortcutsOpen} onClose={() => (shortcutsOpen = false)} />
 
 <style>
   .app {

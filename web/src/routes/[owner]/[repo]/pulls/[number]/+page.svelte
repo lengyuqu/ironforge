@@ -5,7 +5,6 @@
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import AttachmentPanel from '$lib/components/AttachmentPanel.svelte';
   import PrReviewersBox from '$lib/components/pulls/PrReviewersBox.svelte';
   import PrMilestoneBox from '$lib/components/pulls/PrMilestoneBox.svelte';
@@ -84,66 +83,62 @@
   <title>{t('pulls.page_title_number', { number })} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="pulls" starsCount={0} />
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
 
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
+{#if loading}
+  <LoadingState />
+{:else if pr}
+  <div class="pr-detail">
+    <PrHeader {pr} {updatingDraft} onToggleDraft={toggleDraft} />
 
-  {#if loading}
-    <LoadingState />
-  {:else if pr}
-    <div class="pr-detail">
-      <PrHeader {pr} {updatingDraft} onToggleDraft={toggleDraft} />
+    <AttachmentPanel {owner} {repo} target="pulls" targetId={number} />
 
-      <AttachmentPanel {owner} {repo} target="pulls" targetId={number} />
-
-      <!-- Tabs -->
-      <div class="pr-tabs">
-        <button class="tab" class:active={activeTab === 'conversation'} onclick={() => activeTab = 'conversation'}>
-          {t('pulls.tabs.conversation')}
-        </button>
-        <button class="tab" class:active={activeTab === 'diff'} onclick={() => activeTab = 'diff'}>
-          {t('pulls.tabs.changes')}
-        </button>
-        <button class="tab" class:active={activeTab === 'review'} onclick={() => activeTab = 'review'}>
-          {t('pulls.tabs.reviews')} ({reviewList.length})
-        </button>
-      </div>
-
-      <!-- Conversation tab -->
-      {#if activeTab === 'conversation'}
-        <div class="conversation">
-          <PrReviewersBox {owner} {repo} prNumber={number} />
-
-          <PrMilestoneBox {owner} {repo} {pr} onChanged={loadPR} />
-
-          {#if pr.state === 'open'}
-            <PrMergeBox {owner} {repo} prNumber={number} {pr} {mergeQueue} onChanged={loadPR} />
-          {/if}
-
-          {#if timeline.length > 0}
-            <PrTimeline events={timeline} />
-          {/if}
-
-          <PrThreads {owner} {repo} prNumber={number} {pr} comments={reviewComments} onChanged={loadPR} />
-        </div>
-      {/if}
-
-      <!-- Diff tab -->
-      {#if activeTab === 'diff'}
-        <PrDiffView {owner} {repo} prNumber={number} {pr} {diffData} comments={reviewComments} onChanged={loadPR} />
-      {/if}
-
-      <!-- Review tab -->
-      {#if activeTab === 'review'}
-        <PrReviewForm {owner} {repo} prNumber={number} onSubmitted={loadPR} />
-        <PrReviewList {owner} {repo} prNumber={number} reviews={reviewList} onDismissed={loadPR} />
-      {/if}
+    <!-- Tabs -->
+    <div class="pr-tabs">
+      <button class="tab" class:active={activeTab === 'conversation'} onclick={() => activeTab = 'conversation'}>
+        {t('pulls.tabs.conversation')}
+      </button>
+      <button class="tab" class:active={activeTab === 'diff'} onclick={() => activeTab = 'diff'}>
+        {t('pulls.tabs.changes')}
+      </button>
+      <button class="tab" class:active={activeTab === 'review'} onclick={() => activeTab = 'review'}>
+        {t('pulls.tabs.reviews')} ({reviewList.length})
+      </button>
     </div>
-  {/if}
-</div>
+
+    <!-- Conversation tab -->
+    {#if activeTab === 'conversation'}
+      <div class="conversation">
+        <PrReviewersBox {owner} {repo} prNumber={number} />
+
+        <PrMilestoneBox {owner} {repo} {pr} onChanged={loadPR} />
+
+        {#if pr.state === 'open'}
+          <PrMergeBox {owner} {repo} prNumber={number} {pr} {mergeQueue} onChanged={loadPR} />
+        {/if}
+
+        {#if timeline.length > 0}
+          <PrTimeline events={timeline} />
+        {/if}
+
+        <PrThreads {owner} {repo} prNumber={number} {pr} comments={reviewComments} onChanged={loadPR} />
+      </div>
+    {/if}
+
+    <!-- Diff tab -->
+    {#if activeTab === 'diff'}
+      <PrDiffView {owner} {repo} prNumber={number} {pr} {diffData} comments={reviewComments} onChanged={loadPR} />
+    {/if}
+
+    <!-- Review tab -->
+    {#if activeTab === 'review'}
+      <PrReviewForm {owner} {repo} prNumber={number} onSubmitted={loadPR} />
+      <PrReviewList {owner} {repo} prNumber={number} reviews={reviewList} onDismissed={loadPR} />
+    {/if}
+  </div>
+{/if}
 
 <style>
   .pr-detail { max-width: 1200px; }

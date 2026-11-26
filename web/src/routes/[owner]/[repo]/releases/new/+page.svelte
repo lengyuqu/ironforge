@@ -5,7 +5,6 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import ReleaseForm from '$lib/components/releases/ReleaseForm.svelte';
@@ -54,27 +53,22 @@
   <title>{t('releases.new')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader owner={owner!} repo={repo!} activeTab="releases" />
-
-  <div class="page-header">
-    <h1>{t('releases.create_title')}</h1>
-  </div>
-
-  {#if error}
-    <ErrorBanner message={error} />
-  {/if}
-
-  {#if loading}
-    <LoadingState />
-  {:else}
-    <ReleaseForm
-      owner={owner!}
-      repo={repo!}
-      {branches}
-      {tags}
-      onCreated={handleCreated}
-    />
-  {/if}
+<div class="page-header">
+  <h1>{t('releases.create_title')}</h1>
 </div>
 
+{#if error}
+  <ErrorBanner message={error} />
+{/if}
+
+{#if loading}
+  <LoadingState />
+{:else}
+  <ReleaseForm
+    owner={owner!}
+    repo={repo!}
+    {branches}
+    {tags}
+    onCreated={handleCreated}
+  />
+{/if}

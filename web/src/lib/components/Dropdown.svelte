@@ -115,8 +115,8 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     min-width: 160px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    z-index: 200;
+    box-shadow: var(--shadow-md);
+    z-index: var(--z-dropdown);
     overflow: hidden;
   }
   .dropdown-menu.left { left: 0; }
