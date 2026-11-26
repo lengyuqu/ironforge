@@ -387,7 +387,7 @@ HTTP Git 和 SSH Git 共同复用 `rg-git` 协议层。HTTP Git 已接入 JWT/PA
 
 #### GitCommandGateway（测试造数据 + mirror 同步）
 
-除 mirror 同步外，生产路径的所有 git 操作（协议服务、pack 生成/摄取、引用事务、合并/rebase、文件编辑、fork、验签、archive）均已由 gix 原生实现。`rg-core/src/mirror/service.rs` 是唯一的生产 CLI 调用方：`git clone --mirror` / `git remote update --prune` 经网关执行，且带 transport lockdown（`protocol.ext/file/ssh.allow=never`）与 `net_guard::validate_mirror_url` URL 校验（SSRF/RCE 防护，见 #1 修复）。`rg-git/src/cli_gateway.rs` 另保留为测试造数据的统一入口，防回归守卫 `test_no_raw_git_command_in_crates` 确保生产代码不新增裸 `Command::new("git")`。迁移全程记录见 `docs/gix-migration-assessment.md`。
+除 mirror 同步外，生产路径的所有 git 操作（协议服务、pack 生成/摄取、引用事务、合并/rebase、文件编辑、fork、验签、archive）均已由 gix 原生实现。`rg-core/src/mirror/service.rs` 是唯一的生产 CLI 调用方：`git clone --mirror` / `git remote update --prune` 经网关执行，且带 transport lockdown（`protocol.ext/file/ssh.allow=never`）与 `net_guard::validate_mirror_url` URL 校验（SSRF/RCE 防护，见 #1 修复）。`rg-git/src/cli_gateway.rs` 另保留为测试造数据的统一入口，防回归守卫 `test_no_raw_git_command_in_crates` 确保生产代码不新增裸 `Command::new("git")`。迁移过程记录见 git 历史。
 
 ### 6.2 认证与安全
 

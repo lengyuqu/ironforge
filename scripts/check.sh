@@ -2,7 +2,7 @@
 # Local gate: the checks CI runs, in one command.
 #
 #   scripts/check.sh            # formatting + clippy + rg-http/rg-core tests
-#   scripts/check.sh --quick    # formatting + clippy only (seconds)
+#   scripts/check.sh --quick    # docs + formatting + clippy only (seconds)
 #   scripts/check.sh --full     # everything CI runs, including the whole workspace
 #
 # Run this before pushing. CI (.github/workflows/regression.yml) executes the
@@ -32,6 +32,10 @@ step() {
     printf '\n==> %s\n' "$*"
 }
 elapsed() { printf '    (%ss)\n' "$((SECONDS - step_started))"; }
+
+step "python3 scripts/check-docs.py"
+python3 scripts/check-docs.py
+elapsed
 
 step "cargo fmt --all --check"
 cargo fmt --all --check

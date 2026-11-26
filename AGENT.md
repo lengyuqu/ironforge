@@ -33,6 +33,7 @@
 - 改存储/附件/模板 → [docs/design/data.md](docs/design/data.md)
 - 改代码智能 → [docs/design/code-intelligence.md](docs/design/code-intelligence.md)
 - 部署/恢复/升级 → [docs/operations.md](docs/operations.md)
+- 发布/版本 → [docs/releasing.md](docs/releasing.md)
 - 性能回归 → [docs/performance.md](docs/performance.md)
 
 ## 硬规则

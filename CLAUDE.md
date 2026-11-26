@@ -188,6 +188,7 @@ cargo test -p <crate>      # 单 crate
 | [docs/git-client-matrix.md](docs/git-client-matrix.md) | 真实客户端兼容矩阵 |
 | [docs/performance.md](docs/performance.md) | 大仓库基线与阈值 |
 | [docs/operations.md](docs/operations.md) | 备份恢复、升级、支持边界 |
+| [docs/releasing.md](docs/releasing.md) | 发布流程与文档同步门禁 |
 | [PLANNING.md](PLANNING.md) / [TASKS.md](TASKS.md) | 多 Agent 任务协议（启用时读） |
 
 > 文档规则：不再保留带日期的快照、逐次核实记录和已完成任务的执行日志；这些内容留在 git 历史。文档只写**当前仍成立的事实**，并注明代码入口。

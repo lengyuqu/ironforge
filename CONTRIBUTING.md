@@ -476,6 +476,10 @@ PR 合并到 `main` 前要求：
 
 ---
 
+## 发布
+
+发布流程（版本、文档同步、标签、双端推送）见 [docs/releasing.md](docs/releasing.md)。发布前必须通过 `python3 scripts/check-docs.py`；CI 的 `Docs consistency` job 跑同一脚本。
+
 ## 多 Agent 协作
 
 > 吸收自 aifuke 仓库已验证的 worktree 协作方案（v1.0）。IronForge 当前以单 Agent 维护为主，本约定为**未来多 Agent 并行开发**预置；骨架模板位于 [`templates/`](templates/) 目录。

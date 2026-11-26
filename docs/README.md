@@ -32,6 +32,7 @@
 | [git-client-matrix.md](git-client-matrix.md) | 真实 git/ssh/curl 客户端兼容矩阵与自动化入口 |
 | [performance.md](performance.md) | 大仓库固定数据集、基线数字、阈值、已修性能问题 |
 | [operations.md](operations.md) | 支持边界、失效矩阵、备份恢复、单实例升级、多实例阻塞项 |
+| [releasing.md](releasing.md) | 发布流程：版本、文档同步、检查门禁、双端推送 |
 
 ## Agent 接入
 

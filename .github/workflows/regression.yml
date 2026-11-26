@@ -114,6 +114,20 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           fi
 
+  # Documentation is checked on every event, not only when Rust changes: a
+  # docs-only PR used to run nothing, which is exactly where stale links and
+  # version drift land.
+  docs-consistency:
+    name: Docs consistency
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check docs
+        run: python3 scripts/check-docs.py
+
   # Gates are split into separate jobs on purpose. When several gates live in
   # one job, a failure in an early step makes GitHub skip the remaining steps —
   # a red clippy used to hide every Rust test result, and a red i18n check hid
