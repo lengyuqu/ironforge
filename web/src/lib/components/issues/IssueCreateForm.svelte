@@ -3,6 +3,7 @@
   import { tick } from 'svelte';
   import { issues, milestones } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { useUnsavedChangesGuard } from '$lib/utils/unsavedChanges.svelte';
   import { createT } from '$lib/i18n';
   import type { Milestone } from '$lib/types/entities';
 
@@ -40,6 +41,14 @@
   let selectedMilestone = $state<number | ''>('');
   let submitting = $state(false);
   let formError = $state('');
+  const dirty = $derived.by(
+    () =>
+      newTitle !== initialTitle ||
+      newBody !== initialBody ||
+      newLabels !== initialLabels ||
+      newAssignees !== initialAssignees,
+  );
+  const guard = useUnsavedChangesGuard(() => dirty);
 
   let titleError = $derived(
     newTitle.trim().length === 0
@@ -99,16 +108,18 @@
       const assignees = newAssignees
         ? newAssignees.split(',').map((a) => a.trim()).filter(Boolean)
         : undefined;
-      await issues.create(
-        owner,
-        repo,
-        newTitle,
-        newBody || undefined,
-        labels,
-        assignees,
-        selectedMilestone === '' ? undefined : selectedMilestone,
-      );
-      await onCreated();
+      await guard.suspend(async () => {
+        await issues.create(
+          owner,
+          repo,
+          newTitle,
+          newBody || undefined,
+          labels,
+          assignees,
+          selectedMilestone === '' ? undefined : selectedMilestone,
+        );
+        await onCreated();
+      });
     } catch (err) {
       formError = toErrorMessage(err, t('errors.create_failed', 'Create failed'));
     } finally {

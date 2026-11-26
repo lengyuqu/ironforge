@@ -2,6 +2,7 @@
   import { wiki } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { useUnsavedChangesGuard } from '$lib/utils/unsavedChanges.svelte';
   import { createT } from '$lib/i18n';
 
   const t = createT();
@@ -26,13 +27,17 @@
 
   let editContent = $state(initialContent);
   let saving = $state(false);
+  const dirty = $derived.by(() => editContent !== initialContent);
+  const guard = useUnsavedChangesGuard(() => dirty);
 
   async function handleSave() {
     saving = true;
     try {
-      await wiki.update(owner, repo, title, editContent, initialVersion);
-      toast.success(t('wiki.save') || 'Saved');
-      await onSaved();
+      await guard.suspend(async () => {
+        await wiki.update(owner, repo, title, editContent, initialVersion);
+        toast.success(t('wiki.save') || 'Saved');
+        await onSaved();
+      });
     } catch (e) {
       toast.error(toErrorMessage(e, t('errors.save_failed')));
     } finally {

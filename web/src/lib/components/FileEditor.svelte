@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createT } from '$lib/i18n';
   import { filePathErrorKey, isConflictError, isMarkdownPath } from '$lib/utils/editorFile';
+  import { useUnsavedChangesGuard } from '$lib/utils/unsavedChanges.svelte';
   import CodeEditorPane from '$lib/components/editor/CodeEditorPane.svelte';
   import EditorPreviewPane from '$lib/components/editor/EditorPreviewPane.svelte';
   import EditorDiffPane from '$lib/components/editor/EditorDiffPane.svelte';
@@ -55,6 +56,8 @@
 
   let isMarkdown = $derived(isMarkdownPath(filePath));
   let changed = $derived(mode === 'create' || initialContent !== fileContent);
+  const dirty = $derived.by(() => initialized && (fileContent !== initialContent || filePath !== initialPath));
+  const guard = useUnsavedChangesGuard(() => dirty);
 
   $effect(() => {
     if (initialized) return;
@@ -107,7 +110,7 @@
     };
 
     try {
-      await onSave(payload);
+      await guard.suspend(() => onSave(payload));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       conflict = isConflictError(message);

@@ -9,6 +9,7 @@
   import { releases } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { useUnsavedChangesGuard } from '$lib/utils/unsavedChanges.svelte';
   import { createT } from '$lib/i18n';
   import type { Release } from '$lib/types/entities';
 
@@ -52,6 +53,23 @@
   let targetCommitish = $state('');
   let submitting = $state(false);
 
+  let baseTagName = $state(initialTagName);
+  let baseTitle = $state(initialTitle);
+  let baseBody = $state(initialBody);
+  let baseDraft = $state(initialDraft);
+  let basePrerelease = $state(initialPrerelease);
+  let baseTargetCommitish = $state('');
+
+  const dirty = $derived(
+    tagName !== baseTagName ||
+      releaseTitle !== baseTitle ||
+      body !== baseBody ||
+      isDraft !== baseDraft ||
+      isPrerelease !== basePrerelease ||
+      targetCommitish !== baseTargetCommitish,
+  );
+  const guard = useUnsavedChangesGuard(() => dirty);
+
   async function handleSubmit(e: Event) {
     e.preventDefault();
 
@@ -68,26 +86,38 @@
     submitting = true;
 
     try {
-      if (isEdit && release) {
-        await releases.update(owner, repo, release.id, {
-          title: releaseTitle.trim(),
-          body: body.trim() || undefined,
-          is_draft: isDraft,
-          is_prerelease: isPrerelease,
-        });
-        toast.success(t('releases.updated', 'Release updated'));
-        await onSaved?.();
-      } else {
-        await releases.create(owner, repo, {
-          tag_name: tagName.trim(),
-          title: releaseTitle.trim(),
-          body: body.trim() || undefined,
-          target_commitish: targetCommitish || undefined,
-          is_draft: isDraft,
-          is_prerelease: isPrerelease,
-        });
-        await onCreated?.();
-      }
+      await guard.suspend(async () => {
+        if (isEdit && release) {
+          await releases.update(owner, repo, release.id, {
+            title: releaseTitle.trim(),
+            body: body.trim() || undefined,
+            is_draft: isDraft,
+            is_prerelease: isPrerelease,
+          });
+          baseTitle = releaseTitle;
+          baseBody = body;
+          baseDraft = isDraft;
+          basePrerelease = isPrerelease;
+          toast.success(t('releases.updated', 'Release updated'));
+          await onSaved?.();
+        } else {
+          await releases.create(owner, repo, {
+            tag_name: tagName.trim(),
+            title: releaseTitle.trim(),
+            body: body.trim() || undefined,
+            target_commitish: targetCommitish || undefined,
+            is_draft: isDraft,
+            is_prerelease: isPrerelease,
+          });
+          baseTagName = tagName;
+          baseTitle = releaseTitle;
+          baseBody = body;
+          baseDraft = isDraft;
+          basePrerelease = isPrerelease;
+          baseTargetCommitish = targetCommitish;
+          await onCreated?.();
+        }
+      });
     } catch (e) {
       toast.error(toErrorMessage(e, t('errors.save_failed', 'Save failed')));
       submitting = false;

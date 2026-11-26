@@ -1,6 +1,7 @@
 <script lang="ts">
   import { issues } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { useUnsavedChangesGuard } from '$lib/utils/unsavedChanges.svelte';
   import { createT } from '$lib/i18n';
 
   const t = createT();
@@ -26,15 +27,19 @@
   let newComment = $state('');
   let submitting = $state(false);
   let toggling = $state(false);
+  const dirty = $derived(newComment.trim() !== '');
+  const guard = useUnsavedChangesGuard(() => dirty);
 
   async function handleComment(e: Event) {
     e.preventDefault();
     if (!newComment.trim() || submitting) return;
     try {
       submitting = true;
-      await issues.addComment(owner, repo, issueNumber, newComment);
-      newComment = '';
-      await onChanged();
+      await guard.suspend(async () => {
+        await issues.addComment(owner, repo, issueNumber, newComment);
+        newComment = '';
+        await onChanged();
+      });
     } catch (err: unknown) {
       onError(toErrorMessage(err));
     } finally {

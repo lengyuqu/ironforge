@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 
+vi.mock('$app/navigation', () => ({ beforeNavigate: vi.fn(), goto: vi.fn() }));
+
 vi.mock('$lib/i18n', () => ({
   createT: () => (key: string, fallbackOrParams?: string | Record<string, unknown>) =>
     typeof fallbackOrParams === 'string' ? fallbackOrParams : key,

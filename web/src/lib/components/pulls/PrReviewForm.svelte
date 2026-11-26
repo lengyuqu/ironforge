@@ -5,6 +5,7 @@
   import { createT } from '$lib/i18n';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { useUnsavedChangesGuard } from '$lib/utils/unsavedChanges.svelte';
 
   interface Props {
     owner: string;
@@ -21,15 +22,19 @@
   let reviewBody = $state('');
   let reviewVerdict = $state('comment');
   let submitting = $state(false);
+  const dirty = $derived(reviewBody.trim() !== '');
+  const guard = useUnsavedChangesGuard(() => dirty);
 
   async function handleSubmitReview() {
     if (!reviewBody.trim()) return;
     try {
       submitting = true;
-      await reviews.submit(owner, repo, prNumber, reviewBody, reviewVerdict);
-      reviewBody = '';
-      reviewVerdict = 'comment';
-      await onSubmitted();
+      await guard.suspend(async () => {
+        await reviews.submit(owner, repo, prNumber, reviewBody, reviewVerdict);
+        reviewBody = '';
+        reviewVerdict = 'comment';
+        await onSubmitted();
+      });
     } catch (e: unknown) {
       toast.error(toErrorMessage(e));
     } finally {

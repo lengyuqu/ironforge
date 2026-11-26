@@ -3,6 +3,7 @@
   import { milestones, pulls, repos } from '$lib/api/client.svelte';
   import { tick } from 'svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { useUnsavedChangesGuard } from '$lib/utils/unsavedChanges.svelte';
   import { createT } from '$lib/i18n';
   import type { Milestone } from '$lib/types/entities';
 
@@ -26,6 +27,7 @@
 
   let newTitle = $state('');
   let newBody = $state('');
+  let baselineBody = $state('');
   let newHead = $state('');
   let newBase = $state('main');
   let newDraft = $state(false);
@@ -35,6 +37,9 @@
   let templateLoaded = $state(false);
   let submitting = $state(false);
   let error = $state('');
+
+  const dirty = $derived(newTitle.trim() !== '' || newBody !== baselineBody);
+  const guard = useUnsavedChangesGuard(() => dirty);
 
   let titleError = $derived(
     newTitle.trim().length === 0
@@ -81,7 +86,10 @@
     if (templateLoaded) return;
     try {
       const template = await pulls.template(owner, repo);
-      if (template?.content && !newBody) newBody = template.content;
+      if (template?.content && !newBody) {
+        newBody = template.content;
+        baselineBody = template.content;
+      }
     } catch {
       /* template unavailable — fall back to empty body */
     } finally {
@@ -106,15 +114,17 @@
     try {
       submitting = true;
       error = '';
-      await pulls.create(owner, repo, {
-        title: newTitle,
-        body: newBody || undefined,
-        head_branch: newHead,
-        base_branch: newBase,
-        draft: newDraft,
-        ...(newMilestone === '' ? {} : { milestone_id: newMilestone }),
+      await guard.suspend(async () => {
+        await pulls.create(owner, repo, {
+          title: newTitle,
+          body: newBody || undefined,
+          head_branch: newHead,
+          base_branch: newBase,
+          draft: newDraft,
+          ...(newMilestone === '' ? {} : { milestone_id: newMilestone }),
+        });
+        await onCreated();
       });
-      await onCreated();
     } catch (err) {
       error = toErrorMessage(err, t('errors.create_failed', 'Create failed'));
     } finally {

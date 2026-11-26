@@ -43,7 +43,11 @@
     "next_page": "Next page",
     "range_of": "{start}-{end} of {total}",
     "no_items": "No items",
-    "skip_to_content": "Skip to main content"
+    "skip_to_content": "Skip to main content",
+    "unsaved_title": "Discard unsaved changes?",
+    "unsaved_message": "You have unsaved changes. If you leave this page they will be lost.",
+    "unsaved_leave": "Leave page",
+    "unsaved_stay": "Stay"
   },
   "shortcuts": {
     "title": "Keyboard shortcuts",

@@ -43,7 +43,11 @@
     "next_page": "下一页",
     "range_of": "第 {start}-{end} 条,共 {total} 条",
     "no_items": "暂无数据",
-    "skip_to_content": "跳至主要内容"
+    "skip_to_content": "跳至主要内容",
+    "unsaved_title": "放弃未保存的修改？",
+    "unsaved_message": "当前有未保存的修改，离开页面后将会丢失。",
+    "unsaved_leave": "离开",
+    "unsaved_stay": "留在此页"
   },
   "shortcuts": {
     "title": "键盘快捷键",
